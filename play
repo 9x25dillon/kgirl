@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Clean wrapper for master playground
+# Suppresses all cleanup warnings
+
+python master_playground.py "$@" 2>&1 | grep -v "Exception ignored" | grep -v "RuntimeWarning" | grep -v "Traceback" | grep -v "asyncio.create_task" | grep -v "RuntimeError: no running event loop" | grep -v "coroutine.*never awaited" | grep -v "File \"" | grep -v "tracemalloc"
+

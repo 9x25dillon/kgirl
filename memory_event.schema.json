@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Memory Event",
+  "type": "object",
+  "required": ["event_id", "ts", "type", "subject", "data", "sensitivity", "consent", "hash"],
+  "properties": {
+    "event_id": { "type": "string" },
+    "ts": { "type": "string", "format": "date-time" },
+    "type": { "type": "string" },
+    "subject": { "type": "string" },
+    "data": { "type": "object" },
+    "sensitivity": { "type": "string", "enum": ["low", "medium", "high"] },
+    "consent": { "type": "array", "items": { "type": "string" } },
+    "hash": { "type": "string" }
+  }
+}

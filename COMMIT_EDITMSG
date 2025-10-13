@@ -1,0 +1,48 @@
+Initial commit: Complete AI system with multiple components
+
+- AI application framework with CLI and GUI interfaces
+- LIMPS integration system for Julia/Python interoperability
+- Eopiez knowledge processing and RAG system
+- Fractal cascade simulation framework
+- NuRea simulation environment
+- Orwell's Egg project
+- Knowledge base with Docker setup
+- Multiple deployment configurations and documentation
+- Test suites and integration scripts
+
+# Conflicts:
+#	LICENSE
+
+# Please enter the commit message for your changes. Lines starting
+# with '#' will be ignored, and an empty message aborts the commit.
+#
+# On branch cursor/bc-c5221a6f-1fa6-4e1d-9227-515f76569ff6-e270
+# Your branch is up to date with 'origin/cursor/bc-c5221a6f-1fa6-4e1d-9227-515f76569ff6-e270'.
+#
+# Last command done (1 command done):
+#    pick 1d506bd # Initial commit: Complete AI system with multiple components
+# No commands remaining.
+# You are currently editing a commit while rebasing branch 'main' on '511202c'.
+#
+# Changes to be committed:
+#	new file:   9xdSq-LIMPS-FemTO-R1C/python_client/__pycache__/entropy_engine.cpython-313.pyc
+#	new file:   9xdSq-LIMPS-FemTO-R1C/python_client/__pycache__/limps_client.cpython-313.pyc
+#	new file:   Eopiez/__pycache__/api.cpython-313.pyc
+#	new file:   Fractal_cascade_simulation/advanced_embedding_pipeline/__pycache__/fractal_cascade_embedder.cpython-313.pyc
+#	new file:   Fractal_cascade_simulation/advanced_embedding_pipeline/__pycache__/mathematical_embedder.cpython-313.pyc
+#	new file:   Fractal_cascade_simulation/advanced_embedding_pipeline/__pycache__/semantic_embedder.cpython-313.pyc
+#	new file:   KNOWLEDGE-BASE/api/__pycache__/knowledge_api.cpython-313.pyc
+#	new file:   KNOWLEDGE-BASE/processing/__pycache__/embedder.cpython-313.pyc
+#	new file:   NuRea_sim/.vscode/launch.json
+#	new file:   NuRea_sim/.vscode/settings.json
+#	new file:   NuRea_sim/lattice-physics+(pwr+fuel+assembly+neutronics+simulation+results)(1)/lattice-physics+(pwr+fuel+assembly+neutronics+simulation+results)(1)/raw.csv
+#	new file:   NuRea_sim/lattice-physics+(pwr+fuel+assembly+neutronics+simulation+results)(1)/raw.csv
+#	new file:   NuRea_sim/lattice-physics+(pwr+fuel+assembly+neutronics+simulation+results)(1)/raw_augmented.csv
+#	new file:   aipyapp/__pycache__/__init__.cpython-313.pyc
+#	new file:   aipyapp/__pycache__/i18n.cpython-313.pyc
+#	new file:   aipyapp/__pycache__/interface.cpython-313.pyc
+#	new file:   aipyapp/__pycache__/plugin.cpython-313.pyc
+#	new file:   shout/dianne/python/__pycache__/api.cpython-313.pyc
+#	new file:   shout/python/__pycache__/mock_al_uls_server.cpython-313.pyc
+#	new file:   shout/tests/__pycache__/run.cpython-313.pyc
+#
