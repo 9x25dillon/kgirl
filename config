@@ -1,0 +1,17 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+[remote "origin"]
+	url = https://github.com/9x25dillon/numbskull.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[user]
+	email = 9x25dillon@users.noreply.github.com
+	name = 9x25dillon
+[branch "cursor/bc-c5221a6f-1fa6-4e1d-9227-515f76569ff6-e270"]
+	remote = origin
+	merge = refs/heads/cursor/bc-c5221a6f-1fa6-4e1d-9227-515f76569ff6-e270
+	vscode-merge-base = origin/cursor/bc-c5221a6f-1fa6-4e1d-9227-515f76569ff6-e270
+[branch "main"]
+	vscode-merge-base = origin/main

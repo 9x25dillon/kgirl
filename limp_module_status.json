@@ -1,0 +1,52 @@
+{
+  "unified_cognitive_orchestrator": {
+    "available": true,
+    "initialized": false,
+    "error": null
+  },
+  "numbskull_dual_orchestrator": {
+    "available": true,
+    "initialized": false,
+    "error": null
+  },
+  "enhanced_vector_index": {
+    "available": true,
+    "initialized": true,
+    "error": null
+  },
+  "enhanced_graph_store": {
+    "available": true,
+    "initialized": true,
+    "error": null
+  },
+  "neuro_symbolic_engine": {
+    "available": true,
+    "initialized": false,
+    "error": null
+  },
+  "holographic_memory": {
+    "available": false,
+    "initialized": false,
+    "error": "No module named 'torch'"
+  },
+  "tauls_transformer": {
+    "available": false,
+    "initialized": false,
+    "error": "No module named 'torch'"
+  },
+  "signal_processing": {
+    "available": true,
+    "initialized": false,
+    "error": null
+  },
+  "matrix_processor": {
+    "available": false,
+    "initialized": false,
+    "error": "invalid decimal literal (matrix_processor.py, line 1)"
+  },
+  "numbskull": {
+    "available": true,
+    "initialized": false,
+    "error": null
+  }
+}
