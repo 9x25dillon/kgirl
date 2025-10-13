@@ -1,0 +1,185 @@
+═══════════════════════════════════════════════════════════════════════
+           ALL COMMANDS IN ORDER - Copy/Paste Ready
+═══════════════════════════════════════════════════════════════════════
+
+STEP 1: Install PyTorch (Main Terminal)
+───────────────────────────────────────────────────────────────────────
+cd /home/kill/LiMp
+pip install torch
+python -c "import torch; print(f'PyTorch {torch.__version__} installed!')"
+
+
+STEP 2: Start Eopiez - Semantic Embeddings (NEW Terminal 1)
+───────────────────────────────────────────────────────────────────────
+cd ~/aipyapp/Eopiez
+python api.py --port 8001
+
+# Keep this terminal open!
+
+
+STEP 3: Start LIMPS - Mathematical Embeddings (NEW Terminal 2)
+───────────────────────────────────────────────────────────────────────
+cd ~/aipyapp/9xdSq-LIMPS-FemTO-R1C/limps
+julia --project=. -e 'using LIMPS; LIMPS.start_limps_server(8000)'
+
+# Keep this terminal open!
+
+
+STEP 4: Start LFM2-8B-A1B - Primary LLM (NEW Terminal 3)
+───────────────────────────────────────────────────────────────────────
+# Option A: Using llama.cpp (recommended)
+cd ~/models  # Or wherever your models are
+llama-server \
+  --model LFM2-8B-A1B.gguf \
+  --port 8080 \
+  --ctx-size 4096 \
+  --n-gpu-layers 35 \
+  --threads 8
+
+# Option B: Using Ollama
+ollama serve &
+ollama run LFM2-8B-A1B
+
+# Option C: Using text-generation-webui
+cd ~/text-generation-webui
+python server.py --model LFM2-8B-A1B --api --listen-port 8080
+
+# Keep this terminal open!
+
+
+STEP 5: Start Qwen2.5-7B - Fallback LLM [OPTIONAL] (NEW Terminal 4)
+───────────────────────────────────────────────────────────────────────
+# Option A: Using llama.cpp
+cd ~/models
+llama-server \
+  --model Qwen2.5-7B-Instruct.gguf \
+  --port 8081 \
+  --ctx-size 4096 \
+  --n-gpu-layers 35 \
+  --threads 8
+
+# Option B: Using Ollama
+ollama run qwen2.5:7b --port 8081
+
+# Keep this terminal open!
+
+
+STEP 6: Test All Services (Main Terminal or NEW Terminal 5)
+───────────────────────────────────────────────────────────────────────
+cd /home/kill/LiMp
+
+# Quick service check
+curl -s http://127.0.0.1:8001/health && echo "✅ Eopiez" || echo "❌ Eopiez"
+curl -s http://127.0.0.1:8000/health && echo "✅ LIMPS" || echo "❌ LIMPS"
+curl -s http://127.0.0.1:8080/health && echo "✅ LFM2" || echo "❌ LFM2"
+curl -s http://127.0.0.1:8081/health && echo "✅ Qwen" || echo "❌ Qwen"
+
+
+STEP 7: Run Your Playground! 🎮
+───────────────────────────────────────────────────────────────────────
+cd /home/kill/LiMp
+python coco_integrated_playground.py --interactive
+
+# Then type queries like:
+#   SUM(100, 200, 300, 400, 500)
+#   MEAN(10, 20, 30, 40, 50)
+#   What is quantum computing?
+#   demo
+#   exit
+
+
+═══════════════════════════════════════════════════════════════════════
+                    MINIMAL SETUP (Just PyTorch)
+═══════════════════════════════════════════════════════════════════════
+
+If you just want CoCo full features without external services:
+
+pip install torch
+cd /home/kill/LiMp
+python coco_integrated_playground.py --interactive
+
+
+═══════════════════════════════════════════════════════════════════════
+                     NO SETUP NEEDED
+═══════════════════════════════════════════════════════════════════════
+
+Core features work RIGHT NOW without any setup:
+
+cd /home/kill/LiMp
+python coco_integrated_playground.py --interactive
+
+Then type:
+  SUM(1,2,3,4,5)    ← Works!
+  MEAN(10,20,30)    ← Works!
+  exit
+
+
+═══════════════════════════════════════════════════════════════════════
+                    TERMINAL LAYOUT
+═══════════════════════════════════════════════════════════════════════
+
+When fully running, you'll have:
+
+Terminal 1: Eopiez          (port 8001) ← Semantic embeddings
+Terminal 2: LIMPS           (port 8000) ← Mathematical embeddings  
+Terminal 3: LFM2-8B-A1B     (port 8080) ← Primary LLM
+Terminal 4: Qwen2.5-7B      (port 8081) ← Fallback LLM [optional]
+Terminal 5: Playground                  ← Your interactive session
+
+
+═══════════════════════════════════════════════════════════════════════
+                    TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════════════
+
+Port already in use:
+  lsof -i :8000
+  lsof -i :8001
+  lsof -i :8080
+  lsof -i :8081
+  kill -9 <PID>
+
+Find your models:
+  find ~ -name "*.gguf" -type f
+
+Check if services are running:
+  ps aux | grep "api.py"        # Eopiez
+  ps aux | grep "julia"         # LIMPS
+  ps aux | grep "llama-server"  # LLMs
+
+Stop all services:
+  # Press Ctrl+C in each terminal
+
+
+═══════════════════════════════════════════════════════════════════════
+                    WHAT EACH PORT DOES
+═══════════════════════════════════════════════════════════════════════
+
+Port 8000: LIMPS - Mathematical embeddings
+           Handles symbolic math expressions, matrix operations
+           Optional but enhances mathematical text understanding
+
+Port 8001: Eopiez - Semantic embeddings
+           Handles natural language understanding
+           Optional but enhances text comprehension
+
+Port 8080: LFM2-8B-A1B - Primary LLM
+           Answers questions, generates text
+           Optional but needed for "What is...?" queries
+
+Port 8081: Qwen2.5-7B - Fallback LLM
+           Alternative/backup LLM
+           Optional, provides redundancy
+
+
+═══════════════════════════════════════════════════════════════════════
+                    DONE!
+═══════════════════════════════════════════════════════════════════════
+
+Copy/paste commands from above into your terminals.
+Start from STEP 1 and work your way down.
+Each terminal should stay open.
+
+Need help? Read:
+  cat WHAT_IS_HAPPENING.md
+  cat COMPLETE_STARTUP_GUIDE.md
+

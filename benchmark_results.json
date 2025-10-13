@@ -1,0 +1,149 @@
+{
+  "timestamp": "2025-10-10 16:24:55",
+  "total_benchmarks": 8,
+  "results": [
+    {
+      "name": "fractal_simple",
+      "component": "fractal",
+      "num_samples": 5,
+      "total_time": 0.044397592544555664,
+      "avg_time": 0.008875226974487305,
+      "min_time": 0.004578828811645508,
+      "max_time": 0.012349367141723633,
+      "std_dev": 0.0039210385683549655,
+      "throughput": 112.61871902135681,
+      "embedding_dim": 1024,
+      "cache_hits": 0,
+      "success_rate": 1.0,
+      "metadata": {
+        "text_category": "simple",
+        "cache_enabled": true
+      }
+    },
+    {
+      "name": "fractal_mathematical",
+      "component": "fractal",
+      "num_samples": 5,
+      "total_time": 0.04640793800354004,
+      "avg_time": 0.009280014038085937,
+      "min_time": 0.007210493087768555,
+      "max_time": 0.012072086334228516,
+      "std_dev": 0.002128462248551288,
+      "throughput": 107.74018875000642,
+      "embedding_dim": 1024,
+      "cache_hits": 0,
+      "success_rate": 1.0,
+      "metadata": {
+        "text_category": "mathematical",
+        "cache_enabled": true
+      }
+    },
+    {
+      "name": "fractal_technical",
+      "component": "fractal",
+      "num_samples": 5,
+      "total_time": 0.026947736740112305,
+      "avg_time": 0.005388069152832031,
+      "min_time": 0.003397226333618164,
+      "max_time": 0.007518768310546875,
+      "std_dev": 0.0015602962452782772,
+      "throughput": 185.54433896325656,
+      "embedding_dim": 1024,
+      "cache_hits": 0,
+      "success_rate": 1.0,
+      "metadata": {
+        "text_category": "technical",
+        "cache_enabled": true
+      }
+    },
+    {
+      "name": "fusion_weighted_average",
+      "component": "fusion",
+      "num_samples": 3,
+      "total_time": 0.015133380889892578,
+      "avg_time": 0.005044460296630859,
+      "min_time": 0.003143787384033203,
+      "max_time": 0.007165670394897461,
+      "std_dev": 0.0020199908974960065,
+      "throughput": 198.2372625011816,
+      "embedding_dim": 768,
+      "cache_hits": 0,
+      "success_rate": 1.0,
+      "metadata": {
+        "fusion_method": "weighted_average"
+      }
+    },
+    {
+      "name": "fusion_concatenation",
+      "component": "fusion",
+      "num_samples": 3,
+      "total_time": 0.014726877212524414,
+      "avg_time": 0.004908959070841472,
+      "min_time": 0.0026247501373291016,
+      "max_time": 0.007502555847167969,
+      "std_dev": 0.002453576524931523,
+      "throughput": 203.7091745050106,
+      "embedding_dim": 768,
+      "cache_hits": 0,
+      "success_rate": 1.0,
+      "metadata": {
+        "fusion_method": "concatenation"
+      }
+    },
+    {
+      "name": "fusion_attention",
+      "component": "fusion",
+      "num_samples": 3,
+      "total_time": 0.01947617530822754,
+      "avg_time": 0.006492058436075847,
+      "min_time": 0.002206563949584961,
+      "max_time": 0.009524822235107422,
+      "std_dev": 0.0038165726398014807,
+      "throughput": 154.0343497900574,
+      "embedding_dim": 768,
+      "cache_hits": 0,
+      "success_rate": 1.0,
+      "metadata": {
+        "fusion_method": "attention"
+      }
+    },
+    {
+      "name": "cache_efficiency",
+      "component": "cache",
+      "num_samples": 11,
+      "total_time": 0.0045282840728759766,
+      "avg_time": 9.298324584960938e-06,
+      "min_time": 6.4373016357421875e-06,
+      "max_time": 2.384185791015625e-05,
+      "std_dev": 5.4634339784931225e-06,
+      "throughput": 107546.2564102564,
+      "embedding_dim": 1024,
+      "cache_hits": 10,
+      "success_rate": 1.0,
+      "metadata": {
+        "cache_miss_time": 0.004435300827026367,
+        "cache_hit_avg": 9.298324584960938e-06,
+        "speedup": 477.0
+      }
+    },
+    {
+      "name": "parallel_processing",
+      "component": "parallelism",
+      "num_samples": 5,
+      "total_time": 0.027873992919921875,
+      "avg_time": 0.005574798583984375,
+      "min_time": 0.0,
+      "max_time": 0.0,
+      "std_dev": 0.0,
+      "throughput": 179.37867798001915,
+      "embedding_dim": 1024,
+      "cache_hits": 0,
+      "success_rate": 1.0,
+      "metadata": {
+        "sequential_time": 0.04838848114013672,
+        "parallel_time": 0.027873992919921875,
+        "speedup": 1.7359723552757629
+      }
+    }
+  ]
+}

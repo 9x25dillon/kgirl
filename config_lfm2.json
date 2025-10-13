@@ -1,0 +1,145 @@
+{
+  "description": "Configuration for LFM2-8B-A1B + Numbskull + Dual LLM Integration",
+  "version": "1.0.0",
+  
+  "local_llm": {
+    "description": "LFM2-8B-A1B configuration - local inference model",
+    "base_url": "http://127.0.0.1:8080",
+    "mode": "llama-cpp",
+    "model": "LFM2-8B-A1B",
+    "timeout": 120,
+    "max_retries": 3,
+    "retry_delay": 1.0,
+    "verify_ssl": false,
+    "api_key": null
+  },
+  
+  "local_llm_alternatives": [
+    {
+      "description": "Alternative: text-generation-webui backend",
+      "base_url": "http://127.0.0.1:5000",
+      "mode": "textgen-webui",
+      "model": "LFM2-8B-A1B",
+      "timeout": 120,
+      "max_retries": 3
+    },
+    {
+      "description": "Alternative: OpenAI-compatible API backend",
+      "base_url": "http://127.0.0.1:8080",
+      "mode": "openai-chat",
+      "model": "LFM2-8B-A1B",
+      "timeout": 120,
+      "max_retries": 3,
+      "api_key": null
+    }
+  ],
+  
+  "resource_llm": {
+    "description": "Remote LLM for resource summarization (optional - can be null for local fallback)",
+    "base_url": "https://api.openai.com",
+    "mode": "openai-chat",
+    "model": "gpt-4o-mini",
+    "timeout": 60,
+    "max_retries": 2,
+    "verify_ssl": true,
+    "api_key": "YOUR_API_KEY_HERE"
+  },
+  
+  "resource_llm_local_fallback": {
+    "description": "Use local summarizer if remote LLM not available",
+    "enabled": true
+  },
+  
+  "orchestrator_settings": {
+    "temperature": 0.7,
+    "max_tokens": 512,
+    "style": "concise",
+    "max_context_chars": 8000,
+    
+    "use_numbskull": true,
+    "use_semantic": true,
+    "use_mathematical": true,
+    "use_fractal": true,
+    
+    "fusion_method": "weighted_average",
+    "semantic_weight": 0.4,
+    "mathematical_weight": 0.3,
+    "fractal_weight": 0.3,
+    
+    "embed_resources": true,
+    "embed_user_prompt": false,
+    "max_embedding_cache_size": 1000,
+    
+    "embedding_enhancement": "metadata"
+  },
+  
+  "numbskull_config": {
+    "description": "Numbskull hybrid embedding pipeline configuration",
+    
+    "semantic_config": {
+      "api_url": "http://127.0.0.1:8001",
+      "timeout": 30.0,
+      "batch_size": 32,
+      "cache_enabled": true,
+      "embedding_dim": 768
+    },
+    
+    "mathematical_config": {
+      "limps_url": "http://127.0.0.1:8000",
+      "timeout": 30.0,
+      "optimization_enabled": true,
+      "symbolic_processing": true
+    },
+    
+    "fractal_config": {
+      "default_fractal_type": "mandelbrot",
+      "resolution": 64,
+      "max_iterations": 100,
+      "use_entropy": true,
+      "visualization_enabled": false
+    },
+    
+    "use_semantic": true,
+    "use_mathematical": true,
+    "use_fractal": true,
+    "fusion_method": "weighted_average",
+    "semantic_weight": 0.4,
+    "mathematical_weight": 0.3,
+    "fractal_weight": 0.3,
+    "parallel_processing": true,
+    "max_workers": 4,
+    "cache_embeddings": true,
+    "timeout": 60.0
+  },
+  
+  "deployment": {
+    "description": "Deployment and runtime settings",
+    "llm_server_command": "llama-server --model /path/to/LFM2-8B-A1B.gguf --port 8080 --ctx-size 8192",
+    "eopiez_command": "cd ~/aipyapp/Eopiez && python api.py --port 8001",
+    "limps_command": "cd ~/aipyapp/9xdSq-LIMPS-FemTO-R1C/limps && julia --project=. -e 'using LIMPS; LIMPS.start_limps_server(8000)'",
+    "numbskull_path": "/home/kill/numbskull"
+  },
+  
+  "logging": {
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "file": "numbskull_orchestrator.log"
+  },
+  
+  "performance": {
+    "async_processing": true,
+    "max_concurrent_requests": 10,
+    "request_timeout": 180,
+    "embedding_batch_size": 16
+  },
+  
+  "notes": [
+    "Make sure LFM2-8B-A1B is running on the configured endpoint before starting",
+    "Resource LLM (remote) is optional - local fallback will be used if not configured",
+    "Eopiez service needed for semantic embeddings",
+    "LIMPS service needed for mathematical embeddings",
+    "Fractal embeddings run locally without external dependencies",
+    "All weights should sum to 1.0 for optimal fusion"
+  ]
+}
+

@@ -1,0 +1,11 @@
+# VCS
+.git
+.gitignore
+
+# Caches
+.julia
+.julia_compiled
+
+# Local artifacts
+julia-portable
+julia.tar.gz

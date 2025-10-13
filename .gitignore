@@ -1,0 +1,46 @@
+# Secrets and credentials
+.git-credentials
+git token
+.claude.json
+.claude.json.backup
+.bash_history
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# Logs
+*.log
+julia_server.log
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Large binaries
+*.appimage
+*.deb
+*.rpm
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# Test outputs
+demo_results.json
+benchmark_*.json
+research_simulation_results.json
