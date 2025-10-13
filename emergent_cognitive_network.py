@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 from typing import Dict, List, Optional, Any, Tuple
 import networkx as nx
-from scipy import spatial
+from scipy import spatial, fft, signal
 import heapq
 import math
 
@@ -493,6 +493,355 @@ class HolographicDataEngine:
         
         return sorted(similarities, key=lambda x: x['similarity'], reverse=True)
 
+class HolographicAssociativeMemory:
+    """Holographic associative memory with content-addressable storage"""
+    
+    def __init__(self, memory_size: int = 1024, hologram_dim: int = 256):
+        self.memory_size = memory_size
+        self.hologram_dim = hologram_dim
+        self.holographic_memory = np.zeros((hologram_dim, hologram_dim), dtype=complex)
+        self.associative_links = {}
+        self.memory_traces = []
+        
+    def store_holographic(self, data: np.ndarray, metadata: Dict = None) -> str:
+        """Store data in holographic memory with associative links"""
+        
+        # Generate unique memory key
+        memory_key = self._generate_memory_key(data)
+        
+        # Encode data into holographic representation
+        hologram = self._encode_data_holographic(data)
+        
+        # Store in holographic memory with interference pattern
+        self.holographic_memory += hologram
+        
+        # Create associative links
+        if metadata:
+            self._create_associative_links(memory_key, metadata)
+        
+        # Store memory trace
+        self.memory_traces.append({
+            'key': memory_key,
+            'timestamp': np.datetime64('now'),
+            'access_pattern': self._analyze_access_pattern(data),
+            'emotional_valence': metadata.get('emotional_valence', 0.5) if metadata else 0.5
+        })
+        
+        return memory_key
+    
+    def recall_associative(self, query: np.ndarray, similarity_threshold: float = 0.7) -> List[Dict]:
+        """Recall memories associatively based on content similarity"""
+        
+        recalled_memories = []
+        
+        # Calculate similarity with all memory traces
+        for trace in self.memory_traces:
+            # Holographic pattern matching
+            similarity = self._holographic_similarity(query, trace)
+            
+            if similarity > similarity_threshold:
+                # Reconstruct memory from holographic storage
+                reconstructed = self._reconstruct_memory(trace['key'])
+                
+                recalled_memories.append({
+                    'memory_key': trace['key'],
+                    'similarity': similarity,
+                    'reconstructed_data': reconstructed,
+                    'emotional_context': trace['emotional_valence'],
+                    'temporal_context': trace['timestamp']
+                })
+        
+        # Sort by similarity and emotional relevance
+        recalled_memories.sort(key=lambda x: x['similarity'] * (1 + x['emotional_context']), reverse=True)
+        
+        return recalled_memories
+    
+    def _encode_data_holographic(self, data: np.ndarray) -> np.ndarray:
+        """Encode data into holographic representation using Fourier transforms"""
+        
+        # Ensure data fits hologram dimensions
+        if data.size > self.hologram_dim ** 2:
+            data = data[:self.hologram_dim ** 2]
+        
+        # Reshape to 2D
+        data_2d = data.reshape(self.hologram_dim, self.hologram_dim)
+        
+        # Fourier transform for holographic encoding
+        data_freq = fft.fft2(data_2d)
+        
+        # Add random reference wave for holographic properties
+        reference_wave = np.exp(1j * 2 * np.pi * np.random.random((self.hologram_dim, self.hologram_dim)))
+        hologram = data_freq * reference_wave
+        
+        return hologram
+    
+    def _holographic_similarity(self, query: np.ndarray, memory_trace: Dict) -> float:
+        """Calculate holographic similarity between query and memory trace"""
+        
+        # Encode query in same way as stored memories
+        query_hologram = self._encode_data_holographic(query)
+        
+        # Calculate cross-correlation in frequency domain
+        query_freq = fft.fft2(query_hologram)
+        memory_freq = fft.fft2(self.holographic_memory)
+        
+        # Cross-correlation
+        correlation = fft.ifft2(query_freq * np.conj(memory_freq))
+        
+        # Peak correlation value as similarity measure
+        similarity = np.max(np.abs(correlation))
+        
+        # Normalize by query energy
+        query_energy = np.sum(np.abs(query_freq) ** 2)
+        if query_energy > 0:
+            similarity = similarity / np.sqrt(query_energy)
+        
+        return float(similarity)
+    
+    def _reconstruct_memory(self, memory_key: str) -> np.ndarray:
+        """Reconstruct memory data from holographic storage"""
+        
+        # Find memory trace
+        trace = next((t for t in self.memory_traces if t['key'] == memory_key), None)
+        if not trace:
+            return np.array([])
+        
+        # Use iterative reconstruction algorithm
+        reconstructed = self._iterative_reconstruction(memory_key, iterations=20)
+        
+        return reconstructed
+    
+    def _iterative_reconstruction(self, memory_key: str, iterations: int = 20) -> np.ndarray:
+        """Iterative reconstruction using holographic constraints"""
+        
+        # Initialize with random pattern
+        current_estimate = np.random.random((self.hologram_dim, self.hologram_dim))
+        
+        for i in range(iterations):
+            # Transform to frequency domain
+            estimate_freq = fft.fft2(current_estimate)
+            
+            # Apply holographic memory constraints
+            memory_phase = np.angle(self.holographic_memory)
+            updated_freq = np.abs(estimate_freq) * np.exp(1j * memory_phase)
+            
+            # Transform back to spatial domain
+            current_estimate = fft.ifft2(updated_freq).real
+            
+            # Apply known constraints (if any)
+            # This would be based on the specific memory trace
+            current_estimate = np.clip(current_estimate, 0, 1)
+        
+        return current_estimate.flatten()
+    
+    def _generate_memory_key(self, data: np.ndarray) -> str:
+        """Generate unique memory key based on data content"""
+        
+        # Create hash from data content
+        data_hash = hash(data.tobytes())
+        timestamp = int(np.datetime64('now').astype('datetime64[ns]').astype('int64'))
+        
+        return f"mem_{data_hash}_{timestamp}"
+    
+    def _create_associative_links(self, memory_key: str, metadata: Dict):
+        """Create associative links between memories"""
+        
+        # Extract semantic features for linking
+        semantic_features = self._extract_semantic_features(metadata)
+        
+        # Create bidirectional links with similar memories
+        for existing_key, existing_metadata in self.associative_links.items():
+            similarity = self._semantic_similarity(semantic_features, existing_metadata)
+            
+            if similarity > 0.5:  # Threshold for creating links
+                if memory_key not in self.associative_links:
+                    self.associative_links[memory_key] = {}
+                
+                if existing_key not in self.associative_links:
+                    self.associative_links[existing_key] = {}
+                
+                # Bidirectional link
+                self.associative_links[memory_key][existing_key] = similarity
+                self.associative_links[existing_key][memory_key] = similarity
+        
+        # Store metadata for this memory
+        self.associative_links[memory_key] = semantic_features
+    
+    def _extract_semantic_features(self, metadata: Dict) -> Dict:
+        """Extract semantic features from metadata"""
+        
+        features = {
+            'emotional_valence': metadata.get('emotional_valence', 0.5),
+            'importance': metadata.get('importance', 0.5),
+            'category': metadata.get('category', 'general'),
+            'temporal_context': metadata.get('temporal_context', 'present'),
+            'spatial_context': metadata.get('spatial_context', 'unknown')
+        }
+        
+        return features
+    
+    def _semantic_similarity(self, features1: Dict, features2: Dict) -> float:
+        """Calculate semantic similarity between feature sets"""
+        
+        # Weighted similarity calculation
+        weights = {
+            'emotional_valence': 0.3,
+            'importance': 0.2,
+            'category': 0.3,
+            'temporal_context': 0.1,
+            'spatial_context': 0.1
+        }
+        
+        similarity = 0.0
+        total_weight = 0.0
+        
+        for feature, weight in weights.items():
+            if feature in features1 and feature in features2:
+                if feature == 'category':
+                    # Categorical similarity
+                    sim = 1.0 if features1[feature] == features2[feature] else 0.0
+                else:
+                    # Numerical similarity (1 - normalized difference)
+                    val1, val2 = features1[feature], features2[feature]
+                    if isinstance(val1, (int, float)) and isinstance(val2, (int, float)):
+                        sim = 1.0 - abs(val1 - val2)
+                    else:
+                        sim = 1.0 if val1 == val2 else 0.0
+                
+                similarity += weight * sim
+                total_weight += weight
+        
+        return similarity / total_weight if total_weight > 0 else 0.0
+    
+    def _analyze_access_pattern(self, data: np.ndarray) -> Dict:
+        """Analyze access patterns in the data"""
+        
+        # Simple frequency analysis
+        if data.size > 0:
+            data_flat = data.flatten()
+            frequencies = fft.fft(data_flat)
+            power_spectrum = np.abs(frequencies) ** 2
+            
+            return {
+                'dominant_frequency': float(np.argmax(power_spectrum[1:len(power_spectrum)//2]) + 1),
+                'spectral_centroid': float(np.sum(np.arange(len(power_spectrum)) * power_spectrum) / np.sum(power_spectrum)),
+                'spectral_rolloff': float(np.argmax(np.cumsum(power_spectrum) > 0.85 * np.sum(power_spectrum))),
+                'zero_crossing_rate': float(np.sum(np.diff(np.sign(data_flat)) != 0) / len(data_flat))
+            }
+        else:
+            return {
+                'dominant_frequency': 0.0,
+                'spectral_centroid': 0.0,
+                'spectral_rolloff': 0.0,
+                'zero_crossing_rate': 0.0
+            }
+    
+    def get_memory_statistics(self) -> Dict:
+        """Get statistics about the holographic memory system"""
+        
+        return {
+            'total_memories': len(self.memory_traces),
+            'memory_utilization': np.sum(np.abs(self.holographic_memory)) / (self.hologram_dim ** 2),
+            'associative_links': sum(len(links) for links in self.associative_links.values()),
+            'average_emotional_valence': np.mean([trace['emotional_valence'] for trace in self.memory_traces]) if self.memory_traces else 0.0,
+            'memory_diversity': self._calculate_memory_diversity()
+        }
+    
+    def _calculate_memory_diversity(self) -> float:
+        """Calculate diversity of stored memories"""
+        
+        if len(self.memory_traces) < 2:
+            return 0.0
+        
+        # Calculate diversity based on emotional valence distribution
+        valences = [trace['emotional_valence'] for trace in self.memory_traces]
+        return float(np.std(valences))
+    
+    def forget_memory(self, memory_key: str) -> bool:
+        """Remove a memory from the system"""
+        
+        # Find and remove memory trace
+        trace_to_remove = None
+        for i, trace in enumerate(self.memory_traces):
+            if trace['key'] == memory_key:
+                trace_to_remove = i
+                break
+        
+        if trace_to_remove is not None:
+            del self.memory_traces[trace_to_remove]
+            
+            # Remove associative links
+            if memory_key in self.associative_links:
+                # Remove bidirectional links
+                for linked_key in self.associative_links[memory_key]:
+                    if linked_key in self.associative_links:
+                        del self.associative_links[linked_key][memory_key]
+                
+                del self.associative_links[memory_key]
+            
+            return True
+        
+        return False
+    
+    def consolidate_memories(self, consolidation_threshold: float = 0.8) -> Dict:
+        """Consolidate similar memories to reduce redundancy"""
+        
+        consolidated_count = 0
+        merged_memories = []
+        
+        # Find similar memories
+        for i, trace1 in enumerate(self.memory_traces):
+            if trace1['key'] in merged_memories:
+                continue
+                
+            similar_traces = [trace1]
+            
+            for j, trace2 in enumerate(self.memory_traces[i+1:], i+1):
+                if trace2['key'] in merged_memories:
+                    continue
+                
+                # Calculate similarity
+                similarity = abs(trace1['emotional_valence'] - trace2['emotional_valence'])
+                if similarity < (1 - consolidation_threshold):
+                    similar_traces.append(trace2)
+                    merged_memories.append(trace2['key'])
+            
+            if len(similar_traces) > 1:
+                # Merge similar memories
+                merged_trace = self._merge_memory_traces(similar_traces)
+                # Replace first trace with merged version
+                trace1.update(merged_trace)
+                consolidated_count += len(similar_traces) - 1
+        
+        return {
+            'consolidated_memories': consolidated_count,
+            'remaining_memories': len(self.memory_traces),
+            'consolidation_ratio': consolidated_count / len(self.memory_traces) if self.memory_traces else 0.0
+        }
+    
+    def _merge_memory_traces(self, traces: List[Dict]) -> Dict:
+        """Merge multiple memory traces into one"""
+        
+        # Weighted average of emotional valences
+        weights = [1.0 / (i + 1) for i in range(len(traces))]  # More recent = higher weight
+        total_weight = sum(weights)
+        
+        merged_valence = sum(trace['emotional_valence'] * weight for trace, weight in zip(traces, weights)) / total_weight
+        
+        # Combine access patterns
+        merged_access = {
+            'dominant_frequency': np.mean([trace['access_pattern']['dominant_frequency'] for trace in traces]),
+            'spectral_centroid': np.mean([trace['access_pattern']['spectral_centroid'] for trace in traces]),
+            'spectral_rolloff': np.mean([trace['access_pattern']['spectral_rolloff'] for trace in traces]),
+            'zero_crossing_rate': np.mean([trace['access_pattern']['zero_crossing_rate'] for trace in traces])
+        }
+        
+        return {
+            'emotional_valence': merged_valence,
+            'access_pattern': merged_access,
+            'merged_from': [trace['key'] for trace in traces[1:]]  # Exclude the primary trace
+        }
+
 class MorphogeneticSystem:
     """Morphogenetic system for self-organizing structure growth"""
     
@@ -612,6 +961,7 @@ class EmergentTechnologyOrchestrator:
         self.swarm_network = SwarmCognitiveNetwork()
         self.neuromorphic_processor = NeuromorphicProcessor()
         self.holographic_engine = HolographicDataEngine()
+        self.holographic_memory = HolographicAssociativeMemory()
         self.morphogenetic_system = MorphogeneticSystem()
         
         self.emergent_behaviors = []
@@ -785,6 +1135,59 @@ class EmergentTechnologyOrchestrator:
             'evolutionary_trajectory': evolutionary_trajectory,
             'final_cognitive_state': self._analyze_cognitive_state(),
             'emergent_cognitions': self.cognitive_evolution
+        }
+    
+    def demonstrate_holographic_memory(self, test_data: List[Dict]) -> Dict:
+        """Demonstrate holographic associative memory capabilities"""
+        
+        print("🧠 Holographic Associative Memory Demo")
+        print("=" * 50)
+        
+        # Store test memories
+        stored_keys = []
+        for i, data_item in enumerate(test_data):
+            data = data_item['data']
+            metadata = data_item.get('metadata', {})
+            metadata['emotional_valence'] = data_item.get('emotional_valence', 0.5)
+            metadata['category'] = data_item.get('category', 'general')
+            
+            memory_key = self.holographic_memory.store_holographic(data, metadata)
+            stored_keys.append(memory_key)
+            print(f"Stored memory {i+1}: {memory_key}")
+        
+        # Test associative recall
+        if len(test_data) > 1:
+            query_data = test_data[0]['data']
+            recalled = self.holographic_memory.recall_associative(query_data, similarity_threshold=0.3)
+            
+            print(f"\nAssociative recall results for query:")
+            print(f"Found {len(recalled)} similar memories")
+            
+            for i, memory in enumerate(recalled[:3]):  # Show top 3
+                print(f"  {i+1}. Similarity: {memory['similarity']:.3f}, "
+                      f"Emotional: {memory['emotional_context']:.3f}")
+        
+        # Get memory statistics
+        stats = self.holographic_memory.get_memory_statistics()
+        print(f"\nMemory Statistics:")
+        print(f"  Total memories: {stats['total_memories']}")
+        print(f"  Memory utilization: {stats['memory_utilization']:.3f}")
+        print(f"  Associative links: {stats['associative_links']}")
+        print(f"  Average emotional valence: {stats['average_emotional_valence']:.3f}")
+        print(f"  Memory diversity: {stats['memory_diversity']:.3f}")
+        
+        # Test memory consolidation
+        consolidation_result = self.holographic_memory.consolidate_memories(consolidation_threshold=0.7)
+        print(f"\nMemory Consolidation:")
+        print(f"  Consolidated memories: {consolidation_result['consolidated_memories']}")
+        print(f"  Remaining memories: {consolidation_result['remaining_memories']}")
+        print(f"  Consolidation ratio: {consolidation_result['consolidation_ratio']:.3f}")
+        
+        return {
+            'stored_memories': stored_keys,
+            'recall_results': recalled if len(test_data) > 1 else [],
+            'memory_statistics': stats,
+            'consolidation_result': consolidation_result
         }
     
     def _learn_from_experiences(self, experiences: List[Dict]) -> Dict:
