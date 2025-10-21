@@ -1,50 +1,14 @@
-"""
-main.py — Tiny FastAPI microservice for phase‑coherence consensus, Cardy‑energy hallucination gating, and trinary‑aware RAG rerank.
-
-Quick start (CachyOS / Arch / Cursor):
-
-python -m venv .venv && source .venv/bin/activate
-pip install fastapi uvicorn[standard] numpy pydantic-settings python-dotenv openai anthropic
-
-Optional (better embeddings fallback):
-
-pip install sentence-transformers
-
-Ensure your CTH repo is importable:
-
-ln -s ~/code/Consciousness_as_Topological_Holography ./CTH
-
-or set CTH_PATH in .env to its absolute directory
-
-uvicorn main:app --reload --port 8000
-
-.env keys (examples):
-
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=...
-OPENAI_CHAT_MODEL=gpt-4o-mini
-OPENAI_EMBED_MODEL=text-embedding-3-large
-ANTHROPIC_CHAT_MODEL=claude-3-5-sonnet-latest
-MODELS=openai:chat=gpt-4o-mini,embed=text-embedding-3-large|anthropic:chat=claude-3-5-sonnet-latest
-CTH_PATH=/home/kill/code/Consciousness_as_Topological_Holography
-
-Endpoints:
-- POST /ask    {prompt, min_coherence, max_energy} -> consensus answer + metrics
-- POST /rerank {query, docs[ {id,text,embedding?} ], trinary_threshold} -> re-ranked docs
-- GET  /health
-- GET  /config
-"""
 from __future__ import annotations
 
 import os
 import sys
-from typing import Any, Dict, List, Optional
+from typing import List, Optional, Any
 
 import numpy as np
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings
+from dotenv import load_dotenv
 
 # ----- CTH import path wiring -----
 load_dotenv(override=True)
@@ -53,25 +17,24 @@ if CTH_PATH and CTH_PATH not in sys.path:
     sys.path.append(CTH_PATH)
 try:
     from CTH.topological_consciousness import TopologicalConsciousness  # type: ignore
-except Exception:  # pragma: no cover - optional dependency
-    # allow running without CTH for fallback demos
+except Exception:  # allow running without CTH for fallback demos
     TopologicalConsciousness = None  # type: ignore
 
 # ----- Optional embedder for Anthropic fallback -----
 try:
     from sentence_transformers import SentenceTransformer
-except Exception:  # pragma: no cover - optional dependency
+except Exception:  # optional dependency
     SentenceTransformer = None  # type: ignore
 
 
 # ----- Adapters -----
 class BaseAdapter:
-    name: str
+    name: str = "base"
 
-    def generate(self, prompt: str) -> str:  # pragma: no cover - interface
+    def generate(self, prompt: str) -> str:
         raise NotImplementedError
 
-    def embed(self, text: str) -> np.ndarray:  # pragma: no cover - interface
+    def embed(self, text: str) -> np.ndarray:
         raise NotImplementedError
 
     def get_hidden_states(self, prompt: str) -> np.ndarray:
@@ -80,13 +43,8 @@ class BaseAdapter:
 
 
 class OpenAIAdapter(BaseAdapter):
-    def __init__(
-        self,
-        chat_model: str,
-        embed_model: str,
-        api_key: Optional[str] = None,
-    ) -> None:
-        from openai import OpenAI  # lazy import to avoid hard dependency during import time
+    def __init__(self, chat_model: str, embed_model: str, api_key: Optional[str] = None):
+        from openai import OpenAI  # lazy import
 
         self.client = OpenAI(api_key=api_key)
         self.chat_model = chat_model
@@ -94,17 +52,16 @@ class OpenAIAdapter(BaseAdapter):
         self.name = f"openai:{chat_model}"
 
     def generate(self, prompt: str) -> str:
-        response = self.client.chat.completions.create(
+        r = self.client.chat.completions.create(
             model=self.chat_model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
         )
-        content = response.choices[0].message.content
-        return content or ""
+        return r.choices[0].message.content or ""
 
     def embed(self, text: str) -> np.ndarray:
-        response = self.client.embeddings.create(model=self.embed_model, input=text)
-        return np.array(response.data[0].embedding, dtype=np.float64)
+        r = self.client.embeddings.create(model=self.embed_model, input=text)
+        return np.array(r.data[0].embedding, dtype=np.float64)
 
 
 class AnthropicAdapter(BaseAdapter):
@@ -114,7 +71,7 @@ class AnthropicAdapter(BaseAdapter):
         api_key: Optional[str] = None,
         embedder: Optional[Any] = None,
         openai_embed_fallback: Optional[OpenAIAdapter] = None,
-    ) -> None:
+    ):
         from anthropic import Anthropic  # lazy import
 
         self.client = Anthropic(api_key=api_key)
@@ -124,16 +81,13 @@ class AnthropicAdapter(BaseAdapter):
         self.name = f"anthropic:{chat_model}"
 
     def generate(self, prompt: str) -> str:
-        message = self.client.messages.create(
+        msg = self.client.messages.create(
             model=self.chat_model,
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}],
         )
         # anthropic returns content blocks
-        parts: List[str] = []
-        for block in getattr(message, "content", []) or []:
-            parts.append(getattr(block, "text", ""))
-        return "".join(parts)
+        return "".join(getattr(c, "text", "") for c in msg.content)
 
     def embed(self, text: str) -> np.ndarray:
         if self.openai_embed_fallback is not None:
@@ -147,24 +101,26 @@ class AnthropicAdapter(BaseAdapter):
 
 def _l2n(X: np.ndarray) -> np.ndarray:
     X = np.asarray(X, dtype=np.float64)
-    norms = np.linalg.norm(X, axis=-1, keepdims=True) + 1e-12
-    return X / norms
+    if X.ndim == 1:
+        n = np.linalg.norm(X) + 1e-12
+        return X / n
+    return X / (np.linalg.norm(X, axis=-1, keepdims=True) + 1e-12)
 
 
 def spectral_weights(embs: np.ndarray) -> np.ndarray:
     """Principal-eigenvector weights on cosine kernel (fallback)."""
     E = _l2n(embs)
-    K = E @ E.T
-    # Symmetric PSD; use eigh for stability
+    K = E @ E.T  # symmetric
+    # Use eigh (for symmetric matrices) to get real eigenpairs
     vals, vecs = np.linalg.eigh(K + 1e-9 * np.eye(K.shape[0]))
-    principal_vec = vecs[:, -1]
-    w = np.clip(np.real(principal_vec), 0.0, None)
-    total = float(w.sum())
-    return w / (total + 1e-12)
+    w = np.real(vecs[:, -1])  # principal eigenvector
+    w = np.clip(w, 0, None)
+    s = w.sum()
+    return w / (s + 1e-12)
 
 
 class PhaseCoherence:
-    def __init__(self, n_anyons: int, central_charge: int = 627) -> None:
+    def __init__(self, n_anyons: int, central_charge: int = 627):
         self.use_cth = TopologicalConsciousness is not None
         if self.use_cth:
             self.tc = TopologicalConsciousness(  # type: ignore
@@ -176,25 +132,20 @@ class PhaseCoherence:
     def weights(self, embeddings: np.ndarray) -> np.ndarray:
         if self.use_cth and hasattr(self.tc, "calculate_modular_invariance"):
             try:
-                w = np.asarray(
-                    self.tc.calculate_modular_invariance(embeddings),  # type: ignore[attr-defined]
-                    dtype=np.float64,
-                )
+                w = np.asarray(self.tc.calculate_modular_invariance(embeddings), dtype=np.float64)
                 return w / (w.sum() + 1e-12)
             except Exception:
-                # fall back below
                 pass
         return spectral_weights(embeddings)
 
     def scalar(self, embeddings: np.ndarray) -> float:
         w = self.weights(embeddings)
         n = len(w)
-        # normalize to [0,1]
         return float((w.max() - 1.0 / n) / (1.0 - 1.0 / n + 1e-12))
 
 
 class CardyEnergy:
-    def __init__(self, n_anyons: int = 27, central_charge: int = 627) -> None:
+    def __init__(self, n_anyons: int = 27, central_charge: int = 627):
         self.use_cth = TopologicalConsciousness is not None
         if self.use_cth:
             self.tc = TopologicalConsciousness(  # type: ignore
@@ -208,9 +159,8 @@ class CardyEnergy:
     def boundary(self, state: Any) -> float:
         if self.use_cth and hasattr(self.tc, "cardy_boundary_energy"):
             try:
-                return float(self.tc.cardy_boundary_energy(state))  # type: ignore[attr-defined]
+                return float(self.tc.cardy_boundary_energy(state))
             except Exception:
-                # fall back below
                 pass
         # heuristic fallback: dispersion proxy
         s = _l2n(np.asarray(state, dtype=np.float64).ravel())
@@ -229,19 +179,17 @@ def quantize_trinary(vec: np.ndarray, threshold: float = 0.25) -> np.ndarray:
 
 # ----- Settings & App -----
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    openai_api_key: Optional[str] = os.getenv("OPENAI_API_KEY")
+    anthropic_api_key: Optional[str] = os.getenv("ANTHROPIC_API_KEY")
 
-    openai_api_key: Optional[str] = None
-    anthropic_api_key: Optional[str] = None
     openai_chat_model: str = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
     openai_embed_model: str = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-large")
-    anthropic_chat_model: str = os.getenv(
-        "ANTHROPIC_CHAT_MODEL", "claude-3-5-sonnet-latest"
-    )
+    anthropic_chat_model: str = os.getenv("ANTHROPIC_CHAT_MODEL", "claude-3-5-sonnet-latest")
+
     models: str = os.getenv(
-        "MODELS",
-        "openai:chat=gpt-4o-mini,embed=text-embedding-3-large|anthropic:chat=claude-3-5-sonnet-latest",
+        "MODELS", "openai:chat=gpt-4o-mini,embed=text-embedding-3-large"
     )
+
     central_charge: int = int(os.getenv("CENTRAL_CHARGE", "627"))
     n_anyons: int = int(os.getenv("N_ANYONS", "5"))
 
@@ -250,8 +198,7 @@ settings = Settings()
 
 app = FastAPI(title="Topological Consensus API", version="0.1.0")
 
-
-# Build model pool at startup
+# ----- Build model pool at startup -----
 g_model_pool: List[BaseAdapter] = []
 
 
@@ -267,20 +214,15 @@ def _startup() -> None:
     # optional ST embedder for Anthropic
     st = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2") if SentenceTransformer else None
 
-    for group in groups:
-        if ":" not in group:
+    for g in groups:
+        if ":" not in g:
             continue
-        kind, spec = group.split(":", 1)
-        kv_pairs = [item for item in spec.split(",") if "=" in item]
-        kv: Dict[str, str] = dict(item.split("=", 1) for item in kv_pairs)
+        kind, spec = g.split(":", 1)
+        kv = dict(item.split("=", 1) for item in spec.split(",") if "=" in item)
         if kind == "openai":
             chat = kv.get("chat", settings.openai_chat_model)
             emb = kv.get("embed", settings.openai_embed_model)
-            oa = OpenAIAdapter(
-                chat_model=chat,
-                embed_model=emb,
-                api_key=settings.openai_api_key,
-            )
+            oa = OpenAIAdapter(chat_model=chat, embed_model=emb, api_key=settings.openai_api_key)
             g_model_pool.append(oa)
             openai_embed_adapter = oa
         elif kind == "anthropic":
@@ -292,9 +234,6 @@ def _startup() -> None:
                 openai_embed_fallback=openai_embed_adapter,
             )
             g_model_pool.append(an)
-        else:
-            # unknown provider; ignore
-            continue
 
 
 # ----- Schemas -----
@@ -336,7 +275,7 @@ class RerankResponse(BaseModel):
 
 # ----- Endpoints -----
 @app.get("/health")
-def health() -> Dict[str, Any]:
+def health() -> dict:
     return {
         "ok": True,
         "models": [getattr(m, "name", "?") for m in g_model_pool],
@@ -345,7 +284,7 @@ def health() -> Dict[str, Any]:
 
 
 @app.get("/config")
-def config() -> Dict[str, Any]:
+def config() -> dict:
     return {
         "central_charge": settings.central_charge,
         "n_anyons": settings.n_anyons,
@@ -361,7 +300,7 @@ def ask(req: AskRequest) -> AskResponse:
     outputs: List[str] = [m.generate(req.prompt) for m in g_model_pool]
 
     # 2) embed outputs (consensus on semantics of answers)
-    embs = np.stack([m.embed(o) for m in g_model_pool], axis=0)
+    embs = np.stack([m.embed(o) for o in outputs], axis=0)
 
     # 3) phase coherence
     pc = PhaseCoherence(
@@ -378,7 +317,7 @@ def ask(req: AskRequest) -> AskResponse:
 
     # 5) decision logic
     decision: str
-    answer: Optional[str]
+    answer: Optional[str] = None
     best = int(np.argmax(w))
     if coh >= req.min_coherence and energy <= req.max_energy:
         decision = "auto"
@@ -413,14 +352,14 @@ def rerank(req: RerankRequest) -> RerankResponse:
     q = _l2n(q)
 
     # doc embeddings (compute if missing)
-    doc_vectors: List[np.ndarray] = []
+    D: List[np.ndarray] = []
     for d in req.docs:
         if d.embedding is not None:
             vec = np.asarray(d.embedding, dtype=np.float64)
         else:
             vec = emb_model.embed(d.text)
-        doc_vectors.append(vec)
-    E = _l2n(np.stack(doc_vectors, axis=0))
+        D.append(vec)
+    E = _l2n(np.stack(D, axis=0))
 
     # similarity scores
     sims = (E @ q).reshape(-1)
@@ -441,7 +380,7 @@ def rerank(req: RerankRequest) -> RerankResponse:
     )
 
 
-# If run as a script
+# ----- If run as a script -----
 if __name__ == "__main__":
     import uvicorn
 
