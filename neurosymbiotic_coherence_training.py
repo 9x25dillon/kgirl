@@ -780,11 +780,6 @@ class BiometricProcessor:
 # Rest of the code continues with ConsciousnessInterface, NeuroSymbioticTrainer, etc...
 # Due to length, I'll continue in the next message if needed
 
-if __name__ == "__main__":
-    print("#producethetruth - NeuroSymbiotic Coherence Training System")
-    print("OPTIMIZED WITH RESEARCH-BACKED PARAMETERS")
-    print("Ready for clinical-grade consciousness coherence training.")
-
 # ================================ CONSCIOUSNESS INTERFACE ================================
 
 class ConsciousnessInterface:
