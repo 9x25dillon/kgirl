@@ -680,8 +680,7 @@ def demonstrate_abcr():
     print("=" * 70)
     scenarios = [("dual_stress", SystemMode.ADAPTIVE), ("oscillatory", SystemMode.HIGH_SENSITIVITY), ("cascade", SystemMode.RECOVERY)]
     for name, mode in scenarios:
-        print(f"
-Scenario: {name} — mode={mode.value}")
+        print(f"\nScenario: {name} — mode={mode.value}")
         sys = AdaptiveBiCoupledCoherenceSystem(mode)
         hist = sys.simulate(10.0, 0.1, name)
         succ = sum(1 for e in sys.system_history if e['event'] == 'successful_recovery')
@@ -691,8 +690,7 @@ Scenario: {name} — mode={mode.value}")
             print(f"  Success rate: {succ/total*100:.1f}%")
         sys.visualize(hist, f"abcr_{name}_{mode.value}.png")
         sys.save_state(f"abcr_state_{name}_{mode.value}.json")
-    print("
-ABCR demonstration complete.")
+    print("\nABCR demonstration complete.")
 
 if __name__ == '__main__':
     demonstrate_abcr()
