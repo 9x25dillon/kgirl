@@ -1,0 +1,284 @@
+{
+  "text_analysis": [
+    {
+      "entropy": 3.957295873840569,
+      "reflection": {
+        "insight": "Analyzed 35 characters with 0 patterns",
+        "patterns": [],
+        "symbolic_depth": 0
+      },
+      "length": 35,
+      "unique_chars": 19,
+      "timestamp": 1759636125.5833197
+    },
+    {
+      "entropy": 4.487729629951764,
+      "reflection": {
+        "insight": "Analyzed 44 characters with 0 patterns",
+        "patterns": [],
+        "symbolic_depth": 0
+      },
+      "length": 44,
+      "unique_chars": 29,
+      "timestamp": 1759636125.583354
+    },
+    {
+      "entropy": 4.155675408338187,
+      "reflection": {
+        "insight": "Analyzed 92 characters with 0 patterns",
+        "patterns": [],
+        "symbolic_depth": 0
+      },
+      "length": 92,
+      "unique_chars": 23,
+      "timestamp": 1759636125.5833693
+    },
+    {
+      "entropy": 4.028146916659168,
+      "reflection": {
+        "insight": "Analyzed 87 characters with 0 patterns",
+        "patterns": [],
+        "symbolic_depth": 0
+      },
+      "length": 87,
+      "unique_chars": 22,
+      "timestamp": 1759636125.5833805
+    },
+    {
+      "entropy": 4.213085713416034,
+      "reflection": {
+        "insight": "Analyzed 80 characters with 0 patterns",
+        "patterns": [],
+        "symbolic_depth": 0
+      },
+      "length": 80,
+      "unique_chars": 26,
+      "timestamp": 1759636125.5834093
+    }
+  ],
+  "encoding_modulation": [
+    {
+      "original_bytes": 35,
+      "data_bits": 280,
+      "encoded_bits": 490,
+      "signal_samples": 3920,
+      "code_rate": 0.5714285714285714,
+      "signal_duration": 0.49
+    },
+    {
+      "original_bytes": 44,
+      "data_bits": 352,
+      "encoded_bits": 616,
+      "signal_samples": 4928,
+      "code_rate": 0.5714285714285714,
+      "signal_duration": 0.616
+    },
+    {
+      "original_bytes": 92,
+      "data_bits": 736,
+      "encoded_bits": 1288,
+      "signal_samples": 10304,
+      "code_rate": 0.5714285714285714,
+      "signal_duration": 1.288
+    }
+  ],
+  "adaptive_planning": {
+    "episodes": [
+      {
+        "episode": 1,
+        "text_length": 35,
+        "entropy": 3.957295873840569,
+        "state": [
+          3,
+          3
+        ],
+        "action": "bpsk",
+        "success": true,
+        "reward": 1.0
+      },
+      {
+        "episode": 2,
+        "text_length": 44,
+        "entropy": 4.487729629951764,
+        "state": [
+          4,
+          4
+        ],
+        "action": "ofdm",
+        "success": false,
+        "reward": -1.0
+      },
+      {
+        "episode": 3,
+        "text_length": 92,
+        "entropy": 4.155675408338187,
+        "state": [
+          4,
+          9
+        ],
+        "action": "qpsk",
+        "success": true,
+        "reward": 1.0
+      },
+      {
+        "episode": 4,
+        "text_length": 87,
+        "entropy": 4.028146916659168,
+        "state": [
+          4,
+          8
+        ],
+        "action": "qpsk",
+        "success": true,
+        "reward": 1.0
+      },
+      {
+        "episode": 5,
+        "text_length": 80,
+        "entropy": 4.213085713416034,
+        "state": [
+          4,
+          8
+        ],
+        "action": "qpsk",
+        "success": false,
+        "reward": -1.0
+      },
+      {
+        "episode": 6,
+        "text_length": 35,
+        "entropy": 3.957295873840569,
+        "state": [
+          3,
+          3
+        ],
+        "action": "bpsk",
+        "success": true,
+        "reward": 1.0
+      },
+      {
+        "episode": 7,
+        "text_length": 44,
+        "entropy": 4.487729629951764,
+        "state": [
+          4,
+          4
+        ],
+        "action": "bpsk",
+        "success": true,
+        "reward": 1.0
+      },
+      {
+        "episode": 8,
+        "text_length": 92,
+        "entropy": 4.155675408338187,
+        "state": [
+          4,
+          9
+        ],
+        "action": "qpsk",
+        "success": true,
+        "reward": 1.0
+      },
+      {
+        "episode": 9,
+        "text_length": 87,
+        "entropy": 4.028146916659168,
+        "state": [
+          4,
+          8
+        ],
+        "action": "bpsk",
+        "success": true,
+        "reward": 1.0
+      },
+      {
+        "episode": 10,
+        "text_length": 80,
+        "entropy": 4.213085713416034,
+        "state": [
+          4,
+          8
+        ],
+        "action": "bpsk",
+        "success": true,
+        "reward": 1.0
+      },
+      {
+        "episode": 11,
+        "text_length": 35,
+        "entropy": 3.957295873840569,
+        "state": [
+          3,
+          3
+        ],
+        "action": "bpsk",
+        "success": false,
+        "reward": -1.0
+      },
+      {
+        "episode": 12,
+        "text_length": 44,
+        "entropy": 4.487729629951764,
+        "state": [
+          4,
+          4
+        ],
+        "action": "bpsk",
+        "success": false,
+        "reward": -1.0
+      },
+      {
+        "episode": 13,
+        "text_length": 92,
+        "entropy": 4.155675408338187,
+        "state": [
+          4,
+          9
+        ],
+        "action": "qpsk",
+        "success": false,
+        "reward": -1.0
+      },
+      {
+        "episode": 14,
+        "text_length": 87,
+        "entropy": 4.028146916659168,
+        "state": [
+          4,
+          8
+        ],
+        "action": "bpsk",
+        "success": false,
+        "reward": -1.0
+      },
+      {
+        "episode": 15,
+        "text_length": 80,
+        "entropy": 4.213085713416034,
+        "state": [
+          4,
+          8
+        ],
+        "action": "bpsk",
+        "success": true,
+        "reward": 1.0
+      }
+    ],
+    "success_rate": 0.6,
+    "q_table_size": 4
+  },
+  "integration_summary": {
+    "total_texts_processed": 5,
+    "average_entropy": 4.168386708441145,
+    "total_signal_samples": 19152,
+    "adaptive_success_rate": 0.6,
+    "system_components": [
+      "Entropy Analysis",
+      "Reflective Analysis",
+      "Hamming FEC Encoding",
+      "BFSK Modulation Simulation",
+      "Adaptive Q-Learning"
+    ]
+  }
+}

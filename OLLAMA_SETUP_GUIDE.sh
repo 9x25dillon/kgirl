@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Ollama Setup Guide for Arch Linux
+
+echo "╔══════════════════════════════════════════════════════════════════════╗"
+echo "║              🚀 OLLAMA INSTALLATION GUIDE                            ║"
+echo "╚══════════════════════════════════════════════════════════════════════╝"
+echo ""
+
+echo "STEP 1: Install Ollama"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Run this command:"
+echo "  sudo pacman -S ollama"
+echo ""
+echo "Press Enter after you've run it..."
+read
+
+echo ""
+echo "STEP 2: Start Ollama Service"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Run this command:"
+echo "  sudo systemctl start ollama"
+echo ""
+echo "To make it start automatically on boot:"
+echo "  sudo systemctl enable ollama"
+echo ""
+echo "Press Enter after you've run it..."
+read
+
+echo ""
+echo "STEP 3: Download a Model"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Choose a model (I recommend qwen2.5:3b for speed):"
+echo ""
+echo "  Small & Fast (3B - ~2GB):"
+echo "    ollama pull qwen2.5:3b"
+echo ""
+echo "  Medium (7B - ~4.5GB):"
+echo "    ollama pull qwen2.5:7b"
+echo "    ollama pull llama3.2:latest"
+echo ""
+echo "Run your chosen command..."
+echo "Press Enter after download completes..."
+read
+
+echo ""
+echo "STEP 4: Test It!"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Test the model:"
+echo "  ollama run qwen2.5:3b \"What is quantum computing?\""
+echo ""
+echo "Or start interactive chat:"
+echo "  ollama run qwen2.5:3b"
+echo ""
+
+echo "╔══════════════════════════════════════════════════════════════════════╗"
+echo "║              ✅ OLLAMA READY!                                        ║"
+echo "╚══════════════════════════════════════════════════════════════════════╝"
+echo ""
+echo "Your LLM server is now running on http://localhost:11434"
+echo ""
+echo "Next: Test with your playground!"
+echo "  cd /home/kill/LiMp"
+echo "  python play_aluls_qwen.py"
+echo ""
+

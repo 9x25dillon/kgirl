@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<!DOCTYPE lmms-config-file>
+<lmms version="1.2.2">
+  <MidiAlsaRaw device="default"/>
+  <MidiJack device="lmms"/>
+  <Midialsaseq device="default"/>
+  <app disablebackup="0" configured="1" displaydbfs="0" language="en" nommpz="0" openlastproject="0" nanhandler="1" nomsgaftersetup="0"/>
+  <audioalsa device="null" channels="2"/>
+  <audiojack clientname="lmms" channels="2"/>
+  <audiooss device="/dev/dsp" channels="2"/>
+  <audiopa device="default" channels="2"/>
+  <audioportaudio device="" backend=""/>
+  <audiosdl device=""/>
+  <audiosoundio backend="PulseAudio" out_device_raw="no" out_device_id="alsa_output.usb-Turtle_Beach_Corp_Stealth_600X_Gen_3_0000000000000000-00.analog-stereo"/>
+  <midioss device="/dev/midi"/>
+  <mixer framesperaudiobuffer="6912" audiodev="SDL (Simple DirectMedia Layer)" mididev="ALSA Raw-MIDI (Advanced Linux Sound Architecture)" hqaudio="1"/>
+  <paths vstdir="/home/kill/Documents/lmms/plugins/vst/" sf2dir="/home/kill/Documents/lmms/samples/soundfonts/" laddir="/home/kill/Documents/lmms/plugins/ladspa/" stkdir="/usr/share/stk/rawwaves/" backgroundartwork="" gigdir="/home/kill/Documents/lmms/samples/gig/" workingdir="/home/kill/Documents/lmms/" defaultsf2="" artwork="data:/themes/default/"/>
+  <tooltips disabled="0"/>
+  <ui smoothscroll="0" enableautosave="1" saveinterval="2" enablerunningautosave="0" oneinstrumenttrackwindow="0" printnotelabels="0" animateafp="1" compacttrackbuttons="0" syncvstplugins="1" vstalwaysontop="0" disableautoquit="1" vstembedmethod="none" displaywaveform="1"/>
+  <recentfiles>
+    <file path="data:/projects/templates/default.mpt"/>
+  </recentfiles>
+</lmms>

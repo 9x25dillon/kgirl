@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://carryon.dev/soulpack.schema.json",
+  "title": "CarryOn Soulpack",
+  "type": "object",
+  "required": ["version", "persona", "preferences", "pointers", "signing"],
+  "properties": {
+    "version": {"type": "string", "pattern": "^0\\.1\\.\\d+$"},
+    "persona": {
+      "type": "object",
+      "required": ["name", "voice", "values", "boundaries"],
+      "properties": {
+        "name": {"type": "string"},
+        "aliases": {"type": "array", "items": {"type": "string"}},
+        "voice": {
+          "type": "object",
+          "properties": {
+            "tone": {"type": "array", "items": {"type": "string"}},
+            "style_rules": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "values": {"type": "array", "items": {"type": "string"}},
+        "boundaries": {"type": "array", "items": {"type": "string"}},
+        "expertise_tags": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "preferences": {
+      "type": "object",
+      "properties": {
+        "timezone": {"type": "string"},
+        "units": {"type": "string"},
+        "formatting": {"type": "object"}
+      }
+    },
+    "pointers": {
+      "type": "object",
+      "required": ["vector", "graph"],
+      "properties": {
+        "vector": {"type": "string"},
+        "graph": {"type": "string"},
+        "memory_feed": {"type": "string"},
+        "tools_manifest": {"type": "string"},
+        "consent_policy": {"type": "string"}
+      }
+    },
+    "signing": {
+      "type": "object",
+      "required": ["pubkey", "checksum"],
+      "properties": {
+        "pubkey": {"type": "string"},
+        "checksum": {"type": "string"}
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "timestamp": "2025-10-10 16:30:58",
+  "services": {
+    "eopiez": false,
+    "limps": false,
+    "lfm2": false
+  },
+  "results": [
+    {
+      "component": "hybrid_full",
+      "num_samples": 3,
+      "successes": 3,
+      "avg_time_ms": 11.963287989298502,
+      "min_time_ms": 11.548995971679688,
+      "max_time_ms": 12.58707046508789,
+      "throughput": 83.58906020606777,
+      "success_rate": 1.0,
+      "components_used": [
+        "fractal"
+      ]
+    }
+  ]
+}
