@@ -1,0 +1,286 @@
+"""
+Quantum-like agent evolution — PyTorch implementation
+Features:
+- Per-agent R (pos), V (vel), Psi (complex vector per agent)
+- Two interaction modes: 'pp' (particle-particle) and 'fft' (grid+FFT)
+- RK4 integrator (non-canonical). For canonical vars, use leapfrog/symplectic integrators instead.
+- Gradient-based update of scalar kappa_ein via autodiff.
+"""
+
+import torch
+import torch.fft
+import math
+from dataclasses import dataclass
+
+# -------- Configuration --------
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+dtype = torch.float64  # use double for better conservation; change to float32 for speed
+
+N = 200                    # agents (start small)
+dim = 2
+modes = 4                  # internal Hilbert modes per agent
+L = 10.0                   # periodic box size
+dt = 0.01
+steps = 500
+sigma_r = 0.5
+sigma_v = 1.0
+kernel_amp = 1.0
+grid_res = (128, 128)      # grid for FFT (power of two recommended)
+interaction_mode = 'fft'   # 'pp' or 'fft'
+
+# -------- Utilities --------
+def to_complex_tensor(real, imag):
+    return torch.complex(real, imag)
+
+def conj(t):
+    return t.conj()
+
+# -------- State container --------
+@dataclass
+class State:
+    R: torch.Tensor      # (N, dim) real
+    V: torch.Tensor      # (N, dim) real
+    Psi: torch.Tensor    # (N, modes) complex
+
+def init_state(N, dim, modes, L, device, dtype):
+    rng = torch.manual_seed(42)
+    R = (torch.rand((N, dim), device=device, dtype=dtype) * L)
+    V = torch.randn((N, dim), device=device, dtype=dtype) * 0.1
+    re = torch.randn((N, modes), device=device, dtype=dtype) * 0.05
+    im = torch.randn((N, modes), device=device, dtype=dtype) * 0.05
+    Psi = torch.complex(re, im)
+    return State(R, V, Psi)
+
+# -------- Periodic minimum-image differences --------
+def min_image_diff(Ra, Rb, L):
+    # inputs: (N, dim) and (M, dim) -> return (N, M, dim)
+    diff = Ra[:, None, :] - Rb[None, :, :]
+    diff = diff - torch.round(diff / L) * L
+    return diff
+
+# -------- Particle-particle kernel (Hermitian) --------
+def kernel_pp(R, V, sigma_r, sigma_v, kernel_amp):
+    # K_ij = kernel_amp * exp(-|r_i-r_j|^2/(2*sigma_r^2)) * exp(-|v_i-v_j|^2/(2*sigma_v^2))
+    diffs = min_image_diff(R, R, L)
+    r2 = (diffs**2).sum(-1)               # (N,N)
+    Kv = torch.exp(-r2 / (2 * sigma_r**2))
+    Vdiff = V[:, None, :] - V[None, :, :]
+    v2 = (Vdiff**2).sum(-1)
+    Kv *= torch.exp(-v2 / (2 * sigma_v**2))
+    return kernel_amp * Kv
+
+# -------- Hamiltonian (effective) and psi evolution --------
+def compute_H_pp(R, V):
+    K = kernel_pp(R, V, sigma_r, sigma_v, kernel_amp)   # (N,N)
+    # Possibly modulate by mode overlap; for now create block-diagonal structure per mode
+    # We'll produce H as (N*modes, N*modes) dense — for large N this is heavy.
+    # Instead, compute H acting on leading vectorized psi directly via matmul pattern.
+    return K
+
+def psi_evolution_pp(Psi, K):
+    # Psi: (N, modes) complex; K: (N,N) real
+    # Apply H action: for each mode k: (H @ Psi[:,k])
+    Hpsi = torch.einsum('ij, jm -> im', K, Psi)   # broadcasting with complex works
+    dPsi = -1j * Hpsi
+    return dPsi
+
+# -------- Grid deposit (CIC) and FFT convolution pipeline --------
+def cic_deposit_complex(R, Psi, grid_shape, L):
+    """
+    Deposit complex-valued Psi (N, modes) magnitude/phase to grid using cloud-in-cell.
+    We'll deposit scalar density per mode separately (N->grid),
+    returning grid_rho of shape (modes, gx, gy) complex.
+    """
+    gx, gy = grid_shape
+    N, modes = Psi.shape
+    # normalized coords in [0,1)
+    coords = (R / L) % 1.0
+    ix = coords[:, 0] * gx
+    iy = coords[:, 1] * gy
+    i0 = torch.floor(ix).long() % gx
+    j0 = torch.floor(iy).long() % gy
+    fx = ix - torch.floor(ix)
+    fy = iy - torch.floor(iy)
+    # weights for 4 surrounding cells
+    w00 = (1 - fx) * (1 - fy)
+    w10 = fx * (1 - fy)
+    w01 = (1 - fx) * fy
+    w11 = fx * fy
+    grid = torch.zeros((modes, gx, gy), dtype=torch.complex128, device=R.device)
+    # deposit for each agent and each mode
+    for m in range(modes):
+        vals = Psi[:, m]  # complex (N,)
+        # vectorized scatter_add: build index tensors
+        for (di, dj, w) in [(0,0,w00),(1,0,w10),(0,1,w01),(1,1,w11)]:
+            ii = (i0 + di) % gx
+            jj = (j0 + dj) % gy
+            # flatten index
+            idx = ii * gy + jj
+            flat = torch.zeros(gx * gy, dtype=torch.complex128, device=R.device)
+            # use scatter_add
+            flat = flat.index_add(0, idx, vals * w)
+            grid[m] += flat.view(gx, gy)
+    return grid
+
+def fft_kernel_grid(grid_shape, L, sigma_r, kernel_amp, device, dtype):
+    gx, gy = grid_shape
+    # frequencies in physical coords: create spatial grid coords
+    xs = torch.fft.fftfreq(gx, d=1.0/gx).to(device=device, dtype=dtype) * (L / gx)
+    ys = torch.fft.fftfreq(gy, d=1.0/gy).to(device=device, dtype=dtype) * (L / gy)
+    X, Y = torch.meshgrid(xs, ys, indexing='ij')
+    r2 = X**2 + Y**2
+    K = kernel_amp * torch.exp(-r2 / (2 * sigma_r**2))
+    return K
+
+def grid_convolve(grid_rho, Kgrid):
+    # grid_rho: (modes, gx, gy) complex; Kgrid: (gx, gy) real
+    # do convolution via FFT: conv = ifft( fft(rho) * fft(K) )
+    # Use torch.fft.fftn
+    modes, gx, gy = grid_rho.shape
+    # fft(Kgrid) once; Kgrid real -> convert to complex
+    Khat = torch.fft.rfftn(Kgrid)  # real FFT for speed
+    conv = torch.zeros_like(grid_rho)
+    for m in range(modes):
+        Rhat = torch.fft.rfftn(grid_rho[m])
+        conv_m = torch.fft.irfftn(Rhat * Khat, s=(gx, gy))
+        conv[m] = conv_m
+    return conv  # complex
+
+def spectral_gradient_field(potential_grid, L):
+    # compute gradient on periodic grid using spectral derivatives:
+    # potential_grid: (gx, gy) complex or real -> return (2, gx, gy) real gradients in x,y
+    gx, gy = potential_grid.shape
+    # k vectors
+    kx = 2 * math.pi * torch.fft.fftfreq(gx, d=1.0/gx).to(device=potential_grid.device, dtype=potential_grid.dtype) * (gx / L)
+    ky = 2 * math.pi * torch.fft.fftfreq(gy, d=1.0/gy).to(device=potential_grid.device, dtype=potential_grid.dtype) * (gy / L)
+    KX, KY = torch.meshgrid(kx, ky, indexing='ij')
+    Phat = torch.fft.rfftn(potential_grid)
+    # derivative in spectral domain: i * kx * Phat
+    dPhat_dx = (1j * KX) * Phat
+    dPhat_dy = (1j * KY) * Phat
+    gradx = torch.fft.irfftn(dPhat_dx, s=(gx, gy)).real
+    grady = torch.fft.irfftn(dPhat_dy, s=(gx, gy)).real
+    return torch.stack([gradx, grady], dim=0)  # (2, gx, gy)
+
+def sample_grid_force(R, grad_grid, L):
+    """
+    Sample gradient grid back to particle positions using CIC interpolation.
+    grad_grid: (2, gx, gy) real
+    Return: (N, 2) real forces
+    """
+    gx, gy = grad_grid.shape[1], grad_grid.shape[2]
+    coords = (R / L) % 1.0
+    ix = coords[:, 0] * gx
+    iy = coords[:, 1] * gy
+    i0 = torch.floor(ix).long() % gx
+    j0 = torch.floor(iy).long() % gy
+    fx = ix - torch.floor(ix)
+    fy = iy - torch.floor(iy)
+    w00 = (1 - fx) * (1 - fy)
+    w10 = fx * (1 - fy)
+    w01 = (1 - fx) * fy
+    w11 = fx * fy
+    F = torch.zeros_like(R)
+    for (di, dj, w) in [(0,0,w00),(1,0,w10),(0,1,w01),(1,1,w11)]:
+        ii = (i0 + di) % gx
+        jj = (j0 + dj) % gy
+        F[:, 0] += grad_grid[0, ii, jj] * w
+        F[:, 1] += grad_grid[1, ii, jj] * w
+    return -F  # force = -grad(potential)
+
+# -------- Derivative of state (d/dt) --------
+def dstate_dt(state: State, kappa, mode='fft'):
+    R, V, Psi = state.R, state.V, state.Psi
+    dR = V
+    if mode == 'pp':
+        K = compute_H_pp(R, V)                   # (N,N)
+        dPsi = psi_evolution_pp(Psi, K)          # (N,modes)
+        # compute forces: gradient of potential U = sum_{j} K_ij * Re( <psi_i|psi_j> )
+        # compute psi overlaps real part per pair
+        overlap = torch.real(torch.einsum('im, jm -> ij', conj(Psi), Psi))  # (N,N)
+        Kpos = kernel_pp(R, V, sigma_r, sigma_v, kernel_amp)
+        W = Kpos * overlap
+        diffs = min_image_diff(R, R, L)  # (N,N,2)
+        grads = - diffs / (sigma_r**2) * (Kpos[:, :, None])
+        F = torch.einsum('ijk, ij -> ik', grads, W)
+        dV = F  # (optionally divide by mass)
+    else:
+        # FFT pipeline
+        # deposit Psi per mode to grid
+        grid_rho = cic_deposit_complex(R, Psi, grid_res, L)   # (modes, gx, gy) complex
+        # convolve with kernel on grid (spatial)
+        Kgrid = fft_kernel_grid(grid_res, L, sigma_r, kernel_amp, device, dtype)
+        conv = grid_convolve(grid_rho, Kgrid)                 # (modes, gx, gy) complex
+        # potential = sum_modes Re(conv * conj(deposited_rho)) -> here simplify to real potential per grid
+        # we approximate deposited density magnitude squared as real scalar field
+        # take sum over modes of abs(conv)**2 or real(conv)
+        potential = conv.real.sum(dim=0)   # (gx, gy) real
+        grad_grid = spectral_gradient_field(potential, L)  # (2, gx, gy)
+        F = sample_grid_force(R, grad_grid, L)  # (N,2)
+        dV = F
+        # Build H action for psi as convolution sampled back: approximate H psi by sampling conv at particle positions
+        # We'll sample the convolved potential at particle positions via CIC-sampled real potential
+        # simple nearest-sample (for demonstration):
+        gx, gy = grid_res
+        coords = (R / L) % 1.0
+        ix = (coords[:,0] * gx).long() % gx
+        iy = (coords[:,1] * gy).long() % gy
+        sampled_pot = potential[ix, iy]  # (N,)
+        # Create diagonal effective H: H_ii = sampled_pot, then H psi = H_ii * psi
+        Hp = sampled_pot[:, None] * Psi
+        dPsi = -1j * Hp
+
+    # feedback term: small damping toward kappa (energy regulation)
+    # compute energy proxy: E = Re( <Psi | H | Psi> ) simplified
+    # For FFT mode, use sampled_pot energy
+    if mode == 'pp':
+        energy = torch.real(torch.einsum('im, jm, ij ->', conj(Psi), Psi, K))
+    else:
+        # approximate energy by sum_i sampled_pot_i * |psi_i|^2
+        energy = torch.sum(sampled_pot * (torch.real(Psi*conj(Psi)).sum(dim=1)))
+    # simple feedback on velocities
+    energy_error = energy - kappa
+    dV = dV - 0.01 * energy_error * V
+    return State(dR, dV, dPsi), energy
+
+# -------- RK4 integrator for state --------
+def rk4_step(state: State, dt, kappa, mode='fft'):
+    s1, e1 = dstate_dt(state, kappa, mode)
+    s2_in = State(state.R + 0.5*dt*s1.R, state.V + 0.5*dt*s1.V, state.Psi + 0.5*dt*s1.Psi)
+    s2, _ = dstate_dt(s2_in, kappa, mode)
+    s3_in = State(state.R + 0.5*dt*s2.R, state.V + 0.5*dt*s2.V, state.Psi + 0.5*dt*s2.Psi)
+    s3, _ = dstate_dt(s3_in, kappa, mode)
+    s4_in = State(state.R + dt*s3.R, state.V + dt*s3.V, state.Psi + dt*s3.Psi)
+    s4, _ = dstate_dt(s4_in, kappa, mode)
+
+    R_new = state.R + (dt/6.0) * (s1.R + 2*s2.R + 2*s3.R + s4.R)
+    V_new = state.V + (dt/6.0) * (s1.V + 2*s2.V + 2*s3.V + s4.V)
+    Psi_new = state.Psi + (dt/6.0) * (s1.Psi + 2*s2.Psi + 2*s3.Psi + s4.Psi)
+
+    # wrap positions
+    R_new = (R_new % L)
+    return State(R_new, V_new, Psi_new), e1
+
+# -------- Main training loop with gradient descent on kappa --------
+state = init_state(N, dim, modes, L, device, dtype)
+# make kappa an optimizable parameter
+kappa = torch.tensor(0.0, device=device, dtype=dtype, requires_grad=True)
+optimizer = torch.optim.Adam([kappa], lr=1e-3)
+
+for t in range(steps):
+    # integrate one step (RK4)
+    state, energy = rk4_step(state, dt, kappa, mode=interaction_mode)
+
+    # loss: squared difference from a target profile (example: target energy 0)
+    target_energy = torch.tensor(0.0, device=device, dtype=dtype)
+    loss = 0.5 * (energy - target_energy)**2
+
+    # optimize kappa
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    if t % 50 == 0:
+        print(f"[{t:04d}] energy={energy.item():.6f} kappa={kappa.item():.6f} loss={loss.item():.6e}")
+
+print("Done.")

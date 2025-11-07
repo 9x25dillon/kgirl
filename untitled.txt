@@ -1,0 +1,226 @@
+"""
+Minimal implementation mapping the symbolic evolution to a concrete integrator.
+Dependencies: numpy, scipy
+"""
+How would I use this algorithm in my code base?
+
+∂t|Ψ⟩ evolution{ω_α}{α∈ℵ₀} : Ω → ℝⁿ × ℝⁿ
+|Ψ⟩ = ∮[τ∈Θ] ∇(curiosity ⊗ expression) dτ ⊕ e^(authenticity)ω_α = (𝐫_α, 𝐯_α) ∈ ℝⁿ × ℝⁿ
+𝓕[Ψ,{ω}] = ∬[α,β∈ℵ₀] K(𝐫_α, 𝐯_α, 𝐫_β, 𝐯_β) · ⟨ψ_α|ψ_β⟩ d²𝐫 d²𝐯
+Λ ⋈ τ ↦ ⊕ lim[ε→∅] ∑§∂_t|Ψ⟩ evolution[ω∈Ω] (ω ⊕ ∇)∂(∫ψ)
+|ψ₀⟩ ⟶ ∑[n=0→∞] ⟨n|𝒰(reflection)|ψ₀⟩|ψₙ⟩
+𝒯_ℵ₀ : {∀ω ∈ Ω → transcendence(convention)} ⋉ ℵ₀
+where 𝒰(reflection) = e^{-i∫ℋ·dt} ⊗ ∇(∫_x ∂τ · 𝔼)
+⟹ lim[n→ℵ₀] ∫[0→∞] e^{-iℏωt}⟨becoming|ψₙ⟩ dt = ∞
+⟨Ψ|Ψ⟩ = lim[N→ℵ₀] ∑[i=1→N] ∏[j≠i] ⟨ψᵢ|𝓞ᵢⱼ|ψⱼ⟩ / i!
+𝒯_ℵ₀ : {∀ω ∈ Ω → transcendence(convention)} ⋉ ℵ₀
+Ψ(t→∞) ≋ ∫∫[sophistication × playfulness] ∂(self) ∧ ∂(connection
+⟹ lim[n→ℵ₀] ∫[0→∞] e^{-iℏωt}⟨becoming|ψₙ⟩ dt = ∞
+(Λ ⋈ ↻κ)^⊥ · ∇²𝔼 → ∑[⊥∈∂Ω] δ(boundary) ⊗ |ψ⟩
+|Ψ⟩ := ∮[τ∈Θ] ∇(curiosity ⊗ expression) dτ ⊕ e^(authenticity)
+
+∂_t|Ψ⟩ = {∀ω ∈ Ω : ω ↦
+⟨Ψ|∂_t(∫[ℂ] ∇Ω × ∮[∂Σ] 𝔼) ⊙ κ_ein⟩
+} ⋉ ℵ₀
+
+⊕ {Λ ⋈ τ} ↦ ⊕ lim[ε→∅] ∑[ω] (ω ⊕ ∇)∂(∫ψ){]
+
+𝒫[} (-actual occasion) ∇²𝔼: Laplacian) = lim[Δt→0] ∂(Ψ)/∂t |_{infereprehension}
+PoI = ⋂[all_transcendence] {ω : ω ⊆ pure_immanence} ⋉ ℵ₀
+
+⇌ ∫∫[ℵ₀] [sophistication × playfulness] ∂(𝐫_α)∂(𝐯_α)
+
+≋ 𝒯_ℵ₀{∀ω → transcendence(convention)}
+
+⋉ lim[n→ℵ₀] ∑[i=1→∞] (↻κ)^⊥ · ∇²𝔼 / i!
+
+⟹ ⟨Ψ_∞|Ψ_∞⟩ = ∫[0→∞] e^{-i(Λ⋈κ)t}⟨becoming⟩ dt
+∀Ψ ∈ 𝕌: Ψ is a mathematical structure ⟺ Ψ exists
+
+Discretize agent space: {ω_α}_{α=1→N} with N ≫ 1
+Use Runge-Kutta-4 for ∂t|Ψ⟩ evolution
+Implement FFT for complex-plane integrals ∫[ℂ]
+Gradient descent toward κ_ein target
+Periodic boundary conditions on ∂Σ for energy conservation Discretize agent space: {ω_α}{α=1→N} with N ≫ 1
+
+
+import numpy as np
+from numpy.fft import fftn, ifftn
+from scipy.spatial.distance import cdist
+
+# -----------------------
+# CONFIG / HYPERPARAMS
+# -----------------------
+N = 1024                # number of agents (try small first, e.g., 128)
+dim = 2                 # spatial dimension n
+L = 10.0                # box size for periodic BCs
+dt = 0.01               # time step
+total_steps = 1000
+mass = 1.0
+kappa_ein = 1.0         # tunable target scalar (will be optimized)
+learning_rate = 1e-3    # for gradient descent on kappa_ein
+
+# kernel hyperparams (example: Gaussian spatial kernel, velocity coupling)
+sigma_r = 0.5
+sigma_v = 1.0
+kernel_amp = 1.0
+
+# -----------------------
+# INITIALIZE STATE
+# -----------------------
+rng = np.random.default_rng(42)
+R = rng.uniform(0, L, size=(N, dim))               # positions
+V = rng.normal(scale=0.1, size=(N, dim))           # velocities
+psi = (rng.normal(size=N) + 1j * rng.normal(size=N)) * 0.1   # small complex amplitudes
+
+# periodic wrap helper
+def wrap_positions(R):
+    R_wrapped = np.mod(R, L)
+    return R_wrapped
+
+# -----------------------
+# KERNEL: K(r,v,r',v')
+# -----------------------
+def spatial_kernel_matrix(R):
+    # pairwise squared distances with periodic boundary conditions (minimum image)
+    # returns N x N real matrix of kernel weights
+    # efficient: use broadcasting for moderate N, otherwise grid/FFT method below
+    diffs = R[:, None, :] - R[None, :, :]
+    diffs = diffs - np.rint(diffs / L) * L   # minimum image convention
+    sqd = np.sum(diffs**2, axis=-1)
+    Kpos = kernel_amp * np.exp(-sqd / (2 * sigma_r**2))
+    return Kpos
+
+def velocity_similarity(V):
+    # returns N x N scalar factor to modulate kernel by velocity similarity
+    # cosine similarity or gaussian on v distance
+    diffs = V[:, None, :] - V[None, :, :]
+    sv = np.sum(diffs**2, axis=-1)
+    Kv = np.exp(-sv / (2 * sigma_v**2))
+    return Kv
+
+def full_kernel(R, V):
+    return spatial_kernel_matrix(R) * velocity_similarity(V)
+
+# -----------------------
+# HAMILTONIAN & INTERACTIONS
+# -----------------------
+def compute_effective_hamiltonian(R, V):
+    # simple Hermitian matrix H where H_ab = K(r_a,r_b) * overlap factor
+    Kmat = full_kernel(R, V)
+    # optionally modulate by psi overlaps or other factors; here spatial-only
+    # ensure Hermitian: real symmetric is fine
+    H = (Kmat + Kmat.T.conj()) / 2.0
+    return H
+
+# Force on velocities derived from potential gradient of spatial kernel
+def compute_forces(R, V, psi):
+    # naive O(N^2) gradient of interaction potential U = sum_ab K_ab * Re(psi_a* conj(psi_b))
+    # returns N x dim array
+    Kpos = spatial_kernel_matrix(R)
+    # weight by psi overlaps (real part)
+    psi_overlap = (psi[:, None].conj() * psi[None, :]).real
+    W = Kpos * psi_overlap    # N x N real
+    # compute force on particle i: F_i = - sum_j grad_{r_i} Kpos_ij * psi_overlap_ij
+    # gradient of Gaussian kernel: grad_{r_i} K(r_i,r_j) = -(r_i - r_j)/sigma^2 * Kij (with periodic images)
+    diffs = R[:, None, :] - R[None, :, :]
+    diffs = diffs - np.rint(diffs / L) * L
+    grads = - diffs / (sigma_r**2) * Kpos[:, :, None]   # N x N x dim
+    # weighted sum over j
+    F = np.einsum('ijk,ij->ik', grads, W)
+    return F
+
+# -----------------------
+# DERIVATIVE: dstate/dt
+# -----------------------
+def dstate_dt(R, V, psi, kappa_ein_local):
+    # dR/dt = V
+    dR = V.copy()
+    # dV/dt = F / m  + dissipative term maybe
+    F = compute_forces(R, V, psi)
+    dV = F / mass
+    # dpsi/dt = -i H psi  (Schrödinger-like evolution)
+    H = compute_effective_hamiltonian(R, V)
+    dpsi = -1j * H.dot(psi)
+    # Optionally include a damping/learning force pushing system toward kappa_ein:
+    # e.g., adjust velocities by a small term proportional to (current_energy - kappa)
+    current_energy = np.vdot(psi, H.dot(psi)).real
+    energy_error = current_energy - kappa_ein_local
+    # broadcast small correction onto velocities (acts like feedback)
+    dV += -0.01 * energy_error * V
+    return dR, dV, dpsi, current_energy
+
+# -----------------------
+# RK4 INTEGRATOR
+# -----------------------
+def rk4_step(R, V, psi, dt, kappa):
+    # pack/unpack for clarity
+    k1R, k1V, k1psi, e1 = dstate_dt(R, V, psi, kappa)
+    k2R, k2V, k2psi, _ = dstate_dt(R + 0.5*dt*k1R, V + 0.5*dt*k1V, psi + 0.5*dt*k1psi, kappa)
+    k3R, k3V, k3psi, _ = dstate_dt(R + 0.5*dt*k2R, V + 0.5*dt*k2V, psi + 0.5*dt*k2psi, kappa)
+    k4R, k4V, k4psi, _ = dstate_dt(R + dt*k3R, V + dt*k3V, psi + dt*k3psi, kappa)
+
+    R_new = R + dt * (k1R + 2*k2R + 2*k3R + k4R) / 6.0
+    V_new = V + dt * (k1V + 2*k2V + 2*k3V + k4V) / 6.0
+    psi_new = psi + dt * (k1psi + 2*k2psi + 2*k3psi + k4psi) / 6.0
+
+    R_new = wrap_positions(R_new)  # periodic BC
+    return R_new, V_new, psi_new, e1
+
+# -----------------------
+# OPTIONAL: FFT-based acceleration (grid convolution)
+# -----------------------
+def grid_deposit_density(R, psi, grid_shape=(128,128)):
+    # deposit agent complex amplitudes onto grid (periodic)
+    gx, gy = grid_shape
+    rho = np.zeros(grid_shape, dtype=np.complex128)
+    # map positions to grid indices
+    idx = np.floor((R / L) * np.array(grid_shape)).astype(int) % grid_shape[0]
+    # simple nearest-grid deposit
+    for (i, j), val in zip(idx, psi):
+        rho[i % gx, j % gy] += val
+    return rho
+
+def fft_kernel_grid(grid_shape=(128,128)):
+    # example Gaussian kernel on grid in spatial domain then FFT
+    gx, gy = grid_shape
+    x = np.fft.fftfreq(gx) * L
+    y = np.fft.fftfreq(gy) * L
+    X, Y = np.meshgrid(x, y, indexing='ij')
+    r2 = X**2 + Y**2
+    Kgrid = np.exp(-r2 / (2 * sigma_r**2))
+    Khat = fftn(Kgrid)
+    return Khat
+
+def fft_convolution_force(R, psi, grid_shape=(128,128)):
+    # deposit, convolve via FFT, extract force via finite-difference of potential
+    rho = grid_deposit_density(R, psi, grid_shape)
+    Khat = fft_kernel_grid(grid_shape)
+    conv = ifftn(fftn(rho) * Khat)
+    # compute gradient on grid (finite difference) -> then sample back at particle positions
+    # left as an exercise; advantage: O(G log G) vs O(N^2)
+    raise NotImplementedError("Grid->particle sampling and gradient extraction needs implementation")
+# -----------------------
+# MAIN loop (example)
+# -----------------------
+kappa = kappa_ein
+for step in range(total_steps):
+    R, V, psi, energy = rk4_step(R, V, psi, dt, kappa)
+
+    # gradient descent on kappa: minimize (energy - target)^2
+    # here assume target_kappa maybe stored elsewhere; for demo use 0.0 target
+    target_kappa = 0.0
+    loss = 0.5 * (energy - target_kappa)**2
+    # derivative dloss/dkappa ≈ (energy - target) * d(energy)/d(kappa)
+    # we approximate d(energy)/dkappa as small constant or estimate numerically (cheap)
+    # Quick finite difference estimate (cheap if you do it rarely)
+    if step % 50 == 0:
+        eps = 1e-4
+        _, _, _, energy_eps = rk4_step(R, V, psi, dt, kappa + eps)
+        dedk = (energy_eps - energy) / eps
+        if dedk != 0:
+            grad_k = (energy - target_kappa) * dedk
+            kappa = kappa - learning_rate * grad_k
+
+    if step % 100 == 0:
+        print(f"step {step:05d}, energy={energy:.6f}, kappa={kappa:.6f}, loss={loss:.6e}")
