@@ -1,0 +1,104 @@
+# =============================================================================
+# kgirl - Extra/Heavy Optional Dependencies
+# Advanced features: GPU acceleration, heavy embeddings, vector search
+# Updated: January 2025
+# =============================================================================
+
+# First, install runtime dependencies
+-r requirements.txt
+
+# -----------------------------------------------------------------------------
+# Deep Learning & GPU Acceleration
+# -----------------------------------------------------------------------------
+# Install PyTorch with CUDA support for GPU acceleration
+# Note: Adjust the index URL based on your CUDA version
+# For CUDA 11.8:
+torch==2.5.1
+# For CPU-only:
+# torch==2.5.1+cpu -f https://download.pytorch.org/whl/torch_stable.html
+
+# -----------------------------------------------------------------------------
+# Transformer Models & Embeddings
+# -----------------------------------------------------------------------------
+transformers==4.47.1
+tokenizers==0.21.0
+
+# -----------------------------------------------------------------------------
+# Vector Similarity Search Libraries
+# -----------------------------------------------------------------------------
+# FAISS for efficient similarity search
+faiss-cpu==1.9.0.post1
+# For GPU acceleration (requires CUDA):
+# faiss-gpu==1.9.0.post1
+
+# Alternative vector search libraries
+hnswlib==0.8.0
+annoy==1.17.3
+
+# -----------------------------------------------------------------------------
+# Advanced Numerical Computing
+# -----------------------------------------------------------------------------
+# Numba for JIT compilation and acceleration
+numba==0.61.0
+
+# -----------------------------------------------------------------------------
+# Additional Embedding Models
+# -----------------------------------------------------------------------------
+# Hugging Face datasets for model fine-tuning
+datasets==3.2.0
+
+# Open-source multilingual embeddings
+# multilingual-clip==1.0.10
+
+# -----------------------------------------------------------------------------
+# GPU Monitoring & Utilities
+# -----------------------------------------------------------------------------
+# NVIDIA GPU utilities (if using GPU)
+# pynvml==11.5.3
+
+# =============================================================================
+# Installation Instructions
+# =============================================================================
+#
+# Install all extra dependencies:
+#   pip install -r requirements-extra.txt
+#
+# Install specific components:
+#
+# For CPU-only PyTorch:
+#   pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+#
+# For GPU PyTorch (CUDA 11.8):
+#   pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu118
+#
+# For GPU PyTorch (CUDA 12.1):
+#   pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+#
+# For FAISS GPU:
+#   pip install faiss-gpu==1.9.0.post1
+#
+# =============================================================================
+# Performance Notes
+# =============================================================================
+#
+# - PyTorch with CUDA: 10-100x speedup for matrix operations
+# - FAISS GPU: 5-50x speedup for vector similarity search
+# - Sentence transformers with GPU: 3-10x speedup for embedding generation
+# - HNSWLIB: Fast approximate nearest neighbor search (CPU-friendly)
+# - Annoy: Memory-efficient approximate nearest neighbor search
+#
+# =============================================================================
+# System Requirements
+# =============================================================================
+#
+# Minimum:
+#   - RAM: 8 GB
+#   - Disk: 10 GB free space
+#
+# Recommended for GPU acceleration:
+#   - RAM: 16 GB+
+#   - GPU: NVIDIA GPU with 6 GB+ VRAM
+#   - CUDA: 11.8 or 12.1
+#   - Disk: 20 GB+ free space
+#
+# =============================================================================

@@ -276,4 +276,5 @@ HTTP.@register router "POST" "/chaos/rag/query" function(req)
     resp(out)
 end
 
-println("Chaos RAG Julia (single-file) on 0.0.0.0:8081"); HTTP.serve(router, ip"0.0.0.0", 8081)
+const PORT = parse(Int, get(ENV, "CHAOS_RAG_PORT", "8001"))
+println("Chaos RAG Julia (single-file) on 0.0.0.0:$PORT"); HTTP.serve(router, ip"0.0.0.0", PORT)
