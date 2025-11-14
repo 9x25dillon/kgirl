@@ -1,92 +1,89 @@
-# Numbskull - Advanced AI Embedding Pipeline Requirements
-# Core dependencies for the sophisticated multi-modal embedding system
-# Updated: October 2024 - Pinned to latest secure versions
+# =============================================================================
+# kgirl - Runtime Dependencies
+# Core dependencies for running the multi-framework LLM platform
+# Updated: January 2025
+# =============================================================================
 
-# Core scientific computing
-numpy==2.3.3  # Updated from >=1.24.0
-scipy==1.16.2  # Updated from >=1.10.0
+# -----------------------------------------------------------------------------
+# Web Framework & API
+# -----------------------------------------------------------------------------
+fastapi==0.118.3
+uvicorn==0.37.0
+python-multipart==0.0.20
 
-# Mathematical processing
-sympy==1.14.0  # Updated from >=1.12
-matplotlib==3.10.7  # Updated from >=3.7.0
+# -----------------------------------------------------------------------------
+# Pydantic & Settings Management
+# -----------------------------------------------------------------------------
+pydantic==2.12.0
+pydantic-settings==2.7.0
+python-dotenv==1.0.1
 
-# Machine learning
-scikit-learn==1.7.2  # Updated from >=1.3.0
+# -----------------------------------------------------------------------------
+# Scientific Computing & Mathematics
+# -----------------------------------------------------------------------------
+numpy==2.3.3
+scipy==1.16.2
+sympy==1.14.0
 
-# Async HTTP and networking
-httpx==0.28.1  # Updated from >=0.24.0 - includes security fixes
-aiofiles==25.1.0  # Updated from >=23.2.1
+# -----------------------------------------------------------------------------
+# Machine Learning & Embeddings
+# -----------------------------------------------------------------------------
+scikit-learn==1.7.2
+sentence-transformers==3.3.1
+# Note: sentence-transformers is needed for Anthropic embedding fallback
 
-# Database connectivity
-asyncpg==0.30.0  # Updated from >=0.28.0
-psycopg2-binary==2.9.11  # Updated from >=2.9.0 - includes security patches
+# -----------------------------------------------------------------------------
+# LLM Client Libraries
+# -----------------------------------------------------------------------------
+openai==1.59.5
+anthropic==0.42.0
 
-# Data processing
-pandas==2.3.3  # Updated from >=2.0.0
-pydantic==2.12.0  # Updated from >=2.0.0 - includes validation improvements
+# -----------------------------------------------------------------------------
+# HTTP & Networking
+# -----------------------------------------------------------------------------
+httpx==0.28.1
+requests==2.32.3
+aiofiles==25.1.0
 
-# Web framework (for API endpoints)
-fastapi==0.118.3  # Updated from >=0.100.0 - includes security fixes
-uvicorn==0.37.0  # Updated from >=0.23.0 - includes security updates
+# -----------------------------------------------------------------------------
+# Database Connectivity
+# -----------------------------------------------------------------------------
+# Use asyncpg OR psycopg2-binary (not both)
+# asyncpg is recommended for async FastAPI applications
+asyncpg==0.30.0
+# psycopg2-binary==2.9.11  # Uncomment if you prefer psycopg2
 
+# -----------------------------------------------------------------------------
+# Data Processing
+# -----------------------------------------------------------------------------
+pandas==2.3.3
+python-dateutil==2.9.0.post0
+
+# -----------------------------------------------------------------------------
 # Utilities
-python-dateutil==2.9.0.post0  # Updated from >=2.8.0
-python-multipart==0.0.20  # Updated from >=0.0.6
+# -----------------------------------------------------------------------------
+networkx==3.5
 
-# Development and testing
-pytest==8.4.2  # Updated from >=7.4.0
-pytest-asyncio==1.2.0  # Updated from >=0.21.0
-black==25.9.0  # Updated from >=23.0.0
-flake8==7.3.0  # Updated from >=6.0.0
+# -----------------------------------------------------------------------------
+# Optional: Visualization (lightweight)
+# -----------------------------------------------------------------------------
+matplotlib==3.10.7
 
-# Graph/complex networks for emergent modules
-networkx==3.5  # Updated from >=3.1
-
-# Optional dependencies (install separately if needed)
-# sentence-transformers>=2.2.0
-# transformers>=4.30.0
-# torch>=2.0.0
-# faiss-cpu>=1.7.4
-# annoy>=1.17.0
-# hnswlib>=0.7.0
-
-# Numbskull integration - Advanced embedding pipeline
-# Install as editable package from local path
--e /home/kill/numbskull
-
-# Additional dependency for HTTP requests in dual orchestrator
-requests>=2.31.0
-# Core dependencies
-fastapi>=0.104.0
-uvicorn>=0.24.0
-pydantic>=2.5.0
-numpy>=1.24.0
-scipy>=1.11.0
-matplotlib>=3.7.0
-networkx>=3.2.0
-scikit-learn>=1.3.0
-
-# Optional dependencies for enhanced functionality
-plotly>=5.17.0  # For interactive 3D visualizations
-faiss-cpu>=1.7.4  # For vector similarity search (CPU version)
-# faiss-gpu>=1.7.4  # For GPU acceleration (uncomment if GPU available)
-
-# Database
-sqlite3  # Built into Python standard library
-
-# Development and testing
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
-black>=23.0.0
-flake8>=6.0.0
-
-# Documentation
-sphinx>=7.0.0
-sphinx-rtd-theme>=1.3.0
-numpy>=1.21.0
-torch>=1.9.0
-networkx>=2.6.0
-scipy>=1.7.0
-matplotlib>=3.4.0
-seaborn>=0.11.0
-plotly>=5.0.0
+# =============================================================================
+# Installation Instructions
+# =============================================================================
+#
+# Basic installation:
+#   pip install -r requirements.txt
+#
+# Development dependencies:
+#   pip install -r requirements-dev.txt
+#
+# Heavy optional dependencies (embeddings, vector search):
+#   pip install -r requirements-extra.txt
+#
+# Advanced embedding pipeline (Numbskull):
+#   pip install -e ./advanced_embedding_pipeline
+#   (Ensure the directory exists in your repository)
+#
+# =============================================================================

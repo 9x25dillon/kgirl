@@ -414,6 +414,8 @@ Query
 
 ### Environment Variables
 
+**IMPORTANT**: All configuration values, especially service ports, should be defined in your `.env` file. The `.env.example` file serves as the single source of truth for available configuration options.
+
 ```bash
 # API Keys
 OPENAI_API_KEY=sk-...
@@ -431,12 +433,18 @@ ANTHROPIC_CHAT_MODEL=claude-3-5-sonnet-latest
 CENTRAL_CHARGE=627
 N_ANYONS=5
 
-# Service Ports
-MAIN_API_PORT=8000
-CHAOS_RAG_PORT=8001
-LIMPS_PORT=8000
-OLLAMA_PORT=11434
+# Service Ports (all configurable via .env)
+MAIN_API_PORT=8000        # Topological Consensus API (main.py)
+CHAOS_RAG_PORT=8001       # ChaosRAG Julia service (server.jl)
+LIMPS_PORT=8000           # LIMPS Julia service (external)
+OLLAMA_PORT=11434         # Ollama LLM service
 ```
+
+**Port Configuration Notes:**
+- All services read their ports from environment variables
+- To change ports, update your `.env` file (copy from `.env.example`)
+- The services will automatically use the configured ports on startup
+- Default values are provided if environment variables are not set
 
 ### Model Configuration Files
 
