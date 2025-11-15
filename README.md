@@ -3,8 +3,21 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
 [![Julia](https://img.shields.io/badge/Julia-1.9%2B-purple)](https://julialang.org/)
+[![Local LLM](https://img.shields.io/badge/Local_LLM-Ollama-green)](https://ollama.ai)
+[![No API Keys](https://img.shields.io/badge/No_API_Keys_Required-✓-brightgreen)](#-local-llm-setup-no-api-keys)
 
 A production-ready, multi-framework LLM knowledge processing platform that combines quantum-inspired architectures, GPU-accelerated optimization, chaos-aware routing, and topological consensus for advanced AI reasoning.
+
+## 🚀 Now with Local LLM Support - No API Keys Required!
+
+**NEW:** Run kgirl completely locally using [Ollama](https://ollama.ai) - no cloud APIs, no costs, no API keys!
+
+- ✅ **100% Free** - No API keys or subscriptions needed
+- 🔒 **Privacy First** - Your data never leaves your machine
+- ⚡ **Fast** - Local inference, no network latency
+- 📴 **Offline** - Works without internet connection
+
+**[→ Quick Local Setup Guide](LOCAL_LLM_SETUP.md)**
 
 ## Overview
 
@@ -171,8 +184,44 @@ Integrates four major frameworks for comprehensive knowledge processing.
 
 ## Installation
 
-### Prerequisites
+### 🚀 Local LLM Setup (No API Keys)
+
+**Recommended for most users - completely free!**
+
 ```bash
+# 1. Install Ollama
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# 2. Start Ollama
+ollama serve  # Keep this running in a terminal
+
+# 3. Pull models (in a new terminal)
+ollama pull qwen2.5:3b        # Chat model (~2GB)
+ollama pull nomic-embed-text  # Embedding model (~270MB)
+
+# 4. Clone repository
+git clone https://github.com/9x25dillon/kgirl.git
+cd kgirl
+
+# 5. Install Python dependencies
+pip install -r requirements.txt
+
+# 6. Set up environment (already configured for local!)
+cp .env.example .env
+# No API keys needed - defaults to Ollama!
+
+# 7. Start kgirl
+python main.py
+```
+
+**That's it!** Your local LLM is ready. [Full local setup guide →](LOCAL_LLM_SETUP.md)
+
+### Cloud API Setup (Optional)
+
+If you prefer to use cloud APIs (OpenAI, Anthropic):
+
+```bash
+# Prerequisites
 # Python 3.10+
 python --version
 
@@ -182,36 +231,29 @@ julia --version
 # PostgreSQL with pgvector
 psql --version
 
-# Ollama (for local LLM)
-ollama --version
-```
-
-### Quick Install
-
-```bash
-# Clone repository
+# Quick Install
 git clone https://github.com/9x25dillon/kgirl.git
 cd kgirl
-
-# Install Python dependencies
 pip install -r requirements.txt
 
-# Set up environment variables
+# Uncomment cloud API libraries in requirements.txt:
+# openai==1.59.5
+# anthropic==0.42.0
+pip install openai anthropic
+
+# Configure for cloud APIs in .env:
 cp .env.example .env
-# Edit .env with your API keys:
+# Set your API keys:
 #   OPENAI_API_KEY=sk-...
 #   ANTHROPIC_API_KEY=sk-ant-...
-#   DATABASE_URL=postgres://user:pass@localhost:5432/chaos
-
-# Install Julia dependencies
-julia --project -e 'using Pkg; Pkg.add.(["HTTP","JSON3","LibPQ","DSP","UUIDs","Interpolations"])'
+#   MODELS=openai:chat=gpt-4o-mini,embed=text-embedding-3-large
 
 # Set up PostgreSQL database
 createdb chaos
 psql chaos -c "CREATE EXTENSION vector;"
 
-# Pull Ollama models (optional)
-ollama pull qwen2.5:3b
+# Install Julia dependencies
+julia --project -e 'using Pkg; Pkg.add.(["HTTP","JSON3","LibPQ","DSP","UUIDs","Interpolations"])'
 ```
 
 ### Optional: Clone External Frameworks
@@ -225,6 +267,31 @@ git clone https://github.com/9x25dillon/NuRea_sim.git
 ```
 
 ## Quick Start
+
+### 🚀 Local LLM Quick Start
+
+**Fastest way to get started (5 minutes, no API keys):**
+
+```bash
+# Terminal 1: Start Ollama
+ollama serve
+
+# Terminal 2: Start kgirl
+python main.py
+
+# Terminal 3: Test it!
+python test_local_llm.py
+```
+
+Or use the **one-command startup**:
+
+```bash
+./START_NOW.sh
+```
+
+See [LOCAL_LLM_SETUP.md](LOCAL_LLM_SETUP.md) for detailed instructions.
+
+### ☁️ Cloud API Quick Start
 
 ### 1. Start Core Services
 

@@ -26,6 +26,12 @@ try:
 except Exception:  # optional dependency
     SentenceTransformer = None  # type: ignore
 
+# ----- Ollama client for local LLM -----
+try:
+    import ollama
+except Exception:  # optional dependency
+    ollama = None  # type: ignore
+
 
 # ----- Adapters -----
 class BaseAdapter:
@@ -95,6 +101,57 @@ class AnthropicAdapter(BaseAdapter):
         if self.embedder is not None:
             return np.asarray(self.embedder.encode(text), dtype=np.float64)
         raise RuntimeError("No embedder available for AnthropicAdapter")
+
+
+class OllamaAdapter(BaseAdapter):
+    """Local LLM adapter using Ollama - no API keys required!"""
+
+    def __init__(
+        self,
+        chat_model: str = "qwen2.5:3b",
+        embed_model: str = "nomic-embed-text",
+        host: str = "http://localhost:11434",
+        embedder: Optional[Any] = None,
+    ):
+        if ollama is None:
+            raise RuntimeError("ollama package not installed. Install with: pip install ollama")
+
+        self.chat_model = chat_model
+        self.embed_model = embed_model
+        self.host = host
+        self.embedder = embedder  # fallback to sentence-transformers if Ollama embedding fails
+        self.name = f"ollama:{chat_model}"
+
+        # Configure ollama client with custom host if needed
+        if host != "http://localhost:11434":
+            import os
+            os.environ["OLLAMA_HOST"] = host
+
+    def generate(self, prompt: str) -> str:
+        try:
+            response = ollama.chat(
+                model=self.chat_model,
+                messages=[{"role": "user", "content": prompt}],
+                options={"temperature": 0.2}
+            )
+            return response["message"]["content"]
+        except Exception as e:
+            raise RuntimeError(f"Ollama generation failed: {e}. Is Ollama running?")
+
+    def embed(self, text: str) -> np.ndarray:
+        # Try Ollama embedding first
+        try:
+            response = ollama.embeddings(model=self.embed_model, prompt=text)
+            return np.array(response["embedding"], dtype=np.float64)
+        except Exception:
+            # Fallback to sentence-transformers if available
+            if self.embedder is not None:
+                return np.asarray(self.embedder.encode(text), dtype=np.float64)
+            # If no embedder available, raise error
+            raise RuntimeError(
+                f"Ollama embedding failed and no fallback embedder available. "
+                f"Pull the embedding model with: ollama pull {self.embed_model}"
+            )
 
 
 # ----- Coherence & Energy helpers -----
@@ -179,17 +236,31 @@ def quantize_trinary(vec: np.ndarray, threshold: float = 0.25) -> np.ndarray:
 
 # ----- Settings & App -----
 class Settings(BaseSettings):
+    # API Keys (optional - only needed for cloud providers)
     openai_api_key: Optional[str] = os.getenv("OPENAI_API_KEY")
     anthropic_api_key: Optional[str] = os.getenv("ANTHROPIC_API_KEY")
 
+    # Cloud LLM Models
     openai_chat_model: str = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
     openai_embed_model: str = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-large")
     anthropic_chat_model: str = os.getenv("ANTHROPIC_CHAT_MODEL", "claude-3-5-sonnet-latest")
 
+    # Ollama (Local) Configuration
+    ollama_chat_model: str = os.getenv("OLLAMA_CHAT_MODEL", "qwen2.5:3b")
+    ollama_embed_model: str = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+    ollama_host: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+    # Use local LLMs by default (set to "true" to use Ollama, "false" for cloud APIs)
+    use_local_llm: bool = os.getenv("USE_LOCAL_LLM", "true").lower() == "true"
+
+    # Multi-Model Pool Configuration
+    # Default to Ollama for local-first operation
+    # To use cloud providers: MODELS="openai:chat=gpt-4o-mini,embed=text-embedding-3-large|anthropic:chat=claude-3-5-sonnet-latest"
     models: str = os.getenv(
-        "MODELS", "openai:chat=gpt-4o-mini,embed=text-embedding-3-large"
+        "MODELS", "ollama:chat=qwen2.5:3b,embed=nomic-embed-text"
     )
 
+    # Topological Parameters
     central_charge: int = int(os.getenv("CENTRAL_CHARGE", "627"))
     n_anyons: int = int(os.getenv("N_ANYONS", "5"))
 
@@ -207,33 +278,98 @@ def _startup() -> None:
     global g_model_pool
     g_model_pool = []
 
-    # parse MODELS var like: "openai:chat=...,embed=...|anthropic:chat=..."
+    # Load sentence-transformers for embedding fallback
+    st = None
+    if SentenceTransformer:
+        try:
+            st = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+            print("✓ Loaded sentence-transformers for embedding fallback")
+        except Exception as e:
+            print(f"⚠ Failed to load sentence-transformers: {e}")
+
+    # parse MODELS var like: "ollama:chat=...,embed=...|openai:chat=...|anthropic:chat=..."
     groups = [p.strip() for p in settings.models.split("|") if p.strip()]
     openai_embed_adapter: Optional[OpenAIAdapter] = None
-
-    # optional ST embedder for Anthropic
-    st = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2") if SentenceTransformer else None
 
     for g in groups:
         if ":" not in g:
             continue
         kind, spec = g.split(":", 1)
         kv = dict(item.split("=", 1) for item in spec.split(",") if "=" in item)
-        if kind == "openai":
+
+        if kind == "ollama":
+            # LOCAL LLM - No API keys needed!
+            chat = kv.get("chat", settings.ollama_chat_model)
+            emb = kv.get("embed", settings.ollama_embed_model)
+            host = kv.get("host", settings.ollama_host)
+            try:
+                ol = OllamaAdapter(
+                    chat_model=chat,
+                    embed_model=emb,
+                    host=host,
+                    embedder=st,
+                )
+                g_model_pool.append(ol)
+                print(f"✓ Loaded Ollama adapter: {chat} (local, no API key required)")
+            except Exception as e:
+                print(f"⚠ Failed to initialize Ollama adapter: {e}")
+                print(f"  Make sure Ollama is running: ollama serve")
+                print(f"  And models are pulled: ollama pull {chat} && ollama pull {emb}")
+
+        elif kind == "openai":
+            # Cloud API - requires API key
+            if not settings.openai_api_key:
+                print(f"⚠ Skipping OpenAI adapter: OPENAI_API_KEY not set")
+                continue
             chat = kv.get("chat", settings.openai_chat_model)
             emb = kv.get("embed", settings.openai_embed_model)
-            oa = OpenAIAdapter(chat_model=chat, embed_model=emb, api_key=settings.openai_api_key)
-            g_model_pool.append(oa)
-            openai_embed_adapter = oa
+            try:
+                oa = OpenAIAdapter(chat_model=chat, embed_model=emb, api_key=settings.openai_api_key)
+                g_model_pool.append(oa)
+                openai_embed_adapter = oa
+                print(f"✓ Loaded OpenAI adapter: {chat}")
+            except Exception as e:
+                print(f"⚠ Failed to initialize OpenAI adapter: {e}")
+
         elif kind == "anthropic":
+            # Cloud API - requires API key
+            if not settings.anthropic_api_key:
+                print(f"⚠ Skipping Anthropic adapter: ANTHROPIC_API_KEY not set")
+                continue
             chat = kv.get("chat", settings.anthropic_chat_model)
-            an = AnthropicAdapter(
-                chat_model=chat,
-                api_key=settings.anthropic_api_key,
-                embedder=st,
-                openai_embed_fallback=openai_embed_adapter,
-            )
-            g_model_pool.append(an)
+            try:
+                an = AnthropicAdapter(
+                    chat_model=chat,
+                    api_key=settings.anthropic_api_key,
+                    embedder=st,
+                    openai_embed_fallback=openai_embed_adapter,
+                )
+                g_model_pool.append(an)
+                print(f"✓ Loaded Anthropic adapter: {chat}")
+            except Exception as e:
+                print(f"⚠ Failed to initialize Anthropic adapter: {e}")
+
+    if not g_model_pool:
+        print("\n" + "="*60)
+        print("⚠ WARNING: No models configured!")
+        print("="*60)
+        print("\nTo use LOCAL models (recommended, no API keys needed):")
+        print("  1. Install Ollama: https://ollama.ai")
+        print("  2. Start Ollama: ollama serve")
+        print("  3. Pull models:")
+        print("     ollama pull qwen2.5:3b")
+        print("     ollama pull nomic-embed-text")
+        print("  4. Set in .env: MODELS=ollama:chat=qwen2.5:3b,embed=nomic-embed-text")
+        print("\nTo use CLOUD APIs (requires API keys):")
+        print("  1. Set API keys in .env:")
+        print("     OPENAI_API_KEY=sk-...")
+        print("     ANTHROPIC_API_KEY=sk-ant-...")
+        print("  2. Set MODELS in .env (example):")
+        print("     MODELS=openai:chat=gpt-4o-mini,embed=text-embedding-3-large")
+        print("="*60 + "\n")
+    else:
+        print(f"\n✓ Successfully loaded {len(g_model_pool)} model adapter(s)")
+        print(f"  Models: {[m.name for m in g_model_pool]}\n")
 
 
 # ----- Schemas -----
