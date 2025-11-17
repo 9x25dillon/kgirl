@@ -175,6 +175,105 @@ class OpenAIAdapter(LLMAdapter):
         return r.text
 
 
+class OllamaAdapter(LLMAdapter):
+    """
+    Adapter for Ollama local LLM service
+    Connects to Ollama's API for local, privacy-friendly LLM inference
+    No API keys required!
+    """
+    def __init__(self, model: str = "qwen2.5:3b", host: str = "http://localhost:11434", timeout: float = 30.0):
+        self.model = model
+        self.host = host.rstrip('/')
+        self.timeout = timeout
+        self.endpoint = f"{self.host}/api/generate"
+
+    async def generate(self, prompt: str, max_tokens: int = 512, temperature: float = 0.7, stream: bool = False):
+        """
+        Generate text using Ollama
+
+        Args:
+            prompt: Input text prompt
+            max_tokens: Maximum tokens to generate (maps to num_predict in Ollama)
+            temperature: Sampling temperature
+            stream: Whether to stream response
+
+        Returns:
+            Generated text string or async generator if streaming
+        """
+        payload = {
+            'model': self.model,
+            'prompt': prompt,
+            'stream': stream,
+            'options': {
+                'temperature': temperature,
+                'num_predict': max_tokens
+            }
+        }
+
+        loop = asyncio.get_event_loop()
+
+        def _call():
+            return requests.post(self.endpoint, json=payload, timeout=self.timeout, stream=stream)
+
+        if stream:
+            q = asyncio.Queue()
+
+            def _reader():
+                try:
+                    r = _call()
+                    r.raise_for_status()
+                    for line in r.iter_lines():
+                        if not line:
+                            continue
+                        try:
+                            chunk_json = json.loads(line)
+                            if 'response' in chunk_json:
+                                text = chunk_json['response']
+                                loop.call_soon_threadsafe(q.put_nowait, text)
+                            if chunk_json.get('done', False):
+                                loop.call_soon_threadsafe(q.put_nowait, None)
+                                break
+                        except json.JSONDecodeError:
+                            continue
+                except Exception as e:
+                    print(f"Ollama streaming error: {e}")
+                    loop.call_soon_threadsafe(q.put_nowait, None)
+
+            t = threading.Thread(target=_reader, daemon=True)
+            t.start()
+
+            async def _aiter():
+                while True:
+                    chunk = await q.get()
+                    if chunk is None:
+                        break
+                    yield chunk
+
+            return _aiter()
+
+        # Non-streaming
+        try:
+            r = await loop.run_in_executor(None, _call)
+            r.raise_for_status()
+
+            # Ollama returns newline-delimited JSON
+            full_response = ""
+            for line in r.text.strip().split('\n'):
+                if line:
+                    try:
+                        chunk_json = json.loads(line)
+                        if 'response' in chunk_json:
+                            full_response += chunk_json['response']
+                    except json.JSONDecodeError:
+                        continue
+
+            return full_response if full_response else r.text
+        except requests.exceptions.ConnectionError:
+            raise RuntimeError(f"Cannot connect to Ollama at {self.host}. Is Ollama running? (ollama serve)")
+        except Exception as e:
+            raise RuntimeError(f"Ollama generation failed: {e}")
+
+
 class LocalSubprocessAdapter(LLMAdapter):
     """Lightweight example adapter that shells out to a local command (simulates ggml/llama.cpp).
 

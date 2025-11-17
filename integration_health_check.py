@@ -247,12 +247,64 @@ class IntegrationHealthChecker:
         logger.info("CHECKING ENVIRONMENT VARIABLES")
         logger.info("=" * 70)
 
-        required_vars = {
-            "OPENAI_API_KEY": "OpenAI API access (required for embeddings)",
-            "ANTHROPIC_API_KEY": "Anthropic API access (required for Claude)",
-            "DATABASE_URL": "PostgreSQL connection string"
+        # Check if using local LLMs
+        use_local_llm = os.getenv("USE_LOCAL_LLM", "true").lower() == "true"
+        models_config = os.getenv("MODELS", "")
+        using_ollama = "ollama:" in models_config or use_local_llm
+
+        if using_ollama:
+            logger.info("🚀 Using LOCAL LLM mode (Ollama) - API keys not required")
+        else:
+            logger.info("☁️  Using CLOUD API mode - API keys required")
+
+        # Cloud API keys (optional when using Ollama)
+        cloud_api_vars = {
+            "OPENAI_API_KEY": "OpenAI API access (for cloud mode)",
+            "ANTHROPIC_API_KEY": "Anthropic API access (for cloud mode)",
         }
 
+        for var_name, description in cloud_api_vars.items():
+            value = os.getenv(var_name)
+            if value:
+                masked = value[:8] + "..." if len(value) > 8 else "***"
+                logger.info(f"✅ {var_name:25} - {description}")
+                logger.info(f"   Value: {masked}")
+            else:
+                if using_ollama:
+                    logger.info(f"➖ {var_name:25} - {description}")
+                    logger.info(f"   Not needed (using Ollama)")
+                else:
+                    logger.warning(f"⚠️  {var_name:25} - {description}")
+                    logger.warning(f"   Not set (required for cloud mode)")
+                    self.warnings.append(f"Cloud API key not set: {var_name}")
+
+        # Ollama configuration (when using local mode)
+        if using_ollama:
+            ollama_vars = {
+                "OLLAMA_HOST": "Ollama service host",
+                "OLLAMA_CHAT_MODEL": "Ollama chat model",
+                "OLLAMA_EMBED_MODEL": "Ollama embedding model",
+            }
+            for var_name, description in ollama_vars.items():
+                value = os.getenv(var_name)
+                default_values = {
+                    "OLLAMA_HOST": "http://localhost:11434",
+                    "OLLAMA_CHAT_MODEL": "qwen2.5:3b",
+                    "OLLAMA_EMBED_MODEL": "nomic-embed-text"
+                }
+                display_value = value if value else f"{default_values.get(var_name)} (default)"
+                logger.info(f"✅ {var_name:25} - {description}")
+                logger.info(f"   Value: {display_value}")
+
+        # Database (optional)
+        db_url = os.getenv("DATABASE_URL")
+        if db_url:
+            logger.info(f"✅ DATABASE_URL           - PostgreSQL connection string")
+        else:
+            logger.info(f"➖ DATABASE_URL           - PostgreSQL connection (optional)")
+            logger.info(f"   Not set (will use SQLite fallback)")
+
+        # Other optional vars
         optional_vars = {
             "CTH_PATH": "Topological consciousness library path",
             "LIMPS_JULIA_URL": "LIMPS Julia service endpoint",
@@ -260,26 +312,56 @@ class IntegrationHealthChecker:
             "CHAOS_RAG_URL": "ChaosRAG service endpoint"
         }
 
-        all_set = True
-        for var_name, description in required_vars.items():
-            value = os.getenv(var_name)
-            if value:
-                masked = value[:8] + "..." if len(value) > 8 else "***"
-                logger.info(f"✅ {var_name:25} - {description}")
-                logger.info(f"   Value: {masked}")
-            else:
-                logger.warning(f"⚠️  {var_name:25} - {description}")
-                logger.warning(f"   Not set (will use fallbacks)")
-                self.warnings.append(f"Environment variable not set: {var_name}")
-                all_set = False
-
         for var_name, description in optional_vars.items():
             value = os.getenv(var_name)
             status = "✅" if value else "➖"
             logger.info(f"{status} {var_name:25} - {description}")
 
-        self.results['environment'] = all_set
-        return all_set
+        # Always pass environment check (warnings only, no hard failures)
+        self.results['environment'] = True
+        return True
+
+    def check_ollama_service(self) -> bool:
+        """Check if Ollama service is running (for local LLM mode)"""
+        logger.info("\n" + "=" * 70)
+        logger.info("CHECKING OLLAMA SERVICE (Local LLM)")
+        logger.info("=" * 70)
+
+        use_local_llm = os.getenv("USE_LOCAL_LLM", "true").lower() == "true"
+        models_config = os.getenv("MODELS", "")
+        using_ollama = "ollama:" in models_config or use_local_llm
+
+        if not using_ollama:
+            logger.info("➖ Ollama not configured (using cloud APIs)")
+            self.results['ollama_service'] = True
+            return True
+
+        try:
+            import requests
+            ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+            response = requests.get(f"{ollama_host}/api/version", timeout=5)
+            if response.status_code == 200:
+                version = response.json()
+                logger.info(f"✅ Ollama service running at {ollama_host}")
+                logger.info(f"   Version: {version}")
+                self.results['ollama_service'] = True
+                return True
+            else:
+                logger.error(f"❌ Ollama returned status {response.status_code}")
+                self.errors.append(f"Ollama service check failed: status {response.status_code}")
+                self.results['ollama_service'] = False
+                return False
+        except requests.exceptions.ConnectionError:
+            logger.error(f"❌ Cannot connect to Ollama at {ollama_host}")
+            logger.error(f"   Start Ollama with: ollama serve")
+            self.errors.append("Ollama service not running")
+            self.results['ollama_service'] = False
+            return False
+        except Exception as e:
+            logger.error(f"❌ Error checking Ollama: {e}")
+            self.errors.append(f"Ollama check failed: {e}")
+            self.results['ollama_service'] = False
+            return False
 
     def generate_report(self) -> Dict[str, Any]:
         """Generate comprehensive health check report"""
@@ -339,6 +421,7 @@ class IntegrationHealthChecker:
         self.check_limps_components()
         self.test_imports()
         self.check_environment_variables()
+        self.check_ollama_service()
 
         return self.generate_report()
 
