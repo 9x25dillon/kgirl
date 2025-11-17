@@ -5,6 +5,34 @@ This document provides comprehensive API reference documentation for the kgirl p
 1. **Topological Consensus API** - Multi-model LLM consensus with topological coherence (`main.py`)
 2. **ChaosRAG API** - Chaos-aware retrieval-augmented generation (`server.jl`)
 
+## 🚀 Local LLM Support
+
+**NEW:** kgirl now supports local LLMs via [Ollama](https://ollama.ai) - **no API keys required!**
+
+### Quick Configuration
+
+**Local only (default - no API keys):**
+```bash
+# .env
+MODELS=ollama:chat=qwen2.5:3b,embed=nomic-embed-text
+```
+
+**Cloud APIs:**
+```bash
+# .env
+MODELS=openai:chat=gpt-4o-mini,embed=text-embedding-3-large
+OPENAI_API_KEY=sk-...
+```
+
+**Hybrid (local + cloud consensus):**
+```bash
+# .env
+MODELS=ollama:chat=qwen2.5:3b,embed=nomic-embed-text|openai:chat=gpt-4o-mini,embed=text-embedding-3-large
+OPENAI_API_KEY=sk-...
+```
+
+See [LOCAL_LLM_SETUP.md](LOCAL_LLM_SETUP.md) for complete setup guide.
+
 ---
 
 ## Table of Contents
@@ -30,16 +58,38 @@ This document provides comprehensive API reference documentation for the kgirl p
 
 The Topological Consensus API provides multi-model LLM consensus using topological mathematics to measure coherence and detect hallucinations.
 
+**🚀 Now supports local LLMs via Ollama - no API keys required!**
+
 ### GET /health
 
 Health check endpoint to verify service status.
 
-**Response**
+**Response (Local LLM mode)**
+
+```json
+{
+  "ok": true,
+  "models": ["ollama:qwen2.5:3b"],
+  "cth": false
+}
+```
+
+**Response (Cloud API mode)**
 
 ```json
 {
   "ok": true,
   "models": ["openai:gpt-4o-mini", "anthropic:claude-3-5-sonnet-latest"],
+  "cth": false
+}
+```
+
+**Response (Hybrid mode - local + cloud)**
+
+```json
+{
+  "ok": true,
+  "models": ["ollama:qwen2.5:3b", "openai:gpt-4o-mini"],
   "cth": false
 }
 ```
@@ -58,7 +108,17 @@ Health check endpoint to verify service status.
 
 Get current system configuration and parameters.
 
-**Response**
+**Response (Local LLM)**
+
+```json
+{
+  "central_charge": 627,
+  "n_anyons": 5,
+  "models": ["ollama:qwen2.5:3b"]
+}
+```
+
+**Response (Cloud API)**
 
 ```json
 {
@@ -74,7 +134,7 @@ Get current system configuration and parameters.
 |-------|------|-------------|
 | `central_charge` | integer | Central charge for topological field theory |
 | `n_anyons` | integer | Number of anyons for phase coherence |
-| `models` | array[string] | Configured model pool |
+| `models` | array[string] | Configured model pool (ollama:*, openai:*, anthropic:*) |
 
 ---
 

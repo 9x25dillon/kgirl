@@ -37,7 +37,7 @@ class HTTPConfig:
     api_key: Optional[str] = None
     model: Optional[str] = None
     timeout: int = 60
-    mode: str = "openai-chat"  # ["openai-chat","openai-completions","llama-cpp","textgen-webui"]
+    mode: str = "openai-chat"  # ["openai-chat","openai-completions","llama-cpp","textgen-webui","ollama"]
     verify_ssl: bool = True
     max_retries: int = 2
     retry_delay: float = 0.8
@@ -142,12 +142,48 @@ class LocalLLM(BaseLLM):
         elif mode == "textgen-webui":
             url = f"{cfg.base_url.rstrip('/')}/api/v1/generate"
             body = {
-                "prompt": prompt, 
-                "max_new_tokens": kwargs.get("max_tokens", 512), 
+                "prompt": prompt,
+                "max_new_tokens": kwargs.get("max_tokens", 512),
                 "temperature": kwargs.get("temperature", 0.7)
             }
             data = self._post(cfg, url, {}, body)
             return data.get("results", [{}])[0].get("text", "")
+
+        elif mode == "ollama":
+            # Ollama local LLM - no API keys needed!
+            url = f"{cfg.base_url.rstrip('/')}/api/generate"
+            body = {
+                "model": cfg.model or "qwen2.5:3b",
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": kwargs.get("temperature", 0.7),
+                    "num_predict": kwargs.get("max_tokens", 512)
+                }
+            }
+            # Ollama doesn't require API key
+            headers = {"Content-Type": "application/json"}
+
+            try:
+                response = requests.post(url, json=body, headers=headers, timeout=cfg.timeout)
+                response.raise_for_status()
+
+                # Ollama returns newline-delimited JSON
+                full_response = ""
+                for line in response.text.strip().split('\n'):
+                    if line:
+                        try:
+                            chunk_json = json.loads(line)
+                            if 'response' in chunk_json:
+                                full_response += chunk_json['response']
+                        except json.JSONDecodeError:
+                            continue
+
+                return full_response if full_response else response.text
+            except requests.exceptions.ConnectionError:
+                raise RuntimeError(f"Cannot connect to Ollama at {cfg.base_url}. Is Ollama running? (ollama serve)")
+            except Exception as e:
+                raise RuntimeError(f"Ollama generation failed: {e}")
             
         else:
             raise ValueError(f"Unsupported mode: {mode}")
