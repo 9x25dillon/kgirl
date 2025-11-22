@@ -17,7 +17,23 @@ A production-ready, multi-framework LLM knowledge processing platform that combi
 - ⚡ **Fast** - Local inference, no network latency
 - 📴 **Offline** - Works without internet connection
 
-**[→ Quick Local Setup Guide](LOCAL_LLM_SETUP.md)**
+**[→ Quick Local Setup Guide](docs/guides/LOCAL_LLM_SETUP.md)**
+
+## 📁 Repository Organization
+
+This repository has been reorganized for better clarity and maintainability:
+- **`src/kgirl/`** - Main Python package (core, quantum, cognitive, llm, neural, api, utils)
+- **`src/julia/`** - Julia source code
+- **`docs/`** - All documentation (guides, integration, technical, api)
+- **`scripts/`** - Executable scripts (setup, demo, workflows)
+- **`configs/`** - Configuration files
+- **`tests/`** - Test files
+- **`examples/`** - Example usage
+- **`research/`** - Papers and LaTeX files
+- **`data/`** - Data files and databases
+- **`frontend/`** - Frontend components
+
+**[→ Full Organization Guide](ORGANIZATION.md)**
 
 ## Overview
 
@@ -66,7 +82,7 @@ A production-ready, multi-framework LLM knowledge processing platform that combi
 
 ## Core Components
 
-### 1. Topological Consensus API (`main.py`)
+### 1. Topological Consensus API (`src/kgirl/main.py`)
 
 FastAPI server providing multi-model LLM consensus with topological mathematics.
 
