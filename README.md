@@ -19,6 +19,21 @@ A production-ready, multi-framework LLM knowledge processing platform that combi
 
 **[→ Quick Local Setup Guide](docs/guides/LOCAL_LLM_SETUP.md)**
 
+## 🧭 Harness: repo-aware coding assistant (Atlas · Soup · Hermes · Jev)
+
+`src/kgirl/harness/` indexes all your repositories *structurally* (symbols, imports, clones), answers
+questions with `repo:path:line` citations, computes cross-repo **blast radius**, and runs sandboxed
+swarms of cheap "Meeseeks" agents (Jev) whose verified wins are distilled into a shared memory pool
+(Soup). Claude handles retrieval/summaries; local Ollama models handle code edits. Also exposed to
+Claude Code as an MCP server (`.mcp.json`).
+
+```bash
+PYTHONPATH=src python -m kgirl.harness index . 9x25dillon/numbskull
+PYTHONPATH=src python -m kgirl.harness blast src/kgirl/llm/llm_adapters.py
+```
+
+**[→ Harness guide](docs/harness/README.md)** · **[→ Cross-repo atlas report](docs/harness/ATLAS_REPORT.md)**
+
 ## 📁 Repository Organization
 
 This repository has been reorganized for better clarity and maintainability:
