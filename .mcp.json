@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "kgirl": {
+      "command": "python3",
+      "args": ["-m", "kgirl.harness", "mcp"],
+      "env": { "PYTHONPATH": "src" }
+    }
+  }
+}
