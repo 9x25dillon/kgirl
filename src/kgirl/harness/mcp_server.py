@@ -20,7 +20,6 @@ from .assistant import Assistant
 from .atlas import architecture_card, blast_radius, coupling, render_card
 
 PROTOCOL_VERSION = "2025-06-18"
-MIN_FORGE_SUPPORT, MIN_FORGE_UTILITY = 2, 0.5
 
 
 def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
@@ -98,10 +97,10 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
         return "\n".join(rows)
 
     def skills_forge(p):
-        from .skills import forge
+        from .skills import MIN_SUPPORT, MIN_UTILITY, forge
         # floors: a caller may raise the bar, never lower it below the CLI defaults (KFM-11)
-        sk = forge(a.soup, max(MIN_FORGE_SUPPORT, int(p.get("min_support", MIN_FORGE_SUPPORT))),
-                   max(MIN_FORGE_UTILITY, float(p.get("min_utility", MIN_FORGE_UTILITY))))
+        sk = forge(a.soup, max(MIN_SUPPORT, int(p.get("min_support", MIN_SUPPORT))),
+                   max(MIN_UTILITY, float(p.get("min_utility", MIN_UTILITY))))
         return "\n".join(f"{s.name} (support {s.support}, utility {s.utility:.2f}, {s.scope}): {s.shape()}"
                          for s in sk) or "no routine has enough verified support yet"
 

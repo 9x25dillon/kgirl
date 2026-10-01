@@ -37,6 +37,7 @@ _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _STOP = frozenset("a an and the to of in on for is it be make makes made fix fixes when with this that "
                   "pass passes wrong bug please should".split())
 GOAL_CAP, ARG_CAP, PATH_CAP = 200, 120, 160
+MIN_SUPPORT, MIN_UTILITY = 2, 0.5      # defaults, and the floors MCP callers cannot go below
 
 
 @dataclass
@@ -119,7 +120,7 @@ def _name(goals: list[str], files: list[str]) -> str:
     return re.sub(r"[^a-z0-9-]+", "-", name.lower())
 
 
-def forge(soup: Soup, min_support: int = 2, min_utility: float = 0.5, store: bool = True) -> list[Skill]:
+def forge(soup: Soup, min_support: int = MIN_SUPPORT, min_utility: float = MIN_UTILITY, store: bool = True) -> list[Skill]:
     groups: dict[tuple, list] = defaultdict(list)
     for f in soup.all(status="active", kind="trajectory"):     # staged/retired runs carry no forging weight
         if not f.data:
