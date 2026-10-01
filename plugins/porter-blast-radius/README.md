@@ -92,8 +92,8 @@ The self-model's top residual risk isn't a security risk. It is **reading an inc
 ## Tests
 
 ```sh
-node --test test/*.test.mjs                                            # 66 tests; the kgirl contract test skips without KGIRL_SRC
-KGIRL_SRC=/path/to/kgirl/src node --test test/atlas.test.mjs           # also runs kgirl's own indexer and blast radius
+node --test test/*.test.mjs                                            # 71 tests; the 2 kgirl contract tests skip without KGIRL_SRC
+KGIRL_SRC=/path/to/kgirl/src node --test test/atlas.test.mjs test/kgirl-model.test.mjs  # kgirl indexer, blast radius and MCP tool names
 ```
 
 The protocol follows the MCP TypeScript SDK 1.31.0:
