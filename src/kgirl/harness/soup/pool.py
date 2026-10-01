@@ -32,7 +32,7 @@ from pathlib import Path
 
 from ..util import estimate_tokens, fts_query, harness_home, jaccard, now, search_terms, sha1, shingles
 
-KINDS = ("fact", "abstraction", "trajectory", "preference", "antipattern", "note")
+KINDS = ("fact", "abstraction", "trajectory", "preference", "antipattern", "note", "skill")
 STATUSES = ("staged", "active", "retired")
 
 SCHEMA = """

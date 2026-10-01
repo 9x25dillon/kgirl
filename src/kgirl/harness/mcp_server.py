@@ -89,8 +89,44 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
         res = a.task(p["goal"], p["repo_path"], cmd, size=int(p.get("size", 3)), apply=apply)
         return res.render()
 
+    def ecl_quantify(p):
+        from ..nihiline import calibration as cal
+        mode = p.get("mode", "conc")
+        rows = [cal.quantify(m, float(p[k]), mode) for m, k in (("CEA", "cea"), ("AFP", "afp")) if p.get(k) is not None]
+        if not rows:
+            raise ValueError("give cea and/or afp ECL intensities")
+        return "\n".join(f"{q.marker}: {q.signal:.1f} a.u. → {q.value:.4g} {q.unit} [{q.flag}] (scar {q.scar} a.u.)"
+                         for q in rows)
+
+    def ecl_protocol(p):
+        from ..nihiline.protocol import run_protocol
+        return run_protocol({"CEA": float(p.get("cea_cells_per_ml", 1e4)), "AFP": float(p.get("afp_cells_per_ml", 1e4))},
+                            tpa_mM=float(p.get("tpa_mM", 50.0)), f_nihil=p.get("f_nihil")).render()
+
+    def ecl_gap(p):
+        from ..nihiline.amplification import chain
+        return "\n\n".join(chain(m).render() for m in ([p["marker"]] if p.get("marker") else ["CEA", "AFP"]))
+
+    def evolve_assay(p):
+        from ..evolve.problems.assay import baseline, evolve
+        me = evolve(int(p.get("generations", 30)), int(p.get("batch", 48)), float(p.get("seed", 0.4123)))
+        base, champ, last = baseline(), me.champion(), me.history[-1]
+        keys = ("tpa_mM", "ru_mM", "probe_ug_ml", "drive_V", "f_nihil", "period_s", "viability", "sensitivity",
+                "lod_CEA", "lod_AFP")
+        rows = [f"coverage {last.coverage:.0%}, QD-score {last.qd_score:.2f}, champion {champ.fitness:.3f} "
+                f"(patent default, continuous drive: {base.fitness:.3f}); stepping stones {me.stepping_stones()}"]
+        for e in me.elites()[:int(p.get("top", 5))]:
+            rows.append(f"{e.fitness:.4f}  " + "  ".join(f"{k}={e.info[k]:.3g}" for k in keys))
+        return "\n".join(rows)
+
+    def skills_forge(p):
+        from .skills import forge
+        sk = forge(a.soup, int(p.get("min_support", 2)), float(p.get("min_utility", 0.5)))
+        return "\n".join(f"{s.name} (support {s.support}, utility {s.utility:.2f}, {s.scope}): {s.shape()}"
+                         for s in sk) or "no routine has enough verified support yet"
+
     S = lambda props, req: {"type": "object", "properties": props, "required": req}  # noqa: E731
-    s, i = {"type": "string"}, {"type": "integer"}
+    s, i, n = {"type": "string"}, {"type": "integer"}, {"type": "number"}
     return {
         "atlas_search": (S({"query": s, "repo": s, "limit": i}, ["query"]), search),
         "atlas_outline": (S({"repo": s, "path": s}, ["repo", "path"]), outline),
@@ -103,10 +139,23 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
         "kgirl_ask": (S({"question": s, "repo": s}, ["question"]), ask),
         "jev_swarm_task": (S({"goal": s, "repo_path": s, "verify": s, "size": i, "apply": {"type": "boolean"}},
                              ["goal", "repo_path"]), task),
+        "ecl_quantify": (S({"cea": n, "afp": n, "mode": {"type": "string", "enum": ["conc", "cells"]}}, []),
+                         ecl_quantify),
+        "ecl_protocol": (S({"cea_cells_per_ml": n, "afp_cells_per_ml": n, "tpa_mM": n, "f_nihil": n}, []),
+                         ecl_protocol),
+        "ecl_gap": (S({"marker": {"type": "string", "enum": ["CEA", "AFP"]}}, []), ecl_gap),
+        "evolve_assay_design": (S({"generations": i, "batch": i, "seed": n, "top": i}, []), evolve_assay),
+        "skills_forge": (S({"min_support": i, "min_utility": n}, []), skills_forge),
     }
 
 
 _DESCRIPTIONS = {
+    "evolve_assay_design": "Evolve c-BPE-ECL assay designs (TPA, Ru, probe, drive V, nihil fraction, pulse period) "
+                           "inside the CN121933729A claim ranges with chaos-driven MAP-Elites; returns the top "
+                           "elites, coverage and the patent-default baseline. Needs numpy.",
+    "skills_forge": "Crystallize verified Jev routines from the memory pool into named skills (support/utility "
+                    "gated); store them in Soup. Export to Claude Code with `python -m kgirl.harness skills forge "
+                    "--export .claude/skills`.",
     "atlas_search": "Search every indexed repo's symbols (functions/classes/sections) by words; returns repo:path:line.",
     "atlas_outline": "List the symbols (with signatures) defined in one file of an indexed repo.",
     "atlas_source": "Read numbered source lines of an indexed file.",
@@ -120,6 +169,12 @@ _DESCRIPTIONS = {
     "jev_swarm_task": "Run a swarm of sandboxed Jev agents on a coding goal; returns the verified diff. verify must be "
                       "one of the user's KGIRL_VERIFY_ALLOWLIST commands; apply needs KGIRL_MCP_APPLY=1 and an indexed "
                       "repo root. Requires local Ollama models.",
+    "ecl_quantify": "CN121933729A c-BPE-ECL: convert CEA/AFP anode ECL intensities (a.u.) to ng/mL (mode=conc) or "
+                    "MCF-7 cells/mL (mode=cells) with the patent's calibration curves; flags reads below the LOD scar.",
+    "ecl_protocol": "Run the dual-marker c-BPE-ECL assay end to end (nine levels: probe synthesis → capture → "
+                    "charge balance → pulsed drive → scar on zero → quantification) for given cell densities.",
+    "ecl_gap": "Per-cell amplification chain (antigen → probes → MB → e⁻ → photons → counts) and predicted vs "
+               "reported LOD for CEA/AFP.",
 }
 
 

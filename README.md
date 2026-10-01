@@ -34,6 +34,25 @@ PYTHONPATH=src python -m kgirl.harness blast src/kgirl/llm/llm_adapters.py
 
 **[→ Harness guide](docs/harness/README.md)** · **[→ Cross-repo atlas report](docs/harness/ATLAS_REPORT.md)**
 
+## 🧬 evolve: chaos-driven quality-diversity search · 🧠 Jev intuition · 🛠 skill forge
+
+- **`src/kgirl/evolve/`** runs MAP-Elites with logistic-chaos variation (no PRNG) and lineage-traced emergence. Its first problem evolves c-BPE-ECL assay designs inside the CN121933729A claim ranges: `PYTHONPATH=src python -m kgirl.evolve assay`. **[→ guide](docs/evolve/README.md)**
+- **Jev intuition:** accepted routines let repeat tasks run without model calls, falling back to the model on surprise.
+- **Skill forge:** verified routines become Claude Code skills (`python -m kgirl.harness skills forge --export .claude/skills`). Hand-written repo skills live in `.claude/skills/`.
+
+## 🔬 nihiline: c-BPE-ECL dual tumor-marker lab (CN121933729A)
+
+`src/kgirl/nihiline/` re-aims the Bloom bridge, nihil-leverage, phase-topology and criticality-bridge
+scripts at one assay: in-situ CEA + AFP on living MCF-7 cells via closed-bipolar-electrode ECL. It covers
+calibration and the "scar on zero", the per-cell amplification chain, the optimal pulse duty for the drive,
+a viability sentinel and array crosstalk. Also exposed as MCP tools `ecl_quantify`, `ecl_protocol`, `ecl_gap`.
+
+```bash
+PYTHONPATH=src python -m kgirl.nihiline protocol --cea 1e4 --afp 1e4
+```
+
+**[→ nihiline guide & findings](docs/nihiline/README.md)** · originals in `research/nihiline/originals/`
+
 ## 📁 Repository Organization
 
 This repository has been reorganized for better clarity and maintainability:

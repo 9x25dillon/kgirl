@@ -50,8 +50,10 @@ State lives in `$KGIRL_HOME` (default `~/.kgirl`): `atlas.db`, `soup.db`, `trace
 
 `.mcp.json` at the repo root registers the harness as the `kgirl` MCP server. Claude Code
 then gets these tools: `atlas_search`, `atlas_outline`, `atlas_source`, `atlas_blast_radius`,
-`atlas_coupling`, `atlas_card`, `soup_recall`, `soup_remember`, `kgirl_ask` and
-`jev_swarm_task`. Run `index` once, before first use.
+`atlas_coupling`, `atlas_card`, `soup_recall`, `soup_remember`, `kgirl_ask`,
+`jev_swarm_task`, `skills_forge`, `evolve_assay_design`, and the assay tools `ecl_quantify`,
+`ecl_protocol` and `ecl_gap`
+(see `docs/nihiline/README.md`). Run `index` once, before first use.
 
 Three tools change state, so the MCP server holds them to what the user allows, not what the model asks:
 
@@ -149,10 +151,40 @@ The regularizers are:
   credit assignment. `--apply` writes the diff only to files unchanged since the copy was taken,
   and reports conflicts otherwise.
 
+## Intuition (System 1) and the skill forge
+
+**Intuition.** Accepted runs are stored with their *routine*: the ordered list of
+`(op, target key)` pairs. Target keys drop line numbers, so routines survive code motion.
+
+On a later run, Jev checks intuition before calling the model:
+- It looks for routines whose goal resembles this one and whose steps so far match its own.
+- It resolves the routine's next target against the current table.
+- If the combined confidence clears the threshold, it acts **without a model call**.
+- If an intuitive step fails, the agent is *surprised*: intuition switches off for that run and the model takes over.
+
+Routines that carry a verified win gain utility; routines that mislead an agent lose it. Only
+`intuition_fraction` of the swarm uses intuition, so the rest keeps exploring.
+
+On the calc fixture, Jev model calls per swarm dropped from 7 to 1 on the second run, and an
+agent that failed the first time solved the task with zero model calls.
+
+**Skill forge.**
+
+```bash
+python -m kgirl.harness skills forge --min-support 2 --export .claude/skills
+```
+
+- It groups verified trajectories by routine shape and keeps those with enough support and utility.
+- Each one is stored in Soup as `kind="skill"`.
+- Each one is exported as a Claude Code `SKILL.md`, with when-to-use goals, steps, the files it touched and the verifier that proved it.
+- Hand-written skills are never overwritten.
+
+Three hand-written skills ship in `.claude/skills/`: `kgirl-blast-radius`, `nihiline-assay` and `evolve-designs`.
+
 ## Testing
 
 ```bash
-python -m unittest discover -s tests/harness -t .     # 38 tests, ~5 s; no network, no API keys
+python -m unittest discover -s tests/harness -t .     # 43 tests, ~10 s; no network, no API keys
 ```
 The tests cover:
 - parsing: Python, TypeScript, Julia, broken files, clone hashes

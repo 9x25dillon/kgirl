@@ -72,6 +72,13 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("-n", type=int, default=30)
     q = ss.add_parser("export-sft", help="accepted trajectories as JSONL for local fine-tuning")
     q.add_argument("out")
+    p = sub.add_parser("skills", help="forge skills from verified routines; export as Claude Code skills")
+    sk = p.add_subparsers(dest="skills_cmd", required=True)
+    q = sk.add_parser("forge")
+    q.add_argument("--min-support", type=int, default=2)
+    q.add_argument("--min-utility", type=float, default=0.5)
+    q.add_argument("--export", help="directory for <name>/SKILL.md (e.g. .claude/skills)")
+    sk.add_parser("list")
     sub.add_parser("route", help="show which backend serves each role")
     p = sub.add_parser("trace", help="tail the Hermes trace")
     p.add_argument("-n", type=int, default=40)
@@ -128,6 +135,20 @@ def _run(a: Assistant, args) -> int:
         return 0 if res.winner else 1
     elif cmd == "soup":
         return _soup(a, args)
+    elif cmd == "skills":
+        from .skills import export, forge
+        if args.skills_cmd == "forge":
+            skills = forge(a.soup, args.min_support, args.min_utility)
+            for s in skills:
+                print(f"{s.name:<40} support={s.support:<3} utility={s.utility:.2f} {s.scope:<16} {s.shape()}")
+            if not skills:
+                print("no routine has enough verified support yet")
+            if args.export:
+                for f in export(skills, args.export):
+                    print(f"wrote {f}")
+        else:
+            for f in a.soup.all(kind="skill"):
+                print(f"#{f.id:<5} {f.status:<8} u={f.utility:.2f} {f.text}")
     elif cmd == "route":
         for role, chain in a.router.describe().items():
             print(f"{role:<6} -> " + "  |  ".join(chain))
