@@ -1,0 +1,12 @@
+{
+  "name": "porter",
+  "owner": { "name": "9x25dillon" },
+  "description": "Porter coupling-harness plugins: blast radius and emergent use cases across repos.",
+  "plugins": [
+    {
+      "name": "porter-blast-radius",
+      "source": "./plugins/porter-blast-radius",
+      "description": "Read-only MCP connector and skill for multi-repo blast radius and emergent use cases."
+    }
+  ]
+}

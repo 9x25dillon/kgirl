@@ -1,0 +1,31 @@
+{
+  "name": "porter-blast-radius",
+  "displayName": "Porter Blast Radius",
+  "version": "0.1.0",
+  "description": "Read-only blast-radius and emergent-use-case analysis for Porter's multi-repo coupling: an MCP connector that builds a coupling model from local repos and computes what a change reaches, plus a skill for when to use it.",
+  "author": {
+    "name": "9x25dillon"
+  },
+  "repository": "https://github.com/9x25dillon/myAssistant",
+  "keywords": [
+    "porter",
+    "blast-radius",
+    "coupling",
+    "mcp",
+    "multi-repo"
+  ],
+  "userConfig": {
+    "extra_roots": {
+      "type": "string",
+      "title": "Extra roots",
+      "description": "More directories the connector may read models and repositories from, separated by ':' (';' on Windows). The project directory is always allowed.",
+      "default": ""
+    },
+    "atlas_db": {
+      "type": "file",
+      "title": "Atlas database",
+      "description": "Optional path to a kgirl Atlas database (usually ~/.kgirl/atlas.db). The connector opens only this file, read-only.",
+      "default": ""
+    }
+  }
+}
