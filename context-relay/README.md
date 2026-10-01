@@ -23,6 +23,8 @@ It answers two questions with an executable model instead of prose alone:
 | [`plugins/porter-blast-radius/`](plugins/porter-blast-radius) | Claude Code plugin for Porter: a read-only MCP connector (9 tools) and a skill. It builds coupling models from local repos or a kgirl Atlas and computes blast radius, loops and emergent use cases. The engine above lives here. |
 | [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) | Marketplace `porter`: `claude plugin marketplace add ./context-relay` |
 | [`docs/KGIRL_HARNESS.md`](docs/KGIRL_HARNESS.md) | Inspection of the kgirl harness (Atlas, Soup, Hermes, Jev), the Atlas bridge, cross-checks against kgirl's own results, findings and proposed patches |
+| [`skills/mcp-builder-hardened/`](skills/mcp-builder-hardened) | Anthropic's `mcp-builder` skill plus a blast-radius review (BR001–BR005) and a stdlib checker, `scripts/blast_radius_check.py` (Apache-2.0; changes listed in `NOTICE.md`) |
+| [`tools/sync-subtree.sh`](tools/sync-subtree.sh) | Copies this directory into another repository and keeps it in sync (squashed add, then three-way pulls) |
 
 ## Commands
 
@@ -34,10 +36,25 @@ node --test tools/relay-model.test.mjs             # test suite
 node tools/relay-model.mjs report routes           # print one table (see `report` usage for all section names)
 node tools/relay-model.mjs sync-docs               # regenerate the tables in docs/*.md after editing the model
 node --test plugins/porter-blast-radius/test/*.test.mjs   # connector suite (see the plugin README)
+node --test tools/sync-subtree.test.mjs            # sync script, against throwaway repositories
 ```
 
 To change the design, edit `model/relay-model.json`, run `sync-docs`, then `check` and the tests. Don't edit the generated tables
 between the `relay-model:begin` and `relay-model:end` markers by hand.
+
+## Using it in another repository
+
+This directory is canonical here. Other repositories in the Porter harness carry a copy at the same path:
+
+```sh
+sh /path/to/context-relay/tools/sync-subtree.sh                  # first run, from the other repository's root: adds context-relay/
+sh context-relay/tools/sync-subtree.sh                           # later runs: pulls changes from myAssistant main
+sh context-relay/tools/sync-subtree.sh <repo-url-or-path> <ref>  # another source or branch
+```
+
+Each sync is one squashed commit plus a merge, the same shape as `git subtree --squash`, so edits made in the other repository
+survive and history is never rewritten. The script exists because `git subtree` fails in repositories that track a file named
+`HEAD` at their root, as kgirl does.
 
 ## Inputs
 
