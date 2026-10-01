@@ -35,7 +35,8 @@ The kgirl model is `context-relay/plugins/porter-blast-radius/examples/kgirl-har
 - The model describes the harness on `main` (`d2314f2`): the #54 core plus `80f8b85` (Jev intuition, the skill forge
   and the `ecl_*` / `evolve_*` tools). It maps all 15 MCP tools to components. With `KGIRL_SRC` set, a contract test
   compares that map with `mcp_server._tools()`.
-- The controls added by [#55](https://github.com/9x25dillon/kgirl/pull/55) and [#59](https://github.com/9x25dillon/kgirl/pull/59) stay `proposed` until those PRs merge.
+- The controls added by [#55](https://github.com/9x25dillon/kgirl/pull/55) (merged) and [#59](https://github.com/9x25dillon/kgirl/pull/59) still read `proposed`.
+  They change to `implemented` in myAssistant, then sync here.
 - With both merged, one loop stays open (KFM-12): a `jev_swarm_task` goal persists in an `active` trajectory, which
   the person-run `skills forge --export` can write into `SKILL.md`. The proposed fix is C-STAGE-TRAJECTORY.
 
@@ -47,9 +48,7 @@ python3 context-relay/skills/mcp-builder-hardened/scripts/blast_radius_check.py 
 ```
 
 - The contract test indexes three fixture repos with kgirl's own `index` command. It checks that the bridge reads that database cleanly: the schema, a resolved cross-repo import, and clone edges. It then compares blast radius with kgirl's `blast`.
-- The checker is a lint for MCP tool handlers.
-  - On `main` it reports four findings: BR001–BR004 in `mcp_server.py` and `jev/code_env.py`.
-  - With #55 applied it reports none.
+- The checker is a lint for MCP tool handlers. Since #55 merged it reports no findings; before, it reported four (BR001–BR004).
 
 ## Keeping the copy in sync
 
