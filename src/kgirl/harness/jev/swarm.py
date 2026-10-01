@@ -32,6 +32,7 @@ from ..soup import Curator, Recall, Soup
 from ..util import clip
 from .agent import Jev, JevConfig, Step, Trajectory
 from .code_env import CodeEnvironment
+from .intuition import Intuition
 
 # llm(role, system, prompt, max_tokens, temperature) -> text
 LLMCall = Callable[[str, str, str, int, float], str]
@@ -64,6 +65,8 @@ class SwarmConfig:
     stop_on_first_success: bool = True
     keep_workspaces: bool = False
     allow_unverified: bool = False     # accept DONE without a verifier
+    intuition_fraction: float = 0.5    # share of agents that may act on intuition (the rest keep exploring)
+    intuition_threshold: float = 0.6
 
 
 @dataclass
@@ -79,9 +82,11 @@ class SwarmResult:
     def render(self) -> str:
         lines = [f"swarm for: {self.goal}"]
         for t in self.trajectories:
-            mark = "★" if t is self.winner else ("✗" if t.outcome != "cancelled" else "·")
+            mark = ("★" if t is self.winner else "✓" if t.outcome == "done" and t.verified else
+                    "·" if t.outcome == "cancelled" else "✗")
             lines.append(f"  {mark} {t.jev_id} T={t.variant.get('temperature')} {t.outcome:<9} "
-                         f"verified={t.verified} steps={len(t.steps)} ~{t.prompt_tokens}tok "
+                         f"verified={t.verified} steps={len(t.steps)} llm={t.llm_calls} "
+                         f"intuition={t.intuition_steps}{'!' if t.surprised else ''} ~{t.prompt_tokens}tok "
                          f"{t.elapsed:.1f}s  {t.ops_signature()}")
         if self.winner:
             lines.append(f"accepted: {self.winner.summary}")
@@ -119,6 +124,9 @@ class Swarm:
         recall = self.soup.recall(goal, budget_tokens=cfg.memory_budget * 2, scope=repo_name,
                                   kinds=("abstraction", "trajectory", "preference", "antipattern", "fact"))
         self.emit("swarm.start", {"goal": goal, "repo": repo_name, "size": cfg.size, "recalled": recall.ids})
+        intuition = (Intuition.from_soup(self.soup, scope=repo_name, threshold=cfg.intuition_threshold)
+                     if cfg.intuition_fraction > 0 else None)
+        n_intuitive = round(cfg.size * cfg.intuition_fraction) if intuition and intuition.routines else 0
         cancel = threading.Event()
         workspaces: list[Path] = []
         results: list[Trajectory] = []
@@ -137,12 +145,13 @@ class Swarm:
                 ws, goal, smith=self._smith(temp), verify_cmd=verify_cmd, memory_text=memory_text,
                 blast=(lambda p: self.blast(repo_name, p)) if self.blast else None, seed_paths=seeds)
             jev = Jev(env, self._decider(temp), memory_text, cfg.jev,
-                      on_step=lambda jid, s: self._on_step(jid, s))
+                      on_step=lambda jid, s: self._on_step(jid, s),
+                      intuition=intuition if i < n_intuitive else None)
             self.emit("jev.spawn", {"jev": jev.id, "temperature": temp, "memory": [f.id for f in frags]})
             traj = jev.run(goal, cancel)
             traj.recalled = [f.id for f in frags]
             traj.workspace = str(ws)
-            traj.variant = {"temperature": temp, "slice": i}
+            traj.variant = {"temperature": temp, "slice": i, "intuition": i < n_intuitive}
             if traj.outcome == "done":
                 if verify_cmd:
                     code, out = env.verify()
@@ -157,7 +166,9 @@ class Swarm:
             if accepted and traj.diff and cfg.stop_on_first_success:
                 cancel.set()
             self.emit("jev.done", {"jev": traj.jev_id, "outcome": traj.outcome, "verified": traj.verified,
-                                   "steps": len(traj.steps), "tokens": traj.prompt_tokens})
+                                   "steps": len(traj.steps), "tokens": traj.prompt_tokens,
+                                   "llm_calls": traj.llm_calls, "intuition_steps": traj.intuition_steps,
+                                   "surprised": traj.surprised})
             return traj
 
         try:
@@ -212,10 +223,15 @@ class Swarm:
         losers = {i for t in res.trajectories if t is not w and t.outcome not in ("cancelled",)
                   for i in t.recalled} - set(w.recalled)
         self.soup.credit(sorted(losers), success=False, weight=0.5)
+        # intuition: routines that carried the winner earn utility; routines that surprised an agent lose it
+        self.soup.credit(sorted(set(w.routines_used)), success=True)
+        misled = {r for t in res.trajectories if t.surprised for r in t.routines_used} - set(w.routines_used)
+        self.soup.credit(sorted(misled), success=False, weight=0.5)
 
         files = sorted(w.edited)
         record = {"goal": w.goal, "ops": w.ops_signature(), "files": files, "summary": w.summary,
-                  "verify": verify_cmd, "diff": w.diff[:20000], "memory": w.recalled}
+                  "verify": verify_cmd, "diff": w.diff[:20000], "memory": w.recalled, "steps": w.routine(),
+                  "llm_calls": w.llm_calls, "intuition_steps": w.intuition_steps}
         tid = self.soup.add(
             f"Solved '{clip(w.goal, 120)}' in {len(w.steps)} steps by editing {', '.join(files) or '-'}: "
             f"{clip(w.summary, 160)}", kind="trajectory", tags=",".join(files), source=w.jev_id,

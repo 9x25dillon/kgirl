@@ -56,13 +56,16 @@ def control_from_tpa(tpa_mM: float) -> float:
 
 
 def simulate(f_nihil, control=0.6, p: PulseParams | None = None, seed: float = 0.4123,
-             period_s=None, keep_trace: bool = False) -> dict:
-    """Vectorized over any broadcastable (f_nihil, control, period_s) arrays."""
+             period_s=None, keep_trace: bool = False, gain_scale=1.0, stress_scale=1.0) -> dict:
+    """Vectorized over any broadcastable (f_nihil, control, period_s, gain_scale, stress_scale) arrays.
+
+    gain_scale / stress_scale let callers fold in design variables the core model does
+    not name (Ru(bpy)3 concentration, drive voltage) — see kgirl.evolve.problems.assay.
+    """
     p = p or PulseParams()
-    f, C, P = np.broadcast_arrays(np.atleast_1d(np.asarray(f_nihil, float)),
-                                  np.atleast_1d(np.asarray(control, float)),
-                                  np.atleast_1d(np.asarray(p.period_s if period_s is None else period_s, float)))
-    f, C, P = f.ravel(), C.ravel(), P.ravel()
+    arrs = np.broadcast_arrays(*(np.atleast_1d(np.asarray(v, float)) for v in (
+        f_nihil, control, p.period_s if period_s is None else period_s, gain_scale, stress_scale)))
+    f, C, P, G, X = (a.ravel() for a in arrs)
     n = f.size
     steps = int(p.T_s / p.dt_s)
     E = np.zeros(n)
@@ -70,7 +73,7 @@ def simulate(f_nihil, control=0.6, p: PulseParams | None = None, seed: float = 0
     s = np.zeros(n)
     chaos = 0.05 + 0.9 * ((seed + 0.618034 * np.arange(n)) % 1.0)   # distinct deterministic orbits per run
     r = 3.7 + 0.29 * (1.0 - C)
-    gain = p.gain * (0.6 + 0.8 * C)                    # more TPA → brighter ECL ...
+    gain = p.gain * G * (0.6 + 0.8 * C)                # more TPA → brighter ECL ...
     foul = p.passivation_rate * (0.4 + 1.2 * C)        # ... and more oxidation products fouling the anode
     n_pulses = int(np.ceil(p.T_s / P.min())) + 1
     Q = np.zeros((n, n_pulses))
@@ -85,7 +88,7 @@ def simulate(f_nihil, control=0.6, p: PulseParams | None = None, seed: float = 0
         drive = d * gain * (1.0 - pas) * (1.0 + p.chaos_amplitude * (chaos - 0.5) * (1.0 - 0.5 * C))
         E += (drive - E) * (p.dt_s / p.tau_ecl_s)
         pas += (foul * d * (1.0 - pas) - p.heal_rate * (1.0 - d) * pas) * p.dt_s
-        s += (p.stress_rate * d - p.recovery_rate * (1.0 - d) * s) * p.dt_s
+        s += (p.stress_rate * X * d - p.recovery_rate * (1.0 - d) * s) * p.dt_s
         k = np.minimum((t // P).astype(int), n_pulses - 1)
         Q[rows, k] += E * p.dt_s
         peak[rows, k] = np.maximum(peak[rows, k], E)

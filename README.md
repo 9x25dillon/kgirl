@@ -34,6 +34,12 @@ PYTHONPATH=src python -m kgirl.harness blast src/kgirl/llm/llm_adapters.py
 
 **[→ Harness guide](docs/harness/README.md)** · **[→ Cross-repo atlas report](docs/harness/ATLAS_REPORT.md)**
 
+## 🧬 evolve: chaos-driven quality-diversity search · 🧠 Jev intuition · 🛠 skill forge
+
+- **`src/kgirl/evolve/`** runs MAP-Elites with logistic-chaos variation (no PRNG) and lineage-traced emergence. Its first problem evolves c-BPE-ECL assay designs inside the CN121933729A claim ranges: `PYTHONPATH=src python -m kgirl.evolve assay`. **[→ guide](docs/evolve/README.md)**
+- **Jev intuition:** accepted routines let repeat tasks run without model calls, falling back to the model on surprise.
+- **Skill forge:** verified routines become Claude Code skills (`python -m kgirl.harness skills forge --export .claude/skills`). Hand-written repo skills live in `.claude/skills/`.
+
 ## 🔬 nihiline: c-BPE-ECL dual tumor-marker lab (CN121933729A)
 
 `src/kgirl/nihiline/` re-aims the Bloom bridge, nihil-leverage, phase-topology and criticality-bridge
