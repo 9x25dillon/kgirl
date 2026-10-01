@@ -34,6 +34,19 @@ PYTHONPATH=src python -m kgirl.harness blast src/kgirl/llm/llm_adapters.py
 
 **[→ Harness guide](docs/harness/README.md)** · **[→ Cross-repo atlas report](docs/harness/ATLAS_REPORT.md)**
 
+## 🔬 nihiline: c-BPE-ECL dual tumor-marker lab (CN121933729A)
+
+`src/kgirl/nihiline/` re-aims the Bloom bridge, nihil-leverage, phase-topology and criticality-bridge
+scripts at one assay: in-situ CEA + AFP on living MCF-7 cells via closed-bipolar-electrode ECL. It covers
+calibration and the "scar on zero", the per-cell amplification chain, the optimal pulse duty for the drive,
+a viability sentinel and array crosstalk. Also exposed as MCP tools `ecl_quantify`, `ecl_protocol`, `ecl_gap`.
+
+```bash
+PYTHONPATH=src python -m kgirl.nihiline protocol --cea 1e4 --afp 1e4
+```
+
+**[→ nihiline guide & findings](docs/nihiline/README.md)** · originals in `research/nihiline/originals/`
+
 ## 📁 Repository Organization
 
 This repository has been reorganized for better clarity and maintainability:

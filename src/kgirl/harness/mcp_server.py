@@ -66,8 +66,26 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
                      size=int(p.get("size", 3)), apply=bool(p.get("apply", False)))
         return res.render()
 
+    def ecl_quantify(p):
+        from ..nihiline import calibration as cal
+        mode = p.get("mode", "conc")
+        rows = [cal.quantify(m, float(p[k]), mode) for m, k in (("CEA", "cea"), ("AFP", "afp")) if p.get(k) is not None]
+        if not rows:
+            raise ValueError("give cea and/or afp ECL intensities")
+        return "\n".join(f"{q.marker}: {q.signal:.1f} a.u. → {q.value:.4g} {q.unit} [{q.flag}] (scar {q.scar} a.u.)"
+                         for q in rows)
+
+    def ecl_protocol(p):
+        from ..nihiline.protocol import run_protocol
+        return run_protocol({"CEA": float(p.get("cea_cells_per_ml", 1e4)), "AFP": float(p.get("afp_cells_per_ml", 1e4))},
+                            tpa_mM=float(p.get("tpa_mM", 50.0)), f_nihil=p.get("f_nihil")).render()
+
+    def ecl_gap(p):
+        from ..nihiline.amplification import chain
+        return "\n\n".join(chain(m).render() for m in ([p["marker"]] if p.get("marker") else ["CEA", "AFP"]))
+
     S = lambda props, req: {"type": "object", "properties": props, "required": req}  # noqa: E731
-    s, i = {"type": "string"}, {"type": "integer"}
+    s, i, n = {"type": "string"}, {"type": "integer"}, {"type": "number"}
     return {
         "atlas_search": (S({"query": s, "repo": s, "limit": i}, ["query"]), search),
         "atlas_outline": (S({"repo": s, "path": s}, ["repo", "path"]), outline),
@@ -80,6 +98,11 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
         "kgirl_ask": (S({"question": s, "repo": s}, ["question"]), ask),
         "jev_swarm_task": (S({"goal": s, "repo_path": s, "verify": s, "size": i, "apply": {"type": "boolean"}},
                              ["goal", "repo_path"]), task),
+        "ecl_quantify": (S({"cea": n, "afp": n, "mode": {"type": "string", "enum": ["conc", "cells"]}}, []),
+                         ecl_quantify),
+        "ecl_protocol": (S({"cea_cells_per_ml": n, "afp_cells_per_ml": n, "tpa_mM": n, "f_nihil": n}, []),
+                         ecl_protocol),
+        "ecl_gap": (S({"marker": {"type": "string", "enum": ["CEA", "AFP"]}}, []), ecl_gap),
     }
 
 
@@ -96,6 +119,12 @@ _DESCRIPTIONS = {
     "kgirl_ask": "Answer a question about the user's repos from a cited, token-bounded context pack.",
     "jev_swarm_task": "Run a swarm of sandboxed Jev agents on a coding goal; returns the verified diff (optionally "
                       "applies it). Requires local Ollama models.",
+    "ecl_quantify": "CN121933729A c-BPE-ECL: convert CEA/AFP anode ECL intensities (a.u.) to ng/mL (mode=conc) or "
+                    "MCF-7 cells/mL (mode=cells) with the patent's calibration curves; flags reads below the LOD scar.",
+    "ecl_protocol": "Run the dual-marker c-BPE-ECL assay end to end (nine levels: probe synthesis → capture → "
+                    "charge balance → pulsed drive → scar on zero → quantification) for given cell densities.",
+    "ecl_gap": "Per-cell amplification chain (antigen → probes → MB → e⁻ → photons → counts) and predicted vs "
+               "reported LOD for CEA/AFP.",
 }
 
 

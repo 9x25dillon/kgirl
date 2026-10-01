@@ -50,8 +50,9 @@ State lives in `$KGIRL_HOME` (default `~/.kgirl`): `atlas.db`, `soup.db`, `trace
 
 `.mcp.json` at the repo root registers the harness as the `kgirl` MCP server. Claude Code
 then gets these tools: `atlas_search`, `atlas_outline`, `atlas_source`, `atlas_blast_radius`,
-`atlas_coupling`, `atlas_card`, `soup_recall`, `soup_remember`, `kgirl_ask` and
-`jev_swarm_task`. Run `index` once, before first use.
+`atlas_coupling`, `atlas_card`, `soup_recall`, `soup_remember`, `kgirl_ask`,
+`jev_swarm_task`, and the assay tools `ecl_quantify`, `ecl_protocol` and `ecl_gap`
+(see `docs/nihiline/README.md`). Run `index` once, before first use.
 
 ## Model routing (Hermes router)
 
