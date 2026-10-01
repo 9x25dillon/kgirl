@@ -63,6 +63,12 @@ Three tools change state, so the MCP server holds them to what the user allows, 
 | `jev_swarm_task` `verify` | must equal one of the user's allowed commands; verifiers run without `*KEY*`, `*TOKEN*`, `*SECRET*`, `*PASSWORD*`, `*CREDENTIAL*` variables | `KGIRL_VERIFY_ALLOWLIST="python -m pytest -q; npm test"` |
 | `jev_swarm_task` `apply` | only into the root of an indexed repo, and only when the user opted in | `KGIRL_MCP_APPLY=1` |
 
+`skills_forge` also writes to Soup, and isn't yet held to a user setting:
+
+- It stores forged skills as `active` fragments with source `forge`.
+- The model chooses the support and utility thresholds.
+- It writes no files. Exporting to `.claude/skills` is CLI-only (`skills forge --export`).
+
 `initialize` answers with a protocol version the server supports (`2025-06-18`, `2025-03-26`, `2024-11-05`) and
 sends instructions that Atlas and Soup text is data, not instructions.
 
