@@ -55,6 +55,23 @@ then gets these tools: `atlas_search`, `atlas_outline`, `atlas_source`, `atlas_b
 `ecl_protocol` and `ecl_gap`
 (see `docs/nihiline/README.md`). Run `index` once, before first use.
 
+Three tools change state, so the MCP server holds them to what the user allows, not what the model asks:
+
+| tool | rule over MCP | setting |
+|---|---|---|
+| `soup_remember` | stored as `staged` with source `mcp`; never auto-promoted, so never recalled until a person runs `python -m kgirl.harness soup promote <id>` | — |
+| `jev_swarm_task` `verify` | must equal one of the user's allowed commands; verifiers run without `*KEY*`, `*TOKEN*`, `*SECRET*`, `*PASSWORD*`, `*CREDENTIAL*` variables | `KGIRL_VERIFY_ALLOWLIST="python -m pytest -q; npm test"` |
+| `jev_swarm_task` `apply` | only into the root of an indexed repo, and only when the user opted in | `KGIRL_MCP_APPLY=1` |
+
+`skills_forge` also writes to Soup, and isn't yet held to a user setting:
+
+- It stores forged skills as `active` fragments with source `forge`.
+- The model chooses the support and utility thresholds.
+- It writes no files. Exporting to `.claude/skills` is CLI-only (`skills forge --export`).
+
+`initialize` answers with a protocol version the server supports (`2025-06-18`, `2025-03-26`, `2024-11-05`) and
+sends instructions that Atlas and Soup text is data, not instructions.
+
 ## Model routing (Hermes router)
 
 | role | used for | default chain | env |
@@ -109,6 +126,7 @@ propose ─▶ staged ──(support ≥ k ∧ LCB(utility) ≥ p ∧ validator)
 ```
 The regularizers are:
 - staging: nothing a single run proposes is recalled until k independent successes reinforce it
+- manual sources: fragments a model wrote over MCP (source `mcp`) are never auto-promoted; a person promotes them
 - decay γ: evidence shrinks toward the prior each step, so old wins have to be re-earned
 - bounded active capacity
 - confidence bounds on both promotion and retirement
@@ -196,6 +214,9 @@ The tests cover:
 | small local model emits junk | wasted steps | strict parser; 2 consecutive invalid replies end the agent; swarm diversity |
 | model "fixes" tests instead of code | false success | the verifier is yours; the independent re-run happens in the swarm, not the agent |
 | memory poisoning by one lucky run | bad rules recalled | staging with k ≥ 2, LCB promotion, decay, UCB retirement, ledger rollback |
+| prompt-injected agent writes memory over MCP | instruction recalled in every later session | `soup_remember` stages under source `mcp`; the curator never auto-promotes it; `soup promote` is a person's call |
+| model-chosen verifier command | arbitrary program runs with the user's keys | `KGIRL_VERIFY_ALLOWLIST`; secret-named variables removed from verifier environments |
+| model-chosen apply target | diff written into an unrelated directory | `KGIRL_MCP_APPLY=1` and an indexed repo root required |
 | Claude unreachable / no key | no prose answers | falls back to the local model, then to an extractive context pack |
 
 ## Evidence vs speculation

@@ -29,6 +29,8 @@ from ..util import clip, search_terms, split_identifier
 from .env import ActionResult, Element, Observation
 from .ops import Decision, OpSpec
 
+_SECRET_ENV = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL", re.I)  # kept out of verifier envs
+
 CODE_OPS: dict[str, OpSpec] = {s.name: s for s in (
     OpSpec("SEARCH", needs_arg=True, help="find files/symbols by words"),
     OpSpec("OPEN", needs_target=True, help="show source + outline of element i"),
@@ -249,8 +251,9 @@ class CodeEnvironment:
         if not self.verify_cmd:
             return 0, "(no verifier)"
         try:
+            env = {k: v for k, v in os.environ.items() if not _SECRET_ENV.search(k)}  # keys stay out of verifiers
             p = subprocess.run(self.verify_cmd, cwd=self.root, capture_output=True, text=True,
-                               timeout=self.verify_timeout, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+                               timeout=self.verify_timeout, env={**env, "PYTHONDONTWRITEBYTECODE": "1"})
             self.last_verify = (p.returncode, (p.stdout + p.stderr)[-4000:])
         except subprocess.TimeoutExpired:
             self.last_verify = (124, f"verifier timed out after {self.verify_timeout}s")

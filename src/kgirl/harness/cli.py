@@ -66,6 +66,8 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("--scope")
     ss.add_parser("stats")
     ss.add_parser("curate")
+    q = ss.add_parser("promote", help="make a staged fragment (for example one written over MCP) recallable")
+    q.add_argument("id", type=int)
     q = ss.add_parser("ledger")
     q.add_argument("-n", type=int, default=30)
     q = ss.add_parser("export-sft", help="accepted trajectories as JSONL for local fine-tuning")
@@ -173,6 +175,9 @@ def _soup(a: Assistant, args) -> int:
         print(f"[{rec.tokens}/{rec.budget} tokens]")
     elif c == "stats":
         print(json.dumps(a.soup.stats(), indent=2))
+    elif c == "promote":
+        a.soup.set_status(args.id, "active", "promoted by user")
+        print(f"#{args.id} active")
     elif c == "curate":
         rep = a.curator.step()
         print(f"promoted={rep.promoted} retired={rep.retired} expired={rep.expired}")
