@@ -1,0 +1,15 @@
+{
+  "porter": 1,
+  "name": "ingest",
+  "capabilities": [
+    { "id": "parse", "in": "RawDoc", "out": "Doc", "effects": ["fs.read"], "note": "Parses uploaded documents" },
+    { "id": "index", "in": "Doc", "out": "Index", "effects": ["fs.write"] }
+  ],
+  "dependsOn": [
+    { "target": "github.com/acme/schema", "kinds": ["change", "runtime"], "controls": ["C-CONTRACT"], "note": "reads schema v2 over HTTP" },
+    { "target": "github.com/acme/context-sync", "kinds": ["trust"], "note": "consumes synced context packs" }
+  ],
+  "controls": {
+    "C-CONTRACT": { "strength": "full", "mechanism": "contract tests against schema fixtures run in CI" }
+  }
+}

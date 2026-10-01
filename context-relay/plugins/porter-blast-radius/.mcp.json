@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "blast-radius": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/server/index.mjs"
+      ],
+      "env": {
+        "PORTER_RADIUS_PROJECT": "${CLAUDE_PROJECT_DIR}",
+        "PORTER_RADIUS_ROOTS": "${user_config.extra_roots}",
+        "PORTER_RADIUS_ATLAS_DB": "${user_config.atlas_db}"
+      }
+    }
+  }
+}

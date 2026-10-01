@@ -1,0 +1,49 @@
+{
+  "modelVersion": 1,
+  "about": "Illustrative Porter workspace: five repos coupled through packages, APIs and synced context packs. Not discovered from real repos; use porter_discover for those.",
+  "controls": {
+    "C-JCS-PARITY": { "strength": "full", "mechanism": "Cross-language golden hashes: TypeScript and Python canonicalization must agree in CI." },
+    "C-SEMVER": { "strength": "partial", "mechanism": "Semver ranges plus a lockfile; a minor release can still change behaviour." },
+    "C-TRUST-GATE": { "strength": "full", "threats": ["integrity"], "mechanism": "Synced packs arrive as foreign and need a human approval before auto-injection." },
+    "C-WRAP": { "strength": "partial", "threats": ["integrity"], "mechanism": "Injected context is wrapped as untrusted data." },
+    "C-REDACT": { "strength": "partial", "threats": ["confidentiality"], "mechanism": "Secret-pattern redaction before a pack leaves the machine." }
+  },
+  "components": [
+    { "id": "repo:ctxpack-core", "layer": "repo", "name": "ctxpack core (pack format, JCS, redaction)" },
+    { "id": "repo:ctxr-cli", "layer": "repo", "name": "ctxr command-line tool" },
+    { "id": "repo:porter", "layer": "repo", "name": "Porter harness: syncs environmental context across repos" },
+    { "id": "repo:rag-assistant", "layer": "repo", "name": "retrieval assistant (FAISS + local LLM)" },
+    { "id": "repo:audit", "layer": "repo", "name": "contradiction audit (NAL-style) over decisions" },
+    { "id": "agent", "layer": "sink", "name": "coding agent session", "agent": true, "secretOrigin": true },
+    { "id": "git-remote", "layer": "external", "name": "shared git remote", "egress": true },
+    { "id": "synced-packs", "layer": "data", "name": "context packs synced between repos" }
+  ],
+  "edges": [
+    ["repo:ctxpack-core", "repo:ctxr-cli", "change", "C-JCS-PARITY"],
+    ["repo:ctxpack-core", "repo:porter", "change", "C-SEMVER"],
+    ["repo:ctxpack-core", "repo:audit", "change", "C-SEMVER"],
+    ["repo:ctxpack-core", "repo:ctxr-cli", "runtime"],
+    ["repo:ctxpack-core", "repo:porter", "runtime"],
+    ["repo:ctxr-cli", "repo:porter", "runtime"],
+    ["repo:rag-assistant", "repo:porter", "runtime"],
+    ["repo:porter", "synced-packs", "trust"],
+    ["synced-packs", "repo:porter", "trust", "C-TRUST-GATE"],
+    ["repo:porter", "agent", "trust", "C-WRAP"],
+    ["agent", "repo:ctxr-cli", "trust", "C-REDACT"],
+    ["repo:ctxr-cli", "synced-packs", "trust"],
+    ["synced-packs", "git-remote", "trust", "C-REDACT"]
+  ],
+  "capabilities": [
+    { "id": "ctxr-cli:capture", "repo": "repo:ctxr-cli", "in": "Transcript", "out": "Pack", "effects": ["fs.read"] },
+    { "id": "ctxpack-core:render-brief", "repo": "repo:ctxpack-core", "in": "Pack", "out": "Brief" },
+    { "id": "audit:check-decisions", "repo": "repo:audit", "in": "Pack", "out": "AuditReport" },
+    { "id": "porter:sync", "repo": "repo:porter", "in": "Pack", "out": "RepoContext", "effects": ["fs.write"] },
+    { "id": "rag-assistant:index", "repo": "repo:rag-assistant", "in": "RepoContext", "out": "Index", "effects": ["fs.write"] },
+    { "id": "rag-assistant:query", "repo": "repo:rag-assistant", "in": "Index", "out": "Answer", "effects": ["network"] }
+  ],
+  "acceptedCycles": [],
+  "failureModes": [
+    { "id": "PFM-01", "at": "repo:ctxpack-core", "kind": "change", "title": "Canonicalization change breaks every sealed pack across repos", "inherent": [4, 2, 3], "residual": [2, 1, 1], "controls": ["C-JCS-PARITY"], "level": 1, "refs": [] },
+    { "id": "PFM-02", "at": "synced-packs", "kind": "trust", "title": "A pack synced from another repo carries instructions into an agent session", "inherent": [5, 3, 4], "residual": [5, 2, 3], "controls": ["C-TRUST-GATE", "C-WRAP"], "level": 1, "refs": [] }
+  ]
+}
