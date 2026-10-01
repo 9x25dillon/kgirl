@@ -32,14 +32,17 @@ Porter opens the database read-only and never runs kgirl's code.
 The kgirl model is `context-relay/plugins/porter-blast-radius/examples/kgirl-harness.model.json`; the review behind it is
 `context-relay/docs/KGIRL_HARNESS.md`.
 
-- The model describes the harness as merged in #54.
-- It does not yet cover `80f8b85`: Jev intuition, the skill forge and the new MCP tools.
-- The controls added by [#55](https://github.com/9x25dillon/kgirl/pull/55) stay `proposed` until #55 merges.
+- The model describes the harness on `main` (`d2314f2`): the #54 core plus `80f8b85` (Jev intuition, the skill forge
+  and the `ecl_*` / `evolve_*` tools). It maps all 15 MCP tools to components. With `KGIRL_SRC` set, a contract test
+  compares that map with `mcp_server._tools()`.
+- The controls added by [#55](https://github.com/9x25dillon/kgirl/pull/55) and [#59](https://github.com/9x25dillon/kgirl/pull/59) stay `proposed` until those PRs merge.
+- With both merged, one loop stays open (KFM-12): a `jev_swarm_task` goal persists in an `active` trajectory, which
+  the person-run `skills forge --export` can write into `SKILL.md`. The proposed fix is C-STAGE-TRAJECTORY.
 
 ## Tests that use kgirl itself
 
 ```bash
-KGIRL_SRC=$PWD/src node --test context-relay/plugins/porter-blast-radius/test/*.test.mjs   # includes the Atlas contract test
+KGIRL_SRC=$PWD/src node --test context-relay/plugins/porter-blast-radius/test/*.test.mjs   # includes the Atlas and tool-name contract tests
 python3 context-relay/skills/mcp-builder-hardened/scripts/blast_radius_check.py src/kgirl/harness
 ```
 
