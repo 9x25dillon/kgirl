@@ -1,3 +1,4 @@
+import os
 import re
 import sys
 import tempfile
@@ -85,6 +86,15 @@ class CodeEnvTests(unittest.TestCase):
         self.assertEqual([s.op for s in traj.steps], ["OPEN", "EDIT", "RUN", "DONE"])
         self.assertEqual(env.verify()[0], 0)
         self.assertIn("+    return sum(xs) / len(xs)", env.diff())
+
+    def test_verifier_runs_without_secret_environment(self):
+        os.environ["FAKE_SERVICE_API_KEY"] = "do-not-leak"
+        try:
+            probe = [sys.executable, "-c", "import os; print(os.environ.get('FAKE_SERVICE_API_KEY', 'absent'))"]
+            code, out = CodeEnvironment(self.repo, "x", verify_cmd=probe).verify()
+        finally:
+            os.environ.pop("FAKE_SERVICE_API_KEY")
+        self.assertEqual((code, out.strip()), (0, "absent"))
 
     def test_invalid_decisions_end_the_run(self):
         env = CodeEnvironment(self.repo, "x")

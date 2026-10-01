@@ -41,6 +41,7 @@ class CurationPolicy:
     gamma: float = 0.97
     dedupe_jaccard: float = 0.55
     staged_ttl_days: float = 45.0
+    manual_sources: tuple[str, ...] = ("mcp",)  # written by a model: only a person promotes these
 
 
 @dataclass
@@ -80,11 +81,12 @@ class Curator:
         self.soup.decay(p.gamma)
         t = now()
         for f in self.soup.all(status="staged"):
-            if f.support >= p.min_support and f.bound(-1.0) >= p.promote_lcb \
+            auto = f.source not in p.manual_sources
+            if auto and f.support >= p.min_support and f.bound(-1.0) >= p.promote_lcb \
                     and (self.validator is None or self.validator(f)):
                 self.soup.set_status(f.id, "active", f"promote support={f.support} lcb={f.bound(-1):.2f}")
                 rep.promoted.append(f.id)
-            elif t - (f.created or t) > p.staged_ttl_days * 86400 and f.support < p.min_support:
+            elif t - (f.created or t) > p.staged_ttl_days * 86400 and (not auto or f.support < p.min_support):
                 self.soup.set_status(f.id, "retired", "staged ttl expired")
                 rep.expired.append(f.id)
         active = self.soup.all(status="active")
