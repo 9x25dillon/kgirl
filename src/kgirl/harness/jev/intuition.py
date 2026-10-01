@@ -17,6 +17,9 @@ validates the target, and the swarm still re-runs the verifier.
 Surprise: the first time an intuitive action fails, intuition is switched off for
 the rest of that run (System 2 takes over). Routines that lead to verified wins
 gain utility through Soup credit; routines that mislead lose it.
+
+Only `active` trajectories become routines, and their goals and args are collapsed
+to one capped line: a replayed `:: arg` must never add a second decision line.
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from ..util import jaccard, shingles
+from ..util import inline, jaccard, shingles
 from .env import Element
 
 _STRIP_META = re.compile(r"\s+\((?:from memory|[^)]*\blines?\b[^)]*)\)")
@@ -81,16 +84,19 @@ class Intuition:
     @classmethod
     def from_soup(cls, soup, scope: str | None = None, **kw) -> "Intuition":
         out = cls(**kw)
-        for f in soup.all(kind="trajectory"):
-            if f.status == "retired" or not f.data or (scope and f.scope not in ("*", scope)):
+        for f in soup.all(status="active", kind="trajectory"):
+            if not f.data or (scope and f.scope not in ("*", scope)):
                 continue
             try:
                 rec = json.loads(f.data)
             except ValueError:
                 continue
-            steps = [RoutineStep(s["op"], s.get("key", ""), s.get("arg", "")) for s in rec.get("steps", [])]
+            steps = [RoutineStep(inline(str(s["op"]), 16), inline(str(s.get("key", "")), 120),
+                                 inline(str(s.get("arg", "")), 120))
+                     for s in rec.get("steps", []) if isinstance(s, dict) and s.get("op")]
             if steps:
-                out.routines.append(Routine(rec.get("goal", ""), steps, f.support, f.utility, f.id, f.scope))
+                out.routines.append(Routine(inline(str(rec.get("goal", "")), 200), steps, f.support, f.utility,
+                                            f.id, f.scope))
         return out
 
     def propose(self, goal: str, done: list[tuple[str, str]], elements: tuple[Element, ...] | list[Element],

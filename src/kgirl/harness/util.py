@@ -10,6 +10,7 @@ import json
 import os
 import re
 import time
+import unicodedata
 from pathlib import Path
 from typing import Iterable
 
@@ -92,6 +93,19 @@ def jaccard(a: set, b: set) -> float:
 def clip(text: str, limit: int) -> str:
     text = text or ""
     return text if len(text) <= limit else text[: max(0, limit - 1)] + "…"
+
+
+_BREAKING = frozenset(("Cc", "Cf", "Cs", "Zl", "Zp"))
+
+
+def inline(text: str, limit: int = 200) -> str:
+    """One display line: control/format/separator chars → space, whitespace collapsed, length capped.
+
+    Use on any model- or caller-supplied text that is rendered into a line-structured file
+    (Markdown, YAML front matter) or a one-line protocol, so it cannot open new lines or sections.
+    """
+    text = "".join(" " if unicodedata.category(c) in _BREAKING else c for c in (text or ""))
+    return clip(" ".join(text.split()), limit)
 
 
 def first_paragraph(doc: str | None, limit: int = 300) -> str:
