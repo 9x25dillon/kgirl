@@ -120,8 +120,10 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
         return "\n".join(rows)
 
     def skills_forge(p):
-        from .skills import forge
-        sk = forge(a.soup, int(p.get("min_support", 2)), float(p.get("min_utility", 0.5)))
+        from .skills import MIN_SUPPORT, MIN_UTILITY, forge
+        # floors: a caller may raise the bar, never lower it below the CLI defaults (KFM-11)
+        sk = forge(a.soup, max(MIN_SUPPORT, int(p.get("min_support", MIN_SUPPORT))),
+                   max(MIN_UTILITY, float(p.get("min_utility", MIN_UTILITY))))
         return "\n".join(f"{s.name} (support {s.support}, utility {s.utility:.2f}, {s.scope}): {s.shape()}"
                          for s in sk) or "no routine has enough verified support yet"
 
@@ -153,8 +155,8 @@ _DESCRIPTIONS = {
     "evolve_assay_design": "Evolve c-BPE-ECL assay designs (TPA, Ru, probe, drive V, nihil fraction, pulse period) "
                            "inside the CN121933729A claim ranges with chaos-driven MAP-Elites; returns the top "
                            "elites, coverage and the patent-default baseline. Needs numpy.",
-    "skills_forge": "Crystallize verified Jev routines from the memory pool into named skills (support/utility "
-                    "gated); store them in Soup. Export to Claude Code with `python -m kgirl.harness skills forge "
+    "skills_forge": "Crystallize verified Jev routines from the memory pool into named skills (support >= 2, "
+                    "utility >= 0.5; higher values only); store them in Soup as staged. Export to Claude Code with `python -m kgirl.harness skills forge "
                     "--export .claude/skills`.",
     "atlas_search": "Search every indexed repo's symbols (functions/classes/sections) by words; returns repo:path:line.",
     "atlas_outline": "List the symbols (with signatures) defined in one file of an indexed repo.",

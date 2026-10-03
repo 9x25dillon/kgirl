@@ -14,6 +14,12 @@ proved it.
 
 Level 0 mechanics (grouping, thresholds). Whether a forged skill transfers to a
 *new* task is exactly what the support/utility evidence in its header tracks.
+
+Trust boundary (KFM-11): goals, SEARCH args, file names and the verifier reach
+this module from callers (a model via MCP `jev_swarm_task`), and SKILL.md is
+read back as instructions. So only `active` trajectories are forged, every
+caller-supplied string is collapsed to one capped line before it is grouped,
+stored or rendered, and forged skills enter Soup `staged`: a person promotes them.
 """
 
 from __future__ import annotations
@@ -25,10 +31,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .soup import Soup
+from .util import inline
 
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _STOP = frozenset("a an and the to of in on for is it be make makes made fix fixes when with this that "
                   "pass passes wrong bug please should".split())
+GOAL_CAP, ARG_CAP, PATH_CAP = 200, 120, 160
+MIN_SUPPORT, MIN_UTILITY = 2, 0.5      # defaults, and the floors MCP callers cannot go below
 
 
 @dataclass
@@ -50,7 +59,7 @@ class Skill:
     def instructions(self) -> list[str]:
         out = []
         for s in self.steps:
-            op, key, arg = s["op"], s.get("key", ""), s.get("arg", "")
+            op, key, arg = s["op"], inline(s.get("key", ""), ARG_CAP), inline(s.get("arg", ""), ARG_CAP)
             if op == "SEARCH":
                 out.append(f"Search the repo for: {arg}")
             elif op == "OPEN":
@@ -60,28 +69,42 @@ class Skill:
             elif op == "BLAST":
                 out.append(f"Check the blast radius of `{key}` before changing it.")
             elif op == "RUN":
-                cmd = " ".join(self.verify) if self.verify else "the project's verification command"
+                cmd = _command(self.verify) or "the project's verification command"
                 out.append(f"Run `{cmd}` and read the result.")
             elif op == "DONE":
                 out.append("Stop when the verifier passes; summarize what changed.")
         return out
 
     def to_skill_md(self) -> str:
-        desc = self.description.replace("\n", " ").replace('"', "'")
+        desc = inline(self.description, 1024).replace('"', "'")
         lines = ["---", f"name: {self.name}", f'description: "{desc}"', "---", "",
                  f"# {self.name}", "",
-                 f"Forged by the kgirl harness from {self.support} verified run(s) in `{self.scope}` "
-                 f"(mean utility {self.utility:.2f}). Shape: `{self.shape()}`.", "",
+                 f"Forged by the kgirl harness from {self.support} verified run(s) in `{inline(self.scope, PATH_CAP)}` "
+                 f"(mean utility {self.utility:.2f}). Shape: `{inline(self.shape(), 1024)}`.", "",
                  "## When to use", ""]
-        lines += [f"- {g}" for g in self.goals[:5]]
+        lines += [f"- {inline(g, GOAL_CAP)}" for g in self.goals[:5]]
         lines += ["", "## Steps", ""]
         lines += [f"{i}. {s}" for i, s in enumerate(self.instructions(), 1)]
         if self.files:
-            lines += ["", "## Files this skill has changed", ""] + [f"- `{f}`" for f in self.files]
+            lines += ["", "## Files this skill has changed", ""] + [f"- `{inline(f, PATH_CAP)}`" for f in self.files]
         if self.verify:
-            lines += ["", "## Verify", "", "```bash", " ".join(self.verify), "```"]
+            lines += ["", "## Verify", "", "```bash", _command(self.verify), "```"]
         lines += ["", f"<!-- kgirl-skill sources={self.sources} -->", ""]
         return "\n".join(lines)
+
+
+def _command(argv: list[str] | None) -> str:
+    return inline(" ".join(str(a) for a in argv or []), 400)
+
+
+def _clean_steps(steps: list) -> list[dict]:
+    out = []
+    for s in steps:
+        if not isinstance(s, dict) or not s.get("op"):
+            continue
+        out.append({"op": inline(str(s["op"]), 16), "key": inline(str(s.get("key", "")), ARG_CAP),
+                    "arg": inline(str(s.get("arg", "")), ARG_CAP)})
+    return out
 
 
 def _shape_key(steps: list[dict]) -> tuple:
@@ -97,29 +120,30 @@ def _name(goals: list[str], files: list[str]) -> str:
     return re.sub(r"[^a-z0-9-]+", "-", name.lower())
 
 
-def forge(soup: Soup, min_support: int = 2, min_utility: float = 0.5, store: bool = True) -> list[Skill]:
+def forge(soup: Soup, min_support: int = MIN_SUPPORT, min_utility: float = MIN_UTILITY, store: bool = True) -> list[Skill]:
     groups: dict[tuple, list] = defaultdict(list)
-    for f in soup.all(kind="trajectory"):
-        if f.status == "retired" or not f.data:
+    for f in soup.all(status="active", kind="trajectory"):     # staged/retired runs carry no forging weight
+        if not f.data:
             continue
         try:
             rec = json.loads(f.data)
         except ValueError:
             continue
-        steps = rec.get("steps") or []
+        steps = _clean_steps(rec.get("steps") or [])
         if not steps:
             continue
-        groups[(f.scope, _shape_key(steps))].append((f, rec))
+        groups[(inline(f.scope, PATH_CAP), _shape_key(steps))].append((f, rec))
     skills: list[Skill] = []
     for (scope, _), members in groups.items():
         support = sum(f.support for f, _ in members)
         utility = sum(f.utility * f.support for f, _ in members) / max(1, support)
         if support < min_support or utility < min_utility:
             continue
-        goals = list(dict.fromkeys(rec["goal"] for _, rec in members))
-        files = sorted({p for _, rec in members for p in rec.get("files", [])})
-        verify = next((rec.get("verify") for _, rec in members if rec.get("verify")), None)
-        steps = members[0][1]["steps"]
+        goals = list(dict.fromkeys(inline(str(rec.get("goal", "")), GOAL_CAP) for _, rec in members))
+        files = sorted({inline(str(p), PATH_CAP) for _, rec in members for p in rec.get("files", [])})
+        verify = next(([inline(str(a), ARG_CAP) for a in rec["verify"]] for _, rec in members
+                       if isinstance(rec.get("verify"), list) and rec["verify"]), None)
+        steps = _clean_steps(members[0][1]["steps"])
         sk = Skill(_name(goals, files), scope, "", steps, goals, support, utility, verify,
                    [f.id for f, _ in members], files)
         sk.description = (f"Verified routine for tasks like '{goals[0]}' in {scope}: "
@@ -128,7 +152,7 @@ def forge(soup: Soup, min_support: int = 2, min_utility: float = 0.5, store: boo
         skills.append(sk)
         if store:
             soup.add(f"skill {sk.name}: {sk.description}", kind="skill", tags=",".join(files), source="forge",
-                     scope=scope, data=json.dumps({"name": sk.name, "steps": steps, "goals": goals,
+                     scope=scope, status="staged", data=json.dumps({"name": sk.name, "steps": steps, "goals": goals,
                                                    "verify": verify, "sources": sk.sources}))
     return sorted(skills, key=lambda s: (-s.support, s.name))
 
