@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # Import base dual LLM orchestrator
-from dual_llm_orchestrator import (
+from kgirl.llm.dual_llm_orchestrator import (
     DualLLMOrchestrator,
     LocalLLM,
     ResourceLLM,

@@ -21,7 +21,7 @@ from collections import defaultdict
 import logging
 
 # Import base systems
-from holographic_memory_system import (
+from kgirl.quantum.holographic_memory_system import (
     EnhancedCognitiveMemoryOrchestrator,
     HolographicAssociativeMemory,
     FractalMemoryEncoder,

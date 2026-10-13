@@ -16,7 +16,7 @@ import numpy as np
 import torch
 
 # Import LiMps components
-from dual_llm_orchestrator import (
+from kgirl.llm.dual_llm_orchestrator import (
     DualLLMOrchestrator,
     OrchestratorSettings,
     HTTPConfig,
@@ -25,17 +25,17 @@ from dual_llm_orchestrator import (
 )
 
 # Import holographic memory system
-from holographic_memory_system import EnhancedCognitiveMemoryOrchestrator
+from kgirl.quantum.holographic_memory_system import EnhancedCognitiveMemoryOrchestrator
 
 # Import integration bridge
-from cognitive_integration_bridge import (
+from kgirl.cognitive.cognitive_integration_bridge import (
     CognitiveHolographicBridge,
     CognitiveStateMapper,
     IntegratedCognitiveState
 )
 
 # Import advanced enhancements
-from advanced_cognitive_enhancements import (
+from kgirl.cognitive.advanced_cognitive_enhancements import (
     UnifiedEmergentOrchestrator,
     AdvancedQuantumClassicalBridge,
     DynamicEmergenceDetector,
@@ -43,7 +43,7 @@ from advanced_cognitive_enhancements import (
 )
 
 try:
-    from cognitive_communication_organism import (
+    from kgirl.cognitive.cognitive_communication_organism import (
         CognitiveCommunicationOrganism,
         CognitiveState,
         CommunicationContext

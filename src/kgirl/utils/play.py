@@ -3,9 +3,9 @@ import asyncio, sys
 from pathlib import Path
 sys.path.insert(0, str(Path('/home/kill/numbskull')))
 
-from neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
-from signal_processing_numbskull_adapter import SignalProcessingNumbskullAdapter
-from enhanced_vector_index import EnhancedVectorIndex
+from kgirl.cognitive.neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
+from kgirl.llm.signal_processing_numbskull_adapter import SignalProcessingNumbskullAdapter
+from kgirl.neural.enhanced_vector_index import EnhancedVectorIndex
 
 async def main():
     print('\n🎮 Quick Playground - Ready to Use!\n')

@@ -32,7 +32,7 @@ try:
 except ImportError:
     NUMBSKULL_AVAILABLE = False
 
-import signal_processing as dsp
+from kgirl.core import signal_processing as dsp
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

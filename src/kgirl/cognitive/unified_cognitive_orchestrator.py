@@ -45,13 +45,13 @@ except ImportError as e:
     logging.warning(f"Numbskull not available: {e}")
 
 # LiMp imports
-from numbskull_dual_orchestrator import (
+from kgirl.llm.numbskull_dual_orchestrator import (
     create_numbskull_orchestrator,
     NumbskullDualOrchestrator
 )
 
 try:
-    from neuro_symbolic_engine import (
+    from kgirl.cognitive.neuro_symbolic_engine import (
         EntropyAnalyzer,
         DianneReflector,
         MatrixTransformer,
@@ -65,7 +65,7 @@ except ImportError:
     logging.warning("Neuro-symbolic engine not available")
 
 try:
-    from holographic_memory_system import (
+    from kgirl.quantum.holographic_memory_system import (
         HolographicAssociativeMemory,
         FractalEncoder,
         QuantumEnhancedMemory
@@ -77,7 +77,7 @@ except ImportError:
 
 try:
     import torch
-    from tauls_transformer import (
+    from kgirl.llm.tauls_transformer import (
         TAULSControlUnit,
         KFPLayer,
         EntropyRegulator

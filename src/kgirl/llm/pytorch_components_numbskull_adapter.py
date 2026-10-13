@@ -37,14 +37,14 @@ except ImportError:
 try:
     import torch
     import torch.nn as nn
-    from tauls_transformer import TAULSControlUnit, KFPLayer, EntropyRegulator
+    from kgirl.llm.tauls_transformer import TAULSControlUnit, KFPLayer, EntropyRegulator
     TAULS_AVAILABLE = True
 except ImportError:
     TAULS_AVAILABLE = False
     torch = None
 
 try:
-    from holographic_memory_system import (
+    from kgirl.quantum.holographic_memory_system import (
         HolographicAssociativeMemory,
         FractalEncoder,
         QuantumEnhancedMemory
@@ -54,7 +54,7 @@ except ImportError:
     HOLOGRAPHIC_AVAILABLE = False
 
 try:
-    from quantum_cognitive_processor import (
+    from kgirl.quantum.quantum_cognitive_processor import (
         QuantumNeuralNetwork,
         QuantumWalkOptimizer
     )

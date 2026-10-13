@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 from typing import Dict, Any, List
 
-from numbskull_dual_orchestrator import (
+from kgirl.llm.numbskull_dual_orchestrator import (
     create_numbskull_orchestrator,
     NUMBSKULL_AVAILABLE
 )

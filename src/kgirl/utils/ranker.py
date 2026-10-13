@@ -1,8 +1,8 @@
 from typing import List
-from ..models.memory_event import MemoryEvent
+from .memory_event import MemoryEvent
 from .vector_index import semantic_scores
 from .graph_store import degree
-from ..config import settings
+from .config import settings
 
 def rank_memories(query: str, mems: List[MemoryEvent], k: int = 12, entropy: float = 0.0) -> List[MemoryEvent]:
     texts = [m.data for m in mems]

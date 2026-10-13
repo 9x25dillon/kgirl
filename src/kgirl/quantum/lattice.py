@@ -1,3 +1,10 @@
+from __future__ import annotations
+
+import hashlib
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
 # ================================
 # 1. FRACTAL LATTICE
 # ================================
@@ -185,6 +192,14 @@ if __name__ == "__main__":
     # - map pattern.control_curves["coherence"] to filter/resonance/etc.
     print("Generated notes:", len(pattern.notes))
     print("Infrasonic envelope points:", len(pattern.infrasonic_envelope))
+# FrequencyTranslator hoisted here from below: EnhancedFrequencyTranslator subclasses it (definition order bug).
+class FrequencyTranslator:
+    """Base class for frequency translation (stubbed for compatibility)."""
+    def encode_frequency_signature(self, freq: float) -> str:
+        """Encode frequency as a hex signature (placeholder)."""
+        return f"sig_{int(freq * 100):08x}"
+
+
 class EnhancedFrequencyTranslator(FrequencyTranslator):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -306,11 +321,6 @@ logger = logging.getLogger(__name__)
 
 # ================================ MISSING BASE CLASSES FOR COMPATIBILITY ================================
 
-class FrequencyTranslator:
-    """Base class for frequency translation (stubbed for compatibility)."""
-    def encode_frequency_signature(self, freq: float) -> str:
-        """Encode frequency as a hex signature (placeholder)."""
-        return f"sig_{int(freq * 100):08x}"
 
 class FractalInfrasonomancer:
     """Fractal pattern generator using seed text (minimal implementation)."""
@@ -488,13 +498,12 @@ class NSCTS:
             length_seconds=length_seconds, note_density=note_density
         )
         signatures = []
-        for sig in pattern['radiation_signatures']:
-            stream_map = {
-                'frequency': BiometricStream.NEURAL,
-                'start_time': BiometricStream.BREATH,
-                'duration': BiometricStream.HEART,
-                'encoded_signature': BiometricStream.MOVEMENT
-            }[random.choice(list(stream_map.keys()))]  # Random stream assignment for sim
+        # Deterministic round-robin over the four streams. This used to be
+        # `stream_map = {...}[random.choice(list(stream_map.keys()))]`, which read stream_map before it
+        # existed (NameError on every call) and drew from a PRNG.
+        streams = (BiometricStream.NEURAL, BiometricStream.BREATH, BiometricStream.HEART, BiometricStream.MOVEMENT)
+        for i, sig in enumerate(pattern['radiation_signatures']):
+            stream_map = streams[i % len(streams)]
             signatures.append(BiometricSignature(
                 stream=stream_map,
                 frequency=sig['frequency'],
@@ -551,4 +560,5 @@ async def demonstrate_nscts():
 
 # Run demonstration
 if __name__ == "__main__":
-    asyncio.run(demonstrate_nscts()) please enhance and advance and evolve this perchance
+    asyncio.run(demonstrate_nscts())
+# (note left in the original: "please enhance and advance and evolve this perchance")

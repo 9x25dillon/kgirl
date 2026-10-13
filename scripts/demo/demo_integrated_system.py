@@ -31,17 +31,17 @@ sys.path.append('/home/kill/LiMp')
 sys.path.append('/home/kill/numbskull')
 
 # Import all integrated components
-from holographic_memory_system import (
+from kgirl.quantum.holographic_memory_system import (
     EnhancedCognitiveMemoryOrchestrator,
     demo_enhanced_holographic_memory
 )
 
-from cognitive_integration_bridge import (
+from kgirl.cognitive.cognitive_integration_bridge import (
     CognitiveHolographicBridge,
     create_integrated_bridge
 )
 
-from advanced_cognitive_enhancements import (
+from kgirl.cognitive.advanced_cognitive_enhancements import (
     UnifiedEmergentOrchestrator,
     AdvancedQuantumClassicalBridge,
     DynamicEmergenceDetector,
@@ -59,7 +59,7 @@ except ImportError:
     NUMBSKULL_AVAILABLE = False
     logging.warning("Numbskull adapter not available")
 
-from limps_holographic_orchestrator import (
+from kgirl.core.limps_holographic_orchestrator import (
     EnhancedDualLLMOrchestrator,
     create_enhanced_orchestrator,
     HTTPConfig,

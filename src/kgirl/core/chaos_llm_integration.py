@@ -45,17 +45,17 @@ al_uls_ws_client = None
 matrix_processor = None
 
 try:
-    from src.chaos_llm.services import entropy_engine
-    from src.chaos_llm.services import retrieval
-    from src.chaos_llm.services import motif_engine
-    from src.chaos_llm.services import suggestions
-    from src.chaos_llm.services import unitary_mixer
-    from src.chaos_llm.services import al_uls
-    from src.chaos_llm.services import al_uls_client
+    from chaos_llm.services import entropy_engine
+    from chaos_llm.services import retrieval
+    from chaos_llm.services import motif_engine
+    from chaos_llm.services import suggestions
+    from chaos_llm.services import unitary_mixer
+    from chaos_llm.services import al_uls
+    from chaos_llm.services import al_uls_client
     
     # Try QGI separately (may have dependencies on broken matrix_processor)
     try:
-        from src.chaos_llm.services import qgi
+        from chaos_llm.services import qgi
     except:
         pass
     

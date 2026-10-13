@@ -21,7 +21,7 @@ from dataclasses import dataclass
 import logging
 
 # Import holographic memory system
-from holographic_memory_system import (
+from kgirl.quantum.holographic_memory_system import (
     EnhancedCognitiveMemoryOrchestrator,
     HolographicAssociativeMemory,
     FractalMemoryEncoder,
@@ -31,7 +31,7 @@ from holographic_memory_system import (
 
 # Import LiMps components (will import from existing system)
 try:
-    from cognitive_communication_organism import (
+    from kgirl.cognitive.cognitive_communication_organism import (
         CognitiveCommunicationOrganism,
         CognitiveState,
         CognitiveLevel,

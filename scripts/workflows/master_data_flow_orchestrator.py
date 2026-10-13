@@ -41,10 +41,10 @@ if numbskull_path.exists() and str(numbskull_path) not in sys.path:
 
 # Import all integrated systems
 from complete_system_integration import CompleteSystemIntegration
-from unified_cognitive_orchestrator import UnifiedCognitiveOrchestrator
-from enhanced_vector_index import EnhancedVectorIndex
-from enhanced_graph_store import EnhancedGraphStore
-from limp_module_manager import LiMpModuleManager
+from kgirl.cognitive.unified_cognitive_orchestrator import UnifiedCognitiveOrchestrator
+from kgirl.neural.enhanced_vector_index import EnhancedVectorIndex
+from kgirl.neural.enhanced_graph_store import EnhancedGraphStore
+from kgirl.core.limp_module_manager import LiMpModuleManager
 
 try:
     from advanced_embedding_pipeline import HybridEmbeddingPipeline, HybridConfig

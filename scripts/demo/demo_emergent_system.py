@@ -9,7 +9,7 @@ system through various scenarios and visualizations.
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from emergent_cognitive_network import (
+from kgirl.cognitive.emergent_cognitive_network import (
     QuantumInspiredOptimizer,
     SwarmCognitiveNetwork,
     NeuromorphicProcessor,

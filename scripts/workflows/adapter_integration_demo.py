@@ -30,11 +30,11 @@ if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 
 # Import all adapters
-from neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
-from signal_processing_numbskull_adapter import SignalProcessingNumbskullAdapter
-from aluls_numbskull_adapter import ALULSNumbskullAdapter
-from evolutionary_numbskull_adapter import EvolutionaryNumbskullAdapter
-from pytorch_components_numbskull_adapter import (
+from kgirl.cognitive.neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
+from kgirl.llm.signal_processing_numbskull_adapter import SignalProcessingNumbskullAdapter
+from kgirl.llm.aluls_numbskull_adapter import ALULSNumbskullAdapter
+from kgirl.llm.evolutionary_numbskull_adapter import EvolutionaryNumbskullAdapter
+from kgirl.llm.pytorch_components_numbskull_adapter import (
     TAULSNumbskullAdapter,
     HolographicNumbskullAdapter,
     QuantumNumbskullAdapter

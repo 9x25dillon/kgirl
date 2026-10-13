@@ -28,7 +28,7 @@ warnings.filterwarnings("ignore")
 # Add paths
 sys.path.insert(0, str(Path("/home/kill/numbskull")))
 
-from recursive_cognitive_knowledge import RecursiveCognitiveKnowledge
+from kgirl.cognitive.recursive_cognitive_knowledge import RecursiveCognitiveKnowledge
 
 import logging
 logging.getLogger('advanced_embedding_pipeline').setLevel(logging.ERROR)

@@ -43,7 +43,7 @@ from advanced_embedding_pipeline import (
     FractalConfig
 )
 
-from numbskull_dual_orchestrator import (
+from kgirl.llm.numbskull_dual_orchestrator import (
     create_numbskull_orchestrator,
     NUMBSKULL_AVAILABLE
 )

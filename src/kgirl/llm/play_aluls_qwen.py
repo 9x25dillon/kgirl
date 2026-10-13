@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path('/home/kill/numbskull')))
 
-from enable_aluls_and_qwen import MultiLLMOrchestrator
+from kgirl.llm.enable_aluls_and_qwen import MultiLLMOrchestrator
 
 async def quick_demo():
     """Quick interactive demo"""

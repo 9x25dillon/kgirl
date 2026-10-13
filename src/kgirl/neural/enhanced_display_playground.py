@@ -21,7 +21,7 @@ numbskull_path = Path("/home/kill/numbskull")
 if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 
-from recursive_cognitive_knowledge import RecursiveCognitiveKnowledge
+from kgirl.cognitive.recursive_cognitive_knowledge import RecursiveCognitiveKnowledge
 import logging
 
 # Reduce noise but keep important info

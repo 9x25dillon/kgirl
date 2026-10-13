@@ -32,7 +32,7 @@ try:
 except ImportError:
     NUMBSKULL_AVAILABLE = False
 
-from neuro_symbolic_engine import (
+from kgirl.cognitive.neuro_symbolic_engine import (
     EntropyAnalyzer,
     DianneReflector,
     MatrixTransformer,

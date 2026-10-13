@@ -12,7 +12,7 @@ This demo shows how to:
 """
 
 import asyncio
-from quantum_knowledge_database import QuantumHolographicKnowledgeDatabase
+from kgirl.quantum.quantum_knowledge_database import QuantumHolographicKnowledgeDatabase
 
 async def demo():
     print("\n" + "="*80)

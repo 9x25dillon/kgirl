@@ -33,7 +33,7 @@ except ImportError:
     NUMBSKULL_AVAILABLE = False
 
 try:
-    import signal_processing as dsp
+    from kgirl.core import signal_processing as dsp
     # Don't import EvolutionaryCommunicator directly due to dataclass issue
     # We'll work with signal processing directly
     EVOL_COMM_AVAILABLE = True

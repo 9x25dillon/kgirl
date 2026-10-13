@@ -4,8 +4,10 @@
 
 from typing import Dict, Any
 import numpy as np
-from newthought import Thought, NewThought
-from crd import UnifiedCoherenceRecovery
+import time
+
+from chaos_llm.services.newthought import NewThoughtService, Thought
+from kgirl.utils.crd import UnifiedCoherenceRecovery
 
 def distribute_coherence_to_bands(coherence: float, metadata: dict) -> Dict[str, float]:
     depth = metadata.get('depth', 2)
@@ -27,21 +29,16 @@ def distribute_coherence_to_bands(coherence: float, metadata: dict) -> Dict[str,
     return {k: np.clip(v, 0.0, 1.0) for k, v in kappa.items()}
 
 def aggregate_kappa_to_coherence(kappa_dict: Dict[str, float], metadata=None) -> float:
+    """Inverse of distribute_coherence_to_bands: the forward map normalises the bands to sum to the
+    coherence, so the inverse is the (clipped) sum. It used to be a dominant-band-weighted mean, which
+    is not an inverse: a 0.8 thought came back as 0.23."""
     if not kappa_dict:
         return 0.5
-    dominant = max(kappa_dict, key=kappa_dict.get)
-    keys = list(kappa_dict.keys())
-    dom_idx = keys.index(dominant)
-    weighted = total_w = 0.0
-    for i, (k, v) in enumerate(kappa_dict.items()):
-        w = np.exp(-abs(i - dom_idx) / 2.0)
-        weighted += v * w
-        total_w += w
-    return float(np.clip(weighted / total_w, 0.0, 1.0)) if total_w > 0 else 0.5
+    return float(np.clip(sum(kappa_dict.values()), 0.0, 1.0))
 
 class NewThought_UnifiedCoherenceRecovery_Bridge:
     def __init__(self):
-        self.primary_system = NewThought()
+        self.primary_system = NewThoughtService()
         self.recovery_framework = UnifiedCoherenceRecovery()
         self.forward_mappings = {'coherence_score→kappa_bands': distribute_coherence_to_bands}
         self.reverse_mappings = {'kappa_bands→coherence_score': aggregate_kappa_to_coherence}
@@ -55,7 +52,11 @@ class NewThought_UnifiedCoherenceRecovery_Bridge:
     def reverse_transform(self, kappa_dict: Dict[str, float], original_entity=None) -> Thought:
         new_coherence = aggregate_kappa_to_coherence(kappa_dict)
         if original_entity is None:
-            return Thought(new_coherence, depth=2, entropy=0.3, embedding=np.random.randn(128))
+            # Thought's fields are (content, embedding, coherence_score, entropy, depth, timestamp); the old call
+            # passed the coherence as `content`, omitted coherence_score and timestamp (TypeError) and drew a
+            # random embedding. A reconstructed thought carries no content, so its embedding is zero.
+            return Thought(content="", embedding=np.zeros(self.primary_system.spatial_encoder.embedding_dim),
+                           coherence_score=new_coherence, entropy=0.3, depth=2, timestamp=time.time())
         original_entity.coherence_score = new_coherence
         return original_entity
 

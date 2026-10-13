@@ -33,7 +33,7 @@ except ImportError:
     NUMBSKULL_AVAILABLE = False
 
 try:
-    from emergent_cognitive_network import (
+    from kgirl.cognitive.emergent_cognitive_network import (
         QuantumInspiredOptimizer,
         SwarmCognitiveNetwork
     )

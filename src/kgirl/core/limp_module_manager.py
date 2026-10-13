@@ -169,15 +169,15 @@ class LiMpModuleManager:
             
             # Initialize specific modules
             if name == "unified_cognitive_orchestrator":
-                from unified_cognitive_orchestrator import UnifiedCognitiveOrchestrator
+                from kgirl.cognitive.unified_cognitive_orchestrator import UnifiedCognitiveOrchestrator
                 self.instances[name] = UnifiedCognitiveOrchestrator(**(config or {}))
             
             elif name == "enhanced_vector_index":
-                from enhanced_vector_index import EnhancedVectorIndex
+                from kgirl.neural.enhanced_vector_index import EnhancedVectorIndex
                 self.instances[name] = EnhancedVectorIndex(**(config or {}))
             
             elif name == "enhanced_graph_store":
-                from enhanced_graph_store import EnhancedGraphStore
+                from kgirl.neural.enhanced_graph_store import EnhancedGraphStore
                 self.instances[name] = EnhancedGraphStore(**(config or {}))
             
             elif name == "numbskull":

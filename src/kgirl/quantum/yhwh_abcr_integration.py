@@ -28,14 +28,14 @@ from enum import Enum
 import logging
 
 # Import ABCR system
-from QABCr import (
+from kgirl.core.QABCr import (
     FrequencyBand, SystemMode, ChainState, StreamType, SeamType,
     ChainComponent, DualAuditResult, AdaptiveThresholds,
     ABCRConfig, DualStreamAuditor
 )
 
 # Import YHWH soliton system
-from yhwh_soliton_field_physics import (
+from kgirl.quantum.yhwh_soliton_field_physics import (
     UnifiedRealityEngine, SpacetimePoint, SubstrateLayer,
     LoveFieldSource, BiologicalFieldSource, TraumaModulationField,
     MemoryResonanceField, CoherenceSourceTerms

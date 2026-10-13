@@ -12,7 +12,7 @@ if venv_site_packages not in sys.path:
 
 # Now run the main demo
 if __name__ == "__main__":
-    from cognitive_communication_organism import demo_cognitive_communication_organism
+    from kgirl.cognitive.cognitive_communication_organism import demo_cognitive_communication_organism
 
     print("🚀 Running Cognitive Communication Organism Demo...")
     print("=" * 80)

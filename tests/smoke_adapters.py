@@ -3,7 +3,7 @@ import types
 import json
 import requests
 
-from llm_adapters import OpenAIAdapter, LocalSubprocessAdapter, LocalStubAdapter
+from kgirl.llm.llm_adapters import OpenAIAdapter, LocalSubprocessAdapter, LocalStubAdapter
 
 
 class DummyResponse:

@@ -7,7 +7,7 @@ from tqdm import tqdm
 import torch
 from safetensors.torch import load_file, save_file
 
-from kernel import weight_dequant
+from kgirl.core.kernel import weight_dequant
 
 def main(fp8_path, bf16_path):
     """

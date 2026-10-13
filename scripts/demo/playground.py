@@ -24,11 +24,11 @@ numbskull_path = Path('/home/kill/numbskull')
 if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 
-from numbskull_dual_orchestrator import create_numbskull_orchestrator
-from neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
-from signal_processing_numbskull_adapter import SignalProcessingNumbskullAdapter
-from enhanced_vector_index import EnhancedVectorIndex
-from enhanced_graph_store import EnhancedGraphStore
+from kgirl.llm.numbskull_dual_orchestrator import create_numbskull_orchestrator
+from kgirl.cognitive.neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
+from kgirl.llm.signal_processing_numbskull_adapter import SignalProcessingNumbskullAdapter
+from kgirl.neural.enhanced_vector_index import EnhancedVectorIndex
+from kgirl.neural.enhanced_graph_store import EnhancedGraphStore
 
 print('\n' + '='*70)
 print('🎮 LIMP + NUMBSKULL PLAYGROUND 🎮')

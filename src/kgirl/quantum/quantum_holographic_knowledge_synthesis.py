@@ -50,10 +50,10 @@ except ImportError:
     logging.warning("FAISS not available - using numpy fallback")
 
 # Import kgirl components
-from holographic_memory_system import HolographicAssociativeMemory
-from fractal_resonance import FractalGenerator, ResonanceConfig
-from quantum_cognitive_processor import QuantumNeuralNetwork, QuantumWalkOptimizer
-from distributed_knowledge_base import (
+from kgirl.quantum.holographic_memory_system import HolographicAssociativeMemory
+from kgirl.embeddings.fractal_resonance import FractalGenerator, ResonanceConfig
+from kgirl.quantum.quantum_cognitive_processor import QuantumNeuralNetwork, QuantumWalkOptimizer
+from kgirl.core.distributed_knowledge_base import (
     KnowledgeNode,
     KnowledgeBaseConfig,
     SQLiteKnowledgeStore

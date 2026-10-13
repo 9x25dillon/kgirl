@@ -1,25 +1,10 @@
-cursor/bc-f408c7bd-bc2a-48a4-bc8d-0989f628ad52-ef2e
-class MatrixProcessor:
-    def available(self) -> bool:
-        return False
+"""Semantic token suggestions for the QGI suggester: the real kgirl implementation, re-exported.
 
-    def semantic_state_suggest(self, prefix: str, state: str):
-        return []
+This used to be a stub whose available() returned False and whose suggestions were placeholder
+"_A/_B/_C" expansions. kgirl.core.matrix_processor ranks the state vocabulary by character-trigram
+similarity with stable hashing (deterministic across processes).
+"""
 
-from __future__ import annotations
-from typing import List
+from kgirl.core.matrix_processor import MatrixProcessor, matrix_processor
 
-class MatrixProcessor:
-    def available(self) -> bool:
-        # Stub off by default; set True if you wire a real vector index
-        return False
-
-    def semantic_state_suggest(self, prefix: str, state: str) -> List[str]:
-        # Simple placeholder: n-gram expansions
-        base = (prefix or "").upper()
-        if not base:
-            return ["SELECT", "FILTER", "GROUP", "ORDER"]
-        return [base + s for s in ["_A", "_B", "_C"]]
-
-
-matrix_processor = MatrixProcessor()
+__all__ = ["MatrixProcessor", "matrix_processor"]

@@ -34,7 +34,7 @@ except ImportError:
     NUMBSKULL_AVAILABLE = False
 
 try:
-    from src.chaos_llm.services.al_uls import al_uls
+    from chaos_llm.services.al_uls import al_uls
     ALULS_AVAILABLE = True
 except ImportError:
     ALULS_AVAILABLE = False

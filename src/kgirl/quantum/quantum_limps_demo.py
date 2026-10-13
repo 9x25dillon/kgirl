@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from quantum_limps_integration import (
+from kgirl.quantum.quantum_limps_integration import (
     QuantumLIMPSIntegration,
     QuantumLIMPSConfig,
     optimize_quantum_knowledge,

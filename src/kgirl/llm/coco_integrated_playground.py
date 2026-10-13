@@ -27,7 +27,7 @@ if numbskull_path.exists() and str(numbskull_path) not in sys.path:
 
 # Import CoCo organism
 try:
-    from CoCo_0rg import (
+    from kgirl.cognitive.CoCo_0rg import (
         CognitiveCommunicationOrganism,
         CommunicationContext,
         CognitiveLevel,
@@ -40,7 +40,7 @@ except Exception as e:
     print(f"⚠️  CoCo not available: {e}")
 
 # Import AL-ULS + Multi-LLM
-from enable_aluls_and_qwen import MultiLLMOrchestrator, LocalALULSEvaluator
+from kgirl.llm.enable_aluls_and_qwen import MultiLLMOrchestrator, LocalALULSEvaluator
 
 # Import Numbskull
 try:

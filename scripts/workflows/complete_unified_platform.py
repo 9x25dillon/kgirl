@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 # Import unified system
-from unified_quantum_llm_system import (
+from kgirl.llm.unified_quantum_llm_system import (
     UnifiedQuantumLLMSystem,
     UnifiedSystemConfig,
     OptimizationBackend,
@@ -44,13 +44,13 @@ sys.path.insert(0, str(NUMBSKULL_PATH / "advanced_embedding_pipeline"))
 
 # Try importing Numbskull components
 try:
-    from neuro_symbolic_engine import (
+    from kgirl.cognitive.neuro_symbolic_engine import (
         EntropyAnalyzer, DianneReflector, MatrixTransformer,
         JuliaSymbolEngine, FractalResonator, NeuroSymbolicEngine
     )
     from fractal_cascade_embedder import FractalCascadeEmbedder, FractalConfig
     from holographic_similarity_engine import HolographicSimilarityEngine
-    from emergent_cognitive_network import execute_emergent_protocol
+    from kgirl.cognitive.emergent_cognitive_network import execute_emergent_protocol
     NUMBSKULL_AVAILABLE = True
 except ImportError as e:
     logging.warning(f"Numbskull components not available: {e}")
@@ -604,7 +604,7 @@ def create_complete_platform(enable_all: bool = True,
         >>> platform = create_complete_platform(enable_all=True, use_gpu=True)
         >>> status = platform.get_complete_status()
     """
-    from unified_quantum_llm_system import OptimizationBackend, UnifiedSystemConfig
+    from kgirl.llm.unified_quantum_llm_system import OptimizationBackend, UnifiedSystemConfig
 
     backend_map = {
         "limps_gpu": OptimizationBackend.LIMPS_GPU,

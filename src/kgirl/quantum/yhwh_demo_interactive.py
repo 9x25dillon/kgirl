@@ -12,7 +12,7 @@ Usage:
     python yhwh_demo_interactive.py
 """
 
-from yhwh_soliton_field_physics import (
+from kgirl.quantum.yhwh_soliton_field_physics import (
     UnifiedRealityEngine,
     SpacetimePoint,
     TraumaModulationField,

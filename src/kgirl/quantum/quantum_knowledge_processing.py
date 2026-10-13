@@ -24,7 +24,7 @@ import torch.nn as nn
 from scipy import signal as scipy_signal
 from scipy.fft import fft, fftfreq
 
-from quantum_holographic_knowledge_synthesis import (
+from kgirl.quantum.quantum_holographic_knowledge_synthesis import (
     QualiaType,
     QualiaEncoding,
     EmergentPattern,

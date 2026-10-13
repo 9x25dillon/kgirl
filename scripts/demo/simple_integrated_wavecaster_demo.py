@@ -29,12 +29,12 @@ if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 
 # Import our integrated components
-from numbskull_dual_orchestrator import create_numbskull_orchestrator
-from neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
-from signal_processing_numbskull_adapter import SignalProcessingNumbskullAdapter
+from kgirl.llm.numbskull_dual_orchestrator import create_numbskull_orchestrator
+from kgirl.cognitive.neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
+from kgirl.llm.signal_processing_numbskull_adapter import SignalProcessingNumbskullAdapter
 from complete_system_integration import CompleteSystemIntegration
 
-import signal_processing as dsp
+from kgirl.core import signal_processing as dsp
 
 logging.basicConfig(
     level=logging.INFO,

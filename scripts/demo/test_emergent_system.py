@@ -8,7 +8,7 @@ Comprehensive tests for all components of the emergent cognitive network system.
 import unittest
 import numpy as np
 import time
-from emergent_cognitive_network import (
+from kgirl.cognitive.emergent_cognitive_network import (
     QuantumInspiredOptimizer,
     SwarmCognitiveNetwork,
     NeuromorphicProcessor,

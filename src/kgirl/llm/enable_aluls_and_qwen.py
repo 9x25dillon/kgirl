@@ -24,7 +24,7 @@ numbskull_path = Path("/home/kill/numbskull")
 if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 
-from numbskull_dual_orchestrator import create_numbskull_orchestrator
+from kgirl.llm.numbskull_dual_orchestrator import create_numbskull_orchestrator
 from advanced_embedding_pipeline import HybridEmbeddingPipeline, HybridConfig
 
 logging.basicConfig(level=logging.INFO)

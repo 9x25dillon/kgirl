@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from demo_adapter import get_demo_model_pool, get_divergent_pool, DemoAdapter
 
 # Import consensus logic from main.py
-from main import PhaseCoherence, CardyEnergy, spectral_weights
+from kgirl.main import PhaseCoherence, CardyEnergy, spectral_weights
 
 
 def print_separator(char="=", length=70):

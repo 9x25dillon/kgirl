@@ -29,12 +29,12 @@ import json
 import logging
 
 # Import our frameworks
-from yhwh_abcr_integration import (
+from kgirl.quantum.yhwh_abcr_integration import (
     YHWHABCRIntegrationEngine, UnifiedCoherenceState,
     InterventionRecommendation, IntegrationMode
 )
-from yhwh_soliton_field_physics import SubstrateLayer
-from QABCr import FrequencyBand
+from kgirl.quantum.yhwh_soliton_field_physics import SubstrateLayer
+from kgirl.core.QABCr import FrequencyBand
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger("THz_Wearable")
