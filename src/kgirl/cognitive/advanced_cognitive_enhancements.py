@@ -27,10 +27,11 @@ from kgirl.quantum.holographic_memory_system import (
     FractalMemoryEncoder,
     QuantumHolographicStorage
 )
+from kgirl.paths import find_repo
 
 try:
     import sys
-    sys.path.append('/home/kill/numbskull')
+    sys.path.append(str(find_repo("numbskull")))
     from emergent_cognitive_system import (
         EmergentCognitiveOrchestrator,
         QuantumOptimizationStep,

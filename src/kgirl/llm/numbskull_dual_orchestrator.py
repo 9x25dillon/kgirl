@@ -35,9 +35,10 @@ from kgirl.llm.dual_llm_orchestrator import (
     BaseLLM,
     HAS_REQUESTS
 )
+from kgirl.paths import find_repo
 
 # Add numbskull to path if needed
-numbskull_path = Path("/home/kill/numbskull")
+numbskull_path = find_repo("numbskull")
 if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 

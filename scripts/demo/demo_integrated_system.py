@@ -25,10 +25,11 @@ import torch
 from typing import Dict, List
 import logging
 import json
+from kgirl.paths import find_repo
 
 # Setup paths
-sys.path.append('/home/kill/LiMp')
-sys.path.append('/home/kill/numbskull')
+sys.path.append(str(find_repo("LiMp")))
+sys.path.append(str(find_repo("numbskull")))
 
 # Import all integrated components
 from kgirl.quantum.holographic_memory_system import (
@@ -49,7 +50,7 @@ from kgirl.cognitive.advanced_cognitive_enhancements import (
 )
 
 try:
-    sys.path.append('/home/kill/numbskull')
+    sys.path.append(str(find_repo("numbskull")))
     from holographic_pipeline_adapter import (
         HolographicNumbskullAdapter,
         demo_holographic_adapter
@@ -560,7 +561,7 @@ class IntegratedSystemDemo:
     def save_demo_results(self):
         """Save demo results to file"""
         
-        output_file = '/home/kill/LiMp/demo_results.json'
+        output_file = str(find_repo("LiMp") / "demo_results.json")
         
         # Prepare serializable results
         serializable_results = {

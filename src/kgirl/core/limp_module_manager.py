@@ -25,6 +25,7 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from kgirl.paths import find_repo
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -91,7 +92,7 @@ class LiMpModuleManager:
         
         # Numbskull
         self._check_module("numbskull", "advanced_embedding_pipeline", 
-                          import_path="/home/kill/numbskull")
+                          import_path=str(find_repo("numbskull")))
         
         self._print_discovery_summary()
     
@@ -182,7 +183,7 @@ class LiMpModuleManager:
             
             elif name == "numbskull":
                 import sys
-                sys.path.insert(0, "/home/kill/numbskull")
+                sys.path.insert(0, str(find_repo("numbskull")))
                 from advanced_embedding_pipeline import HybridEmbeddingPipeline, HybridConfig
                 cfg = HybridConfig(**(config or {}))
                 self.instances[name] = HybridEmbeddingPipeline(cfg)

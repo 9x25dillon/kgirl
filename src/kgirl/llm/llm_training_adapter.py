@@ -22,9 +22,10 @@ import logging
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from kgirl.paths import find_repo
 
 # Add aipyapp to path
-aipyapp_path = Path("/home/kill/aipyapp")
+aipyapp_path = find_repo("aipyapp")
 if aipyapp_path.exists() and str(aipyapp_path) not in sys.path:
     sys.path.insert(0, str(aipyapp_path))
 

@@ -24,9 +24,10 @@ import json
 import sys
 import warnings
 from pathlib import Path
+from kgirl.paths import find_repo
 
 warnings.filterwarnings("ignore")
-sys.path.insert(0, str(Path("/home/kill/numbskull")))
+sys.path.insert(0, str(find_repo("numbskull")))
 
 from complete_integration_orchestrator import CompleteIntegrationOrchestrator
 from kgirl.core.matrix_processor_adapter import matrix_processor

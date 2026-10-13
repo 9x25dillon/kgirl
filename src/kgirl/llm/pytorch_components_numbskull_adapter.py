@@ -21,9 +21,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+from kgirl.paths import find_repo
 
 # Add numbskull to path
-numbskull_path = Path("/home/kill/numbskull")
+numbskull_path = find_repo("numbskull")
 if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 
@@ -37,17 +38,22 @@ except ImportError:
 try:
     import torch
     import torch.nn as nn
-    from kgirl.llm.tauls_transformer import TAULSControlUnit, KFPLayer, EntropyRegulator
-    TAULS_AVAILABLE = True
 except ImportError:
-    TAULS_AVAILABLE = False
     torch = None
 
 try:
+    # (the class is EntropyRegulationModule; the old name EntropyRegulator made this import fail and
+    # also set torch = None for the whole adapter)
+    from kgirl.llm.tauls_transformer import EntropyRegulationModule, KFPLayer, TAULSControlUnit
+    TAULS_AVAILABLE = torch is not None
+except ImportError:
+    TAULS_AVAILABLE = False
+
+try:
     from kgirl.quantum.holographic_memory_system import (
+        FractalMemoryEncoder,
         HolographicAssociativeMemory,
-        FractalEncoder,
-        QuantumEnhancedMemory
+        QuantumMemoryEnhancement,
     )
     HOLOGRAPHIC_AVAILABLE = True
 except ImportError:

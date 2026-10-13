@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Verify ALL components are working together"""
 import sys
-sys.path.insert(0, '/home/kill/numbskull')
+from kgirl.paths import find_repo
+sys.path.insert(0, str(find_repo("numbskull")))
 import asyncio
 import requests
 

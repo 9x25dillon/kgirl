@@ -340,7 +340,7 @@ async def main():
     # Check numbskull availability
     if not NUMBSKULL_AVAILABLE:
         logger.error("❌ Numbskull pipeline not available!")
-        logger.error("Please ensure /home/kill/numbskull is accessible and contains the embedding pipeline.")
+        logger.error("Please ensure numbskull is reachable (NUMBSKULL_PATH, <kgirl>/numbskull or ../numbskull) and contains the embedding pipeline.")
         sys.exit(1)
     
     logger.info("✅ Numbskull pipeline available")

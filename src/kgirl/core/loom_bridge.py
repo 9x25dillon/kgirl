@@ -21,12 +21,13 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, Any, Optional
 import asyncio
+from kgirl.paths import find_repo
 
 
 class VibrationalLattice:
     """Python interface to Julia vibrational lattice algorithm."""
     
-    def __init__(self, julia_path: str = "/home/kill/LiMp/vibrational_lattice.jl"):
+    def __init__(self, julia_path: str = str(find_repo("LiMp") / "vibrational_lattice.jl")):
         self.julia_path = Path(julia_path)
         self.lattice_state: Optional[Dict[str, Any]] = None
         

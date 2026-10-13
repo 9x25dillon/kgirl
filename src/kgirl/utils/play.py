@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 import asyncio, sys
 from pathlib import Path
-sys.path.insert(0, str(Path('/home/kill/numbskull')))
+from kgirl.paths import find_repo
+sys.path.insert(0, str(find_repo("numbskull")))
 
 from kgirl.cognitive.neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
 from kgirl.llm.signal_processing_numbskull_adapter import SignalProcessingNumbskullAdapter

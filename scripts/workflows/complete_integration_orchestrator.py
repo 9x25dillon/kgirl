@@ -26,13 +26,14 @@ import sys
 import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from kgirl.paths import find_repo
 
 # Suppress warnings for clean output
 warnings.filterwarnings("ignore")
 
 # Add paths
-sys.path.insert(0, str(Path("/home/kill/numbskull")))
-sys.path.insert(0, str(Path("/home/kill/aipyapp")))
+sys.path.insert(0, str(find_repo("numbskull")))
+sys.path.insert(0, str(find_repo("aipyapp")))
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(message)s')

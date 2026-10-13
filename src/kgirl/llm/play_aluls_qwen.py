@@ -17,8 +17,9 @@ Then edit this file to try different queries!
 import asyncio
 import sys
 from pathlib import Path
+from kgirl.paths import find_repo
 
-sys.path.insert(0, str(Path('/home/kill/numbskull')))
+sys.path.insert(0, str(find_repo("numbskull")))
 
 from kgirl.llm.enable_aluls_and_qwen import MultiLLMOrchestrator
 

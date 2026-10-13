@@ -28,6 +28,7 @@ from kgirl.quantum.holographic_memory_system import (
     QuantumHolographicStorage,
     EmergentMemoryPatterns
 )
+from kgirl.paths import find_repo
 
 # Import LiMps components (will import from existing system)
 try:
@@ -44,7 +45,7 @@ except ImportError:
 
 # Import emergent cognitive network if available
 try:
-    sys.path.append('/home/kill/numbskull')
+    sys.path.append(str(find_repo("numbskull")))
     from emergent_cognitive_system import (
         EmergentCognitiveOrchestrator,
         QuantumOptimizationStep,
