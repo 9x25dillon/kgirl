@@ -167,7 +167,7 @@ class Assistant:
         return ans
 
     def task(self, goal: str, repo_path: str | Path, verify_cmd: list[str] | None = None, size: int | None = None,
-             apply: bool = False, repo_name: str | None = None) -> SwarmResult:
+             apply: bool = False, repo_name: str | None = None, origin: str | None = None) -> SwarmResult:
         cfg = self.swarm_config
         if size:
             cfg = SwarmConfig(size=size, temperatures=cfg.temperatures, memory_budget=cfg.memory_budget,
@@ -179,7 +179,7 @@ class Assistant:
             soup=self.soup, curator=self.curator, config=cfg,
             blast=lambda repo, path: blast_radius(self.atlas, f"{repo}:{path}").render(20),
             emit=lambda topic, payload: self.bus.publish(topic, payload, "swarm", parent=root))
-        return swarm.run(goal, repo_path, verify_cmd, repo_name=repo_name, apply=apply)
+        return swarm.run(goal, repo_path, verify_cmd, repo_name=repo_name, apply=apply, origin=origin)
 
     def remember(self, text: str, kind: str = "note", tags: str = "", scope: str = "*") -> int:
         return self.soup.add(text, kind=kind, tags=tags, source="user", scope=scope)

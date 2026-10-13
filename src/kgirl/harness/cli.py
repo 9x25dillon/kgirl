@@ -188,8 +188,8 @@ def _soup(a: Assistant, args) -> int:
     elif c == "export-sft":
         n = 0
         with open(args.out, "w", encoding="utf-8") as fh:
-            for f in a.soup.all(kind="trajectory"):
-                if f.status == "retired" or not f.data:
+            for f in a.soup.all(status="active", kind="trajectory"):   # staged (e.g. MCP) runs never train
+                if not f.data:
                     continue
                 rec = json.loads(f.data)
                 if not rec.get("diff"):

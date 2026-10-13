@@ -55,19 +55,17 @@ then gets these tools: `atlas_search`, `atlas_outline`, `atlas_source`, `atlas_b
 `ecl_protocol` and `ecl_gap`
 (see `docs/nihiline/README.md`). Run `index` once, before first use.
 
-Three tools change state, so the MCP server holds them to what the user allows, not what the model asks:
+Four tools change state, so the MCP server holds them to what the user allows, not what the model asks:
 
 | tool | rule over MCP | setting |
 |---|---|---|
 | `soup_remember` | stored as `staged` with source `mcp`; never auto-promoted, so never recalled until a person runs `python -m kgirl.harness soup promote <id>` | — |
 | `jev_swarm_task` `verify` | must equal one of the user's allowed commands; verifiers run without `*KEY*`, `*TOKEN*`, `*SECRET*`, `*PASSWORD*`, `*CREDENTIAL*` variables | `KGIRL_VERIFY_ALLOWLIST="python -m pytest -q; npm test"` |
 | `jev_swarm_task` `apply` | only into the root of an indexed repo, and only when the user opted in | `KGIRL_MCP_APPLY=1` |
+| `jev_swarm_task` learning | the winner's trajectory and distilled rules are stored `staged` with source `mcp`, never auto-promoted. Until a person runs `soup promote <id>`, the run is not recalled, replayed by intuition, forged into a skill or exported by `soup export-sft`. The tool's reply names the id | — |
+| `skills_forge` | reads only `active` trajectories; stores skills `staged`; support ≥ 2 and utility ≥ 0.5 are floors the model can raise but not lower; writes no files (exporting to `.claude/skills` is CLI-only, `skills forge --export`) | — |
 
-`skills_forge` also writes to Soup, and isn't yet held to a user setting:
-
-- It stores forged skills as `active` fragments with source `forge`.
-- The model chooses the support and utility thresholds.
-- It writes no files. Exporting to `.claude/skills` is CLI-only (`skills forge --export`).
+Swarms you start from the CLI (`python -m kgirl.harness task …`) learn as before: their trajectories are `active` at once.
 
 `initialize` answers with a protocol version the server supports (`2025-06-18`, `2025-03-26`, `2024-11-05`) and
 sends instructions that Atlas and Soup text is data, not instructions.
@@ -217,6 +215,7 @@ The tests cover:
 | prompt-injected agent writes memory over MCP | instruction recalled in every later session | `soup_remember` stages under source `mcp`; the curator never auto-promotes it; `soup promote` is a person's call |
 | model-chosen verifier command | arbitrary program runs with the user's keys | `KGIRL_VERIFY_ALLOWLIST`; secret-named variables removed from verifier environments |
 | model-chosen apply target | diff written into an unrelated directory | `KGIRL_MCP_APPLY=1` and an indexed repo root required |
+| model-chosen swarm goal persists | the goal text returns via recall, intuition, forged `SKILL.md` or fine-tuning data | MCP-started runs learn `staged` under source `mcp`; every consumer reads only `active` trajectories |
 | Claude unreachable / no key | no prose answers | falls back to the local model, then to an extractive context pack |
 
 ## Evidence vs speculation

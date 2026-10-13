@@ -78,6 +78,7 @@ class SwarmResult:
     proposals: list[tuple[int, str]] = field(default_factory=list)
     applied: list[str] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
+    origin: str | None = None
 
     def render(self) -> str:
         lines = [f"swarm for: {self.goal}"]
@@ -96,6 +97,10 @@ class SwarmResult:
             lines.append("no trajectory accepted")
         if self.proposals:
             lines.append("soup: " + ", ".join(f"#{i} {s}" for i, s in self.proposals))
+        for i, s in self.proposals:
+            if s == "staged trajectory":
+                lines.append(f"trajectory #{i} came from {self.origin}: it is recalled, replayed and forged only after "
+                             f"a person runs `python -m kgirl.harness soup promote {i}`")
         if self.applied:
             lines.append("applied to repo: " + ", ".join(self.applied))
         if self.conflicts:
@@ -117,7 +122,10 @@ class Swarm:
     # ------------------------------------------------------------------ public
 
     def run(self, goal: str, repo_path: str | Path, verify_cmd: list[str] | None = None,
-            repo_name: str | None = None, apply: bool = False) -> SwarmResult:
+            repo_name: str | None = None, apply: bool = False, origin: str | None = None) -> SwarmResult:
+        """`origin` names who supplied the goal when it was not the person at the CLI (for example
+        "mcp"). What such a run teaches is stored `staged` under that source, and the curator never
+        auto-promotes it, so a person promotes it before it is recalled, replayed or forged (KFM-12)."""
         cfg = self.config
         repo = Path(repo_path).resolve()
         repo_name = repo_name or repo.name
@@ -179,11 +187,11 @@ class Swarm:
                         (t.verified is True or (t.verified is None and cfg.allow_unverified))]
             winner = min(accepted, key=lambda t: (len(t.steps), t.prompt_tokens), default=None)
             results.sort(key=lambda t: t.variant.get("slice", 0))
-            res = SwarmResult(goal, winner, results, recall)
+            res = SwarmResult(goal, winner, results, recall, origin=origin)
             for t in results:
                 if t is not winner and t.outcome != "cancelled":
                     self.emit("jev.poof", {"jev": t.jev_id, "outcome": t.outcome})
-            self._learn(res, repo_name, verify_cmd)
+            self._learn(res, repo_name, verify_cmd, origin)
             if winner and apply:
                 self._apply(res, repo)
             self.emit("swarm.end", {"winner": winner.jev_id if winner else None,
@@ -213,7 +221,8 @@ class Swarm:
 
     # ------------------------------------------------------------------ learning
 
-    def _learn(self, res: SwarmResult, repo_name: str, verify_cmd: list[str] | None) -> None:
+    def _learn(self, res: SwarmResult, repo_name: str, verify_cmd: list[str] | None,
+               origin: str | None = None) -> None:
         w = res.winner
         if w is None:
             ids = sorted({i for t in res.trajectories for i in t.recalled})
@@ -231,14 +240,16 @@ class Swarm:
         files = sorted(w.edited)
         record = {"goal": w.goal, "ops": w.ops_signature(), "files": files, "summary": w.summary,
                   "verify": verify_cmd, "diff": w.diff[:20000], "memory": w.recalled, "steps": w.routine(),
-                  "llm_calls": w.llm_calls, "intuition_steps": w.intuition_steps}
+                  "llm_calls": w.llm_calls, "intuition_steps": w.intuition_steps, "jev": w.jev_id,
+                  "origin": origin}
+        source = origin or w.jev_id
         tid = self.soup.add(
             f"Solved '{clip(w.goal, 120)}' in {len(w.steps)} steps by editing {', '.join(files) or '-'}: "
-            f"{clip(w.summary, 160)}", kind="trajectory", tags=",".join(files), source=w.jev_id,
-            scope=repo_name, data=json.dumps(record))
-        res.proposals.append((tid, "trajectory"))
+            f"{clip(w.summary, 160)}", kind="trajectory", tags=",".join(files), source=source,
+            scope=repo_name, status="staged" if origin else "active", data=json.dumps(record))
+        res.proposals.append((tid, "staged trajectory" if origin else "trajectory"))
         for rule in self._distill(w, res, files, verify_cmd):
-            fid, status = self.curator.propose(rule, kind="abstraction", tags=",".join(files), source=w.jev_id,
+            fid, status = self.curator.propose(rule, kind="abstraction", tags=",".join(files), source=source,
                                                scope=repo_name)
             res.proposals.append((fid, status))
             self.emit("soup.propose", {"id": fid, "status": status, "text": rule})

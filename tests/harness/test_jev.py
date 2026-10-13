@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import sys
@@ -9,6 +10,8 @@ from tests.harness._fixtures import BUGGY_REPO, write
 
 from kgirl.harness.jev import (CODE_OPS, CodeEnvironment, InvalidDecision, Jev, JevConfig, Swarm, SwarmConfig,
                                parse_decision)
+from kgirl.harness.jev.intuition import Intuition
+from kgirl.harness.skills import forge
 from kgirl.harness.soup import Soup
 
 VERIFY = [sys.executable, "-m", "unittest", "-q", "test_calc"]
@@ -144,6 +147,29 @@ class SwarmTests(unittest.TestCase):
         self.assertTrue(active, self.soup.stats())
         rec = self.soup.recall("mean() denominator in calc.py", scope="calc")
         self.assertTrue(any(f.kind == "abstraction" for f in rec.fragments))
+
+    def test_mcp_origin_stages_what_the_run_teaches(self):
+        goal = "make test_calc pass: mean() is wrong"
+        for _ in range(2):                                   # repetition must not promote it either
+            write(self.base / "calc", BUGGY_REPO)
+            res = self.swarm().run(goal, self.repo, VERIFY, origin="mcp")
+            self.assertIsNotNone(res.winner)
+        frags = {f.kind: f for f in self.soup.all()}
+        self.assertEqual({k: (f.status, f.source) for k, f in frags.items()},
+                         {"trajectory": ("staged", "mcp"), "abstraction": ("staged", "mcp")})
+        self.assertEqual(frags["trajectory"].support, 2)
+        self.assertIn(f"#{frags['trajectory'].id} staged trajectory", res.render())
+        self.assertIn(f"soup promote {frags['trajectory'].id}", res.render())
+        rec = json.loads(frags["trajectory"].data)
+        self.assertEqual(rec["origin"], "mcp")
+        self.assertTrue(rec["jev"].startswith("jev-"), rec["jev"])
+        self.assertEqual(Intuition.from_soup(self.soup).routines, [])
+        self.assertEqual(forge(self.soup), [])
+        self.assertFalse(self.soup.recall(goal, scope="calc").fragments)
+        # a person promotes the trajectory: now it replays and forges
+        self.soup.set_status(frags["trajectory"].id, "active", "promoted by user")
+        self.assertEqual(len(Intuition.from_soup(self.soup).routines), 1)
+        self.assertEqual(len(forge(self.soup, store=False)), 1)
 
     def test_unverified_done_is_rejected_by_default(self):
         res = self.swarm().run("make test_calc pass", self.repo, verify_cmd=None)
