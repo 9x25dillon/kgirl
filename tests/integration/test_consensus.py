@@ -70,7 +70,7 @@ class FallbackEnergyTests(unittest.TestCase):
             self.assertGreater(fallback_energy(g.normal(0, 1, d)), 0.85)
             focused = np.zeros(d)
             focused[:4] = 1.0
-            self.assertLess(fallback_energy(focused), 0.02)
+            self.assertAlmostEqual(fallback_energy(focused), 4 * 3 / (d + 2), places=9)   # PR = 4
 
     def test_default_threshold_sits_above_the_text_average(self):
         from kgirl.main import CardyEnergy, calibrate_energy
