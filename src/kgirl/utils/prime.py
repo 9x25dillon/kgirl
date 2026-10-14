@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Body
 from pydantic import BaseModel
 from sqlmodel import Session, select
-from ..db import engine
-from ..models.memory_event import MemoryEvent
-from ..config import settings
-from ..retrieval.ranker import rank_memories
+from .db import engine
+from .memory_event import MemoryEvent
+from .config import settings
+from .ranker import rank_memories
 
 router = APIRouter(tags=["prime"], prefix="/prime")
 

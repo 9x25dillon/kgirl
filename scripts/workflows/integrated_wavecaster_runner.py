@@ -28,22 +28,23 @@ import logging
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from kgirl.paths import find_repo
 
 # Add numbskull to path
-numbskull_path = Path("/home/kill/numbskull")
+numbskull_path = find_repo("numbskull")
 if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 
 # Import enhanced wavecaster
-from enhanced_wavecaster import EnhancedWaveCaster, create_default_config
+from kgirl.neural.enhanced_wavecaster import EnhancedWaveCaster, create_default_config
 
 # Import our integrated components
-from numbskull_dual_orchestrator import create_numbskull_orchestrator
-from neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
-from signal_processing_numbskull_adapter import SignalProcessingNumbskullAdapter
-from unified_cognitive_orchestrator import UnifiedCognitiveOrchestrator
+from kgirl.llm.numbskull_dual_orchestrator import create_numbskull_orchestrator
+from kgirl.cognitive.neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
+from kgirl.llm.signal_processing_numbskull_adapter import SignalProcessingNumbskullAdapter
+from kgirl.cognitive.unified_cognitive_orchestrator import UnifiedCognitiveOrchestrator
 
-import signal_processing as dsp
+from kgirl.core import signal_processing as dsp
 
 logging.basicConfig(
     level=logging.INFO,

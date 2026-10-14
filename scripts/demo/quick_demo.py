@@ -18,7 +18,6 @@ test_consensus(
     prompt="Explain quantum entanglement for a software engineer",
     model_pool=get_demo_model_pool(),
     min_coherence=0.80,
-    max_energy=0.30,
 )
 
 input("\n\nPress Enter for Test 2...")
@@ -29,7 +28,6 @@ test_consensus(
     prompt="What are the implications of artificial intelligence?",
     model_pool=get_divergent_pool(),
     min_coherence=0.80,
-    max_energy=0.30,
 )
 
 print("\n\n" + "=" * 70)

@@ -2,14 +2,14 @@ import asyncio
 import json
 from typing import Dict, Any
 
-from llm_adapters import LLMAdapter, LocalStubAdapter, RemoteHTTPAdapter
-from llm_eval import evaluate_text
+from kgirl.llm.llm_adapters import LLMAdapter, LocalStubAdapter, RemoteHTTPAdapter
+from kgirl.llm.llm_eval import evaluate_text
 
 
 class DualLLMOrchestrator:
     """Orchestrates a primary LLM and a critic LLM (secondary) to produce and evaluate outputs."""
     def __init__(self, primary: LLMAdapter = None, critic: LLMAdapter = None):
-        from llm_adapters import create_adapter_from_env
+        from kgirl.llm.llm_adapters import create_adapter_from_env
         self.primary = primary or create_adapter_from_env()
         self.critic = critic or create_adapter_from_env()
 

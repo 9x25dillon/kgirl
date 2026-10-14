@@ -1,18 +1,19 @@
-#!/home/kill/aipyapp/venv/bin/python3
+#!/usr/bin/env python3
 """
 Demo runner script that properly activates the virtual environment
 """
 import sys
 import os
+from kgirl.paths import find_repo
 
 # Add the virtual environment site-packages to the path
-venv_site_packages = '/home/kill/aipyapp/venv/lib/python3.13/site-packages'
+venv_site_packages = str(find_repo("aipyapp") / "venv/lib/python3.13/site-packages")
 if venv_site_packages not in sys.path:
     sys.path.insert(0, venv_site_packages)
 
 # Now run the main demo
 if __name__ == "__main__":
-    from cognitive_communication_organism import demo_cognitive_communication_organism
+    from kgirl.cognitive.cognitive_communication_organism import demo_cognitive_communication_organism
 
     print("🚀 Running Cognitive Communication Organism Demo...")
     print("=" * 80)

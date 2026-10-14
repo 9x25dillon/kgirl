@@ -1,5 +1,5 @@
 import asyncio
-from llm_orchestrator import DualLLMOrchestrator
+from kgirl.llm.llm_orchestrator import DualLLMOrchestrator
 
 
 def test_orchestrator_stub():

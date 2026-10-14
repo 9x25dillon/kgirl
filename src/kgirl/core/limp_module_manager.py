@@ -25,6 +25,7 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from kgirl.paths import find_repo
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -91,7 +92,7 @@ class LiMpModuleManager:
         
         # Numbskull
         self._check_module("numbskull", "advanced_embedding_pipeline", 
-                          import_path="/home/kill/numbskull")
+                          import_path=str(find_repo("numbskull")))
         
         self._print_discovery_summary()
     
@@ -169,20 +170,20 @@ class LiMpModuleManager:
             
             # Initialize specific modules
             if name == "unified_cognitive_orchestrator":
-                from unified_cognitive_orchestrator import UnifiedCognitiveOrchestrator
+                from kgirl.cognitive.unified_cognitive_orchestrator import UnifiedCognitiveOrchestrator
                 self.instances[name] = UnifiedCognitiveOrchestrator(**(config or {}))
             
             elif name == "enhanced_vector_index":
-                from enhanced_vector_index import EnhancedVectorIndex
+                from kgirl.neural.enhanced_vector_index import EnhancedVectorIndex
                 self.instances[name] = EnhancedVectorIndex(**(config or {}))
             
             elif name == "enhanced_graph_store":
-                from enhanced_graph_store import EnhancedGraphStore
+                from kgirl.neural.enhanced_graph_store import EnhancedGraphStore
                 self.instances[name] = EnhancedGraphStore(**(config or {}))
             
             elif name == "numbskull":
                 import sys
-                sys.path.insert(0, "/home/kill/numbskull")
+                sys.path.insert(0, str(find_repo("numbskull")))
                 from advanced_embedding_pipeline import HybridEmbeddingPipeline, HybridConfig
                 cfg = HybridConfig(**(config or {}))
                 self.instances[name] = HybridEmbeddingPipeline(cfg)

@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Body, HTTPException
 from sqlmodel import Session
-from ..db import engine
-from ..models.soulpack_meta import SoulpackMeta
-from ..core.soulpack import Soulpack
+from .db import engine
+from .soulpack_meta import SoulpackMeta
+from .soulpack import Soulpack
 
 router = APIRouter(tags=["soulpacks"], prefix="/soulpacks")
 

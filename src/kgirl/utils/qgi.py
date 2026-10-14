@@ -1,8 +1,8 @@
 from typing import Any, Dict, List
-from .entropy_engine import entropy_engine
-from .matrix_processor import matrix_processor
-from .al_uls import al_uls
-from .motif_engine import motif_engine
+from kgirl.core.entropy_engine import entropy_engine
+from kgirl.core.matrix_processor import matrix_processor
+from kgirl.llm.al_uls import al_uls
+from kgirl.core.motif_engine import motif_engine
 from .suggestions import SUGGESTIONS
 
 

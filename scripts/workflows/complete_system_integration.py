@@ -44,25 +44,26 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+from kgirl.paths import find_repo
 
 # Add paths
-numbskull_path = Path("/home/kill/numbskull")
+numbskull_path = find_repo("numbskull")
 if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 
 # Import all available components
-from unified_cognitive_orchestrator import UnifiedCognitiveOrchestrator
-from enhanced_vector_index import EnhancedVectorIndex
-from enhanced_graph_store import EnhancedGraphStore
+from kgirl.cognitive.unified_cognitive_orchestrator import UnifiedCognitiveOrchestrator
+from kgirl.neural.enhanced_vector_index import EnhancedVectorIndex
+from kgirl.neural.enhanced_graph_store import EnhancedGraphStore
 
 try:
-    from src.chaos_llm.services.entropy_engine import entropy_engine
+    from chaos_llm.services.entropy_engine import entropy_engine
     ENTROPY_AVAILABLE = True
 except:
     ENTROPY_AVAILABLE = False
 
 try:
-    from src.chaos_llm.services.al_uls import al_uls
+    from chaos_llm.services.al_uls import al_uls
     ALULS_AVAILABLE = True
 except:
     ALULS_AVAILABLE = False
@@ -74,13 +75,13 @@ except:
     LIMP_ENTROPY_AVAILABLE = False
 
 try:
-    from evolutionary_communicator import EvolutionaryCommunicator
+    from kgirl.cognitive.evolutionary_communicator import EvolutionaryCommunicator
     EVOL_COMM_AVAILABLE = True
 except:
     EVOL_COMM_AVAILABLE = False
 
 try:
-    from quantum_cognitive_processor import QuantumNeuralNetwork, QuantumWalkOptimizer
+    from kgirl.quantum.quantum_cognitive_processor import QuantumNeuralNetwork, QuantumWalkOptimizer
     import torch
     QUANTUM_AVAILABLE = True
 except:

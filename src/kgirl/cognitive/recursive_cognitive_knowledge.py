@@ -26,27 +26,28 @@ from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
+from kgirl.paths import find_repo
 
 # Add paths
-numbskull_path = Path("/home/kill/numbskull")
+numbskull_path = find_repo("numbskull")
 if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 
 # Core imports
 from advanced_embedding_pipeline import HybridEmbeddingPipeline, HybridConfig
-from enhanced_vector_index import EnhancedVectorIndex
-from enhanced_graph_store import EnhancedGraphStore
+from kgirl.neural.enhanced_vector_index import EnhancedVectorIndex
+from kgirl.neural.enhanced_graph_store import EnhancedGraphStore
 
 # Holographic memory
 try:
-    from holographic_memory_system import HolographicMemorySystem
+    from kgirl.quantum.holographic_memory_system import HolographicMemorySystem
     HAS_HOLOGRAPHIC = True
 except:
     HAS_HOLOGRAPHIC = False
 
 # Import matrix processor for database compilation
 try:
-    from matrix_processor_adapter import matrix_processor
+    from kgirl.core.matrix_processor_adapter import matrix_processor
     HAS_MATRIX_PROCESSOR = True
 except:
     HAS_MATRIX_PROCESSOR = False

@@ -27,9 +27,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+from kgirl.paths import find_repo
 
 # Add numbskull to path
-numbskull_path = Path("/home/kill/numbskull")
+numbskull_path = find_repo("numbskull")
 if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 
@@ -45,13 +46,13 @@ except ImportError as e:
     logging.warning(f"Numbskull not available: {e}")
 
 # LiMp imports
-from numbskull_dual_orchestrator import (
+from kgirl.llm.numbskull_dual_orchestrator import (
     create_numbskull_orchestrator,
     NumbskullDualOrchestrator
 )
 
 try:
-    from neuro_symbolic_engine import (
+    from kgirl.cognitive.neuro_symbolic_engine import (
         EntropyAnalyzer,
         DianneReflector,
         MatrixTransformer,
@@ -65,10 +66,10 @@ except ImportError:
     logging.warning("Neuro-symbolic engine not available")
 
 try:
-    from holographic_memory_system import (
+    from kgirl.quantum.holographic_memory_system import (
+        FractalMemoryEncoder,
         HolographicAssociativeMemory,
-        FractalEncoder,
-        QuantumEnhancedMemory
+        QuantumMemoryEnhancement,
     )
     HOLOGRAPHIC_AVAILABLE = True
 except ImportError:
@@ -77,10 +78,10 @@ except ImportError:
 
 try:
     import torch
-    from tauls_transformer import (
-        TAULSControlUnit,
+    from kgirl.llm.tauls_transformer import (
+        EntropyRegulationModule,
         KFPLayer,
-        EntropyRegulator
+        TAULSControlUnit,
     )
     TAULS_AVAILABLE = True
 except ImportError:

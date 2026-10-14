@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Body
 from typing import List
 from sqlmodel import Session
-from ..db import engine
-from ..models.memory_event import MemoryEvent
+from .db import engine
+from .memory_event import MemoryEvent
 
 router = APIRouter(tags=["memories"], prefix="/memories")
 

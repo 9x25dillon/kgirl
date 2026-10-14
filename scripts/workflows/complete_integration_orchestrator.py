@@ -26,28 +26,29 @@ import sys
 import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from kgirl.paths import find_repo
 
 # Suppress warnings for clean output
 warnings.filterwarnings("ignore")
 
 # Add paths
-sys.path.insert(0, str(Path("/home/kill/numbskull")))
-sys.path.insert(0, str(Path("/home/kill/aipyapp")))
+sys.path.insert(0, str(find_repo("numbskull")))
+sys.path.insert(0, str(find_repo("aipyapp")))
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger(__name__)
 
 # Import ALL components (keeping redundancies!)
-from recursive_cognitive_knowledge import RecursiveCognitiveKnowledge
-from enable_aluls_and_qwen import MultiLLMOrchestrator, LocalALULSEvaluator
-from neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
-from signal_processing_numbskull_adapter import SignalProcessingNumbskullAdapter
+from kgirl.cognitive.recursive_cognitive_knowledge import RecursiveCognitiveKnowledge
+from kgirl.llm.enable_aluls_and_qwen import MultiLLMOrchestrator, LocalALULSEvaluator
+from kgirl.cognitive.neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
+from kgirl.llm.signal_processing_numbskull_adapter import SignalProcessingNumbskullAdapter
 from advanced_embedding_pipeline import HybridEmbeddingPipeline, HybridConfig
 
 # Import holographic if available
 try:
-    from holographic_memory_system import HolographicMemorySystem
+    from kgirl.quantum.holographic_memory_system import HolographicMemorySystem
     HAS_HOLOGRAPHIC = True
 except:
     HAS_HOLOGRAPHIC = False

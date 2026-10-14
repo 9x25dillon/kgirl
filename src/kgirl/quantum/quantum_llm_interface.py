@@ -24,8 +24,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from quantum_knowledge_database import QuantumHolographicKnowledgeDatabase, NUMBSKULL_AVAILABLE
-from quantum_holographic_knowledge_synthesis import KnowledgeQuantum
+from kgirl.quantum.quantum_knowledge_database import QuantumHolographicKnowledgeDatabase, NUMBSKULL_AVAILABLE
+from kgirl.quantum.quantum_holographic_knowledge_synthesis import KnowledgeQuantum
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

@@ -52,7 +52,7 @@ except ImportError:
     ndimage = None
 
 # Import existing components
-from tau_uls_wavecaster_enhanced import (
+from kgirl.llm.tau_uls_wavecaster_enhanced import (
     TAULSAnalyzer, TAUEnhancedMirrorCast, TAUAdaptiveLinkPlanner,
     ModulationScheme, ModConfig, FrameConfig, SecurityConfig, FEC,
     DualLLMOrchestrator, LocalLLM, ResourceLLM, HTTPConfig, OrchestratorSettings,

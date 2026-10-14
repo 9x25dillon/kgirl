@@ -21,17 +21,18 @@ from dataclasses import dataclass
 import logging
 
 # Import holographic memory system
-from holographic_memory_system import (
+from kgirl.quantum.holographic_memory_system import (
     EnhancedCognitiveMemoryOrchestrator,
     HolographicAssociativeMemory,
     FractalMemoryEncoder,
     QuantumHolographicStorage,
     EmergentMemoryPatterns
 )
+from kgirl.paths import find_repo
 
 # Import LiMps components (will import from existing system)
 try:
-    from cognitive_communication_organism import (
+    from kgirl.cognitive.cognitive_communication_organism import (
         CognitiveCommunicationOrganism,
         CognitiveState,
         CognitiveLevel,
@@ -44,8 +45,8 @@ except ImportError:
 
 # Import emergent cognitive network if available
 try:
-    sys.path.append('/home/kill/numbskull')
-    from emergent_cognitive_system import (
+    # rebuilt in kgirl from its call sites (the LiMp original was never pushed)
+    from kgirl.cognitive.emergent_cognitive_system import (
         EmergentCognitiveOrchestrator,
         QuantumOptimizationStep,
         SwarmCognitiveStep

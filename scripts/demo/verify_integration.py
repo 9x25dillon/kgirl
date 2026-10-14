@@ -16,6 +16,7 @@ License: MIT
 import sys
 import json
 from pathlib import Path
+from kgirl.paths import find_repo
 
 
 def check_file_exists(filepath, description):
@@ -43,7 +44,7 @@ def check_module_import(module_name, description):
 
 def check_numbskull_components():
     """Check numbskull components availability"""
-    sys.path.insert(0, "/home/kill/numbskull")
+    sys.path.insert(0, str(find_repo("numbskull")))
     
     components = [
         ("advanced_embedding_pipeline", "Numbskull Base Package"),
@@ -94,7 +95,7 @@ def check_service_connectivity():
 
 def verify_config():
     """Verify configuration file"""
-    config_path = Path("/home/kill/LiMp/config_lfm2.json")
+    config_path = Path(str(find_repo("LiMp") / "config_lfm2.json"))
     
     if not config_path.exists():
         print("⚠️  config_lfm2.json not found (will use defaults)")
@@ -135,23 +136,23 @@ def main():
     print("CORE FILES")
     print("-" * 60)
     results.append(check_file_exists(
-        "/home/kill/LiMp/numbskull_dual_orchestrator.py",
+        str(find_repo("LiMp") / "numbskull_dual_orchestrator.py"),
         "Numbskull Orchestrator"
     ))
     results.append(check_file_exists(
-        "/home/kill/LiMp/dual_llm_orchestrator.py",
+        str(find_repo("LiMp") / "dual_llm_orchestrator.py"),
         "Base Dual Orchestrator"
     ))
     results.append(check_file_exists(
-        "/home/kill/LiMp/run_integrated_workflow.py",
+        str(find_repo("LiMp") / "run_integrated_workflow.py"),
         "Workflow Runner"
     ))
     results.append(check_file_exists(
-        "/home/kill/LiMp/config_lfm2.json",
+        str(find_repo("LiMp") / "config_lfm2.json"),
         "Configuration File"
     ))
     results.append(check_file_exists(
-        "/home/kill/LiMp/README_INTEGRATION.md",
+        str(find_repo("LiMp") / "README_INTEGRATION.md"),
         "Integration Documentation"
     ))
     
@@ -199,8 +200,8 @@ def main():
         print("❌ SOME COMPONENTS MISSING OR FAILED")
         print()
         print("Please check the errors above and:")
-        print("1. Ensure numbskull is installed: pip install -e /home/kill/numbskull")
-        print("2. Verify all files are present in /home/kill/LiMp")
+        print(f"1. Ensure numbskull is reachable: clone it to {find_repo('numbskull')} or set NUMBSKULL_PATH")
+        print(f"2. Verify all files are present in {find_repo('LiMp')} (or set LIMP_PATH)")
         print("3. Check requirements.txt and install dependencies")
         return 1
 

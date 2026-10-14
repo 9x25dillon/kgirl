@@ -19,22 +19,23 @@ import logging
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from kgirl.paths import find_repo
 
 # Add paths
-numbskull_path = Path("/home/kill/numbskull")
+numbskull_path = find_repo("numbskull")
 if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 
 # Import integrated components
-from chaos_llm_integration import ChaosLLMIntegration
-from limps_eopiez_adapter import LiMPSEopiezAdapter
-from llm_training_adapter import LLMTrainingAdapter
-from bloom_backend import BLOOMBackend
+from kgirl.core.chaos_llm_integration import ChaosLLMIntegration
+from kgirl.core.limps_eopiez_adapter import LiMPSEopiezAdapter
+from kgirl.llm.llm_training_adapter import LLMTrainingAdapter
+from kgirl.api.bloom_backend import BLOOMBackend
 
 # Import existing LiMp components
 try:
-    from enable_aluls_and_qwen import LocalALULSEvaluator
-    from neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
+    from kgirl.llm.enable_aluls_and_qwen import LocalALULSEvaluator
+    from kgirl.cognitive.neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
     LIMP_AVAILABLE = True
 except:
     LIMP_AVAILABLE = False

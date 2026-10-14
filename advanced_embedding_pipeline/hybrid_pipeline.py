@@ -472,6 +472,12 @@ class HybridEmbeddingPipeline:
             logger.warning(f"Error closing embedders: {e}")
     
     def __del__(self):
-        """Cleanup on deletion"""
-        if hasattr(self, 'semantic_embedder') and self.semantic_embedder:
-            asyncio.create_task(self.close())
+        """Cleanup on deletion: schedule close() only if an event loop is running.
+        __del__ usually runs with no loop; create_task then raised and leaked an unawaited coroutine.
+        Call `await obj.close()` yourself for a deterministic shutdown."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        if getattr(self, 'semantic_embedder', None) or getattr(self, 'mathematical_embedder', None):
+            loop.create_task(self.close())

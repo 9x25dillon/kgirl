@@ -23,9 +23,10 @@ License: MIT
 
 import sys
 from pathlib import Path
+from kgirl.paths import find_repo
 
 # Add numbskull to path
-numbskull_path = Path("/home/kill/numbskull")
+numbskull_path = find_repo("numbskull")
 if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 
@@ -35,8 +36,13 @@ from typing import Any, Dict, List, Optional
 import logging
 
 # Import integrated systems
-from complete_system_integration import CompleteSystemIntegration
-from limp_module_manager import LiMpModuleManager
+import sys
+from pathlib import Path
+_WORKFLOWS = Path(__file__).resolve().parents[3] / "scripts" / "workflows"   # repo/scripts/workflows
+if _WORKFLOWS.is_dir() and str(_WORKFLOWS) not in sys.path:
+    sys.path.append(str(_WORKFLOWS))
+from complete_system_integration import CompleteSystemIntegration  # noqa: E402
+from kgirl.core.limp_module_manager import LiMpModuleManager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

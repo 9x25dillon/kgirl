@@ -24,16 +24,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Import our modules
-from tauls_transformer import TAULSLanguageModel, demo_tauls_model
-from dual_llm_orchestrator import (
+from kgirl.llm.tauls_transformer import TAULSLanguageModel, demo_tauls_model
+from kgirl.llm.dual_llm_orchestrator import (
     DualLLMOrchestrator, HTTPConfig, OrchestratorSettings,
     LocalLLM, ResourceLLM, create_orchestrator
 )
-from neuro_symbolic_engine import (
+from kgirl.cognitive.neuro_symbolic_engine import (
     MirrorCastEngine, AdaptiveLinkPlanner, 
     demo_neuro_symbolic_engine
 )
-from signal_processing import (
+from kgirl.core.signal_processing import (
     ModulationScheme, FEC, ModConfig, FrameConfig, SecurityConfig,
     full_process_and_save, demo_signal_processing, play_audio
 )
@@ -539,7 +539,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         print(json.dumps(analysis, indent=2, default=str))
         
         if args.plot:
-            from neuro_symbolic_engine import plot_fractal_layers
+            from kgirl.cognitive.neuro_symbolic_engine import plot_fractal_layers
             plot_fractal_layers(analysis["fractal"], "analysis_fractal.png")
             logger.info("Saved fractal plot: analysis_fractal.png")
         

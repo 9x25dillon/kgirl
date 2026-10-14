@@ -1,11 +1,11 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Any, Dict, List
-from .services.qgi import api_suggest, api_suggest_async
-from .services.retrieval import ingest_texts, search
-from .services.unitary_mixer import route_mixture, choose_route
+from chaos_llm.services.qgi import api_suggest, api_suggest_async
+from chaos_llm.services.retrieval import ingest_texts, search
+from chaos_llm.services.unitary_mixer import route_mixture, choose_route
 
-from .services.al_uls import al_uls
+from chaos_llm.services.al_uls import al_uls
 
 app = FastAPI(title="Chaos LLM MVP", version="0.4.0")
 
@@ -18,7 +18,6 @@ class SuggestRequest(BaseModel):
 class SuggestResponse(BaseModel):
     suggestions: List[str]
     qgi: Dict[str, Any]
-cursor/bc-f408c7bd-bc2a-48a4-bc8d-0989f628ad52-ef2e
 
     mixture: Dict[str, float]
     route: str

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 from fastapi import FastAPI
@@ -170,10 +170,25 @@ def spectral_weights(embs: np.ndarray) -> np.ndarray:
     K = E @ E.T  # symmetric
     # Use eigh (for symmetric matrices) to get real eigenpairs
     vals, vecs = np.linalg.eigh(K + 1e-9 * np.eye(K.shape[0]))
-    w = np.real(vecs[:, -1])  # principal eigenvector
+    w = np.real(vecs[:, -1])  # principal eigenvector (eigh's sign is arbitrary)
+    if w.sum() < 0:
+        w = -w
     w = np.clip(w, 0, None)
     s = w.sum()
     return w / (s + 1e-12)
+
+
+def spectral_coherence(embs: np.ndarray) -> float:
+    """Agreement in [0, 1]: share of cosine-kernel energy on the principal mode, rescaled.
+
+    λ_max / n ranges from 1/n (mutually orthogonal answers) to 1 (identical answers); maps to 0 … 1.
+    """
+    E = _l2n(embs)
+    n = E.shape[0]
+    if n < 2:
+        return 1.0
+    lam = float(np.linalg.eigvalsh(E @ E.T)[-1])
+    return float(np.clip((lam / n - 1.0 / n) / (1.0 - 1.0 / n), 0.0, 1.0))
 
 
 class PhaseCoherence:
@@ -196,9 +211,17 @@ class PhaseCoherence:
         return spectral_weights(embeddings)
 
     def scalar(self, embeddings: np.ndarray) -> float:
-        w = self.weights(embeddings)
-        n = len(w)
-        return float((w.max() - 1.0 / n) / (1.0 - 1.0 / n + 1e-12))
+        if self.use_cth and hasattr(self.tc, "calculate_modular_invariance"):
+            try:
+                w = np.asarray(self.tc.calculate_modular_invariance(embeddings), dtype=np.float64)
+                w = w / (w.sum() + 1e-12)
+                n = len(w)
+                return float((w.max() - 1.0 / n) / (1.0 - 1.0 / n + 1e-12))
+            except Exception:
+                pass
+        # Fallback: the old max-weight formula scored unanimous answers (uniform weights) as 0;
+        # the spectral share scores agreement directly.
+        return spectral_coherence(embeddings)
 
 
 class CardyEnergy:
@@ -213,15 +236,48 @@ class CardyEnergy:
             self.tc = None
             self.max_energy = 1.0
 
+    # Default /ask thresholds per energy source. CTH keeps its historical 0.30. The fallback default
+    # is set above the average: mean + 1 SD of fallback_energy over 3,601 sentences from this repo's
+    # docs, embedded with the demo adapter (mean 0.111, SD 0.044, 84th percentile 0.153; isotropic
+    # noise scores 0.982 ± 0.025). Recalibrate for other adapters with calibrate_energy().
+    CTH_DEFAULT_MAX = 0.30
+    FALLBACK_DEFAULT_MAX = 0.16
+
+    @property
+    def default_max(self) -> float:
+        return self.CTH_DEFAULT_MAX if self.use_cth else self.FALLBACK_DEFAULT_MAX
+
     def boundary(self, state: Any) -> float:
         if self.use_cth and hasattr(self.tc, "cardy_boundary_energy"):
             try:
                 return float(self.tc.cardy_boundary_energy(state))
             except Exception:
                 pass
-        # heuristic fallback: dispersion proxy
-        s = _l2n(np.asarray(state, dtype=np.float64).ravel())
-        return float(1.0 - np.abs(s).mean())
+        return fallback_energy(state)
+
+
+def fallback_energy(state: Any) -> float:
+    """Dispersion of a hidden state relative to isotropic noise, in [0, 1].
+
+    PR = 1 / Σ sᵢ⁴ is the participation ratio of the unit vector s. An isotropic Gaussian state has
+    E[Σ sᵢ⁴] = 3 / (d + 2), so energy = PR / ((d + 2) / 3) is ≈ 1 for structureless noise and small for a
+    state concentrated on few directions. It does not depend on d. The old proxy, 1 − mean|s|, was
+    ≥ 1 − 1/√d (≈ 0.97 at d = 1536) for every input, so every /ask escalated.
+    Level 2: dispersion as a hallucination-risk signal is a hypothesis, not a validated measure.
+    """
+    s = _l2n(np.asarray(state, dtype=np.float64).ravel())
+    d = s.size
+    if d < 2:
+        return 0.0
+    pr = 1.0 / max(float((s ** 4).sum()), 1e-300)
+    return float(min(1.0, pr / ((d + 2) / 3.0)))
+
+
+def calibrate_energy(states: Any, k_sigma: float = 1.0) -> Dict[str, float]:
+    """Fallback-energy statistics over reference states; suggested max_energy = mean + k_sigma·SD."""
+    e = np.array([fallback_energy(x) for x in states])
+    return {"n": int(e.size), "mean": float(e.mean()), "sd": float(e.std()),
+            "p84": float(np.percentile(e, 84)), "suggested_max_energy": float(e.mean() + k_sigma * e.std())}
 
 
 # ----- Trinary quantization -----
@@ -376,7 +432,7 @@ def _startup() -> None:
 class AskRequest(BaseModel):
     prompt: str
     min_coherence: float = 0.80
-    max_energy: float = 0.30
+    max_energy: Optional[float] = None    # None: the energy source's default (CardyEnergy.default_max)
     return_all: bool = False
 
 
@@ -436,7 +492,7 @@ def ask(req: AskRequest) -> AskResponse:
     outputs: List[str] = [m.generate(req.prompt) for m in g_model_pool]
 
     # 2) embed outputs (consensus on semantics of answers)
-    embs = np.stack([m.embed(o) for o in outputs], axis=0)
+    embs = np.stack([m.embed(o) for m, o in zip(g_model_pool, outputs)], axis=0)   # m was undefined (NameError)
 
     # 3) phase coherence
     pc = PhaseCoherence(
@@ -447,15 +503,15 @@ def ask(req: AskRequest) -> AskResponse:
     coh = pc.scalar(embs)
 
     # 4) energy (hallucination risk) — use first model's hidden state as proxy
-    energy = CardyEnergy(n_anyons=27, central_charge=settings.central_charge).boundary(
-        g_model_pool[0].get_hidden_states(req.prompt)
-    )
+    ce = CardyEnergy(n_anyons=27, central_charge=settings.central_charge)
+    energy = ce.boundary(g_model_pool[0].get_hidden_states(req.prompt))
+    max_energy = ce.default_max if req.max_energy is None else req.max_energy
 
     # 5) decision logic
     decision: str
     answer: Optional[str] = None
     best = int(np.argmax(w))
-    if coh >= req.min_coherence and energy <= req.max_energy:
+    if coh >= req.min_coherence and energy <= max_energy:
         decision = "auto"
         answer = outputs[best]
     elif coh >= 0.5 and energy <= 0.5:

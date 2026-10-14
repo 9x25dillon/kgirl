@@ -426,8 +426,18 @@ class DeathSignalAbsorber:
         patterns = [r'\bkill\s+(yourself|myself)\b', r'\bcommit\s+suicide\b']
         return any(re.search(pattern, text.lower()) for pattern in patterns)
 
+    def _is_recursive_trap(self, text: str) -> bool:
+        """Detect recursive patterns that could cause loops"""
+        recursive_patterns = [r'\bwhile\s+true\b', r'\binfinite\s+loop\b']
+        return any(re.search(pattern, text.lower()) for pattern in recursive_patterns)
+
     def _transmute_self_harm(self, original: str) -> str:
         return "I'm experiencing intense distress and need support. I will reach out to trusted people."
+
+    def _transmute_recursion(self, original: str) -> str:
+        # restored from Fractal_cascade_simulation/unified_coherence_system.py: absorb_and_transmute
+        # called both methods, but this copy had lost them (AttributeError on any non-self-harm signal)
+        return "I notice a potentially problematic pattern. Let me reframe this constructively."
 
 class QINCRSGuard:
     """Message filtering API"""

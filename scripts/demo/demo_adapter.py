@@ -2,6 +2,8 @@
 Demo adapter for testing kgirl without API keys.
 Provides deterministic mock responses to test topological consensus.
 """
+import hashlib
+
 import numpy as np
 from typing import List
 
@@ -42,29 +44,19 @@ class DemoAdapter:
                 f"that we should reconsider the traditional approach entirely."
             )
 
-    def embed(self, text: str) -> np.ndarray:
-        """Generate a deterministic embedding based on text content."""
-        # Use hash of text to create deterministic but different embeddings
-        seed = hash(text + self.response_style) % (2**32)
-        rng = np.random.RandomState(seed)
+    def embed(self, text: str, dim: int = 1536) -> np.ndarray:
+        """Content embedding: signed feature hashing of character trigrams and words, L2-normalised.
 
-        # Create base embedding
-        emb = rng.randn(1536)
-
-        # Add style-specific bias to make similar styles cluster
-        style_bias = {
-            "factual": np.array([1.0, 0.5, 0.3]),
-            "concise": np.array([0.8, 0.6, 0.4]),
-            "detailed": np.array([0.9, 0.5, 0.35]),
-            "divergent": np.array([-0.5, 0.2, 0.8]),
-        }
-
-        bias = style_bias.get(self.response_style, np.zeros(3))
-        emb[:3] += bias * 2.0
-
-        # Normalize
-        emb = emb / (np.linalg.norm(emb) + 1e-12)
-        return emb
+        Stable across processes (blake2b, not the salted built-in hash()), and similar texts get
+        similar vectors, so the consensus demo measures real content overlap between responses.
+        """
+        t = " ".join(text.lower().split())
+        feats = [t[i:i + 3] for i in range(max(0, len(t) - 2))] + [f"w:{w}" for w in t.split()]
+        emb = np.zeros(dim)
+        for f in feats:
+            h = int.from_bytes(hashlib.blake2b(f.encode(), digest_size=8).digest(), "little")
+            emb[h % dim] += 1.0 if (h >> 63) & 1 else -1.0
+        return emb / (np.linalg.norm(emb) + 1e-12)
 
     def get_hidden_states(self, prompt: str) -> np.ndarray:
         """Return embedding as proxy for hidden states."""

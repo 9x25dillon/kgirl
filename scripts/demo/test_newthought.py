@@ -15,7 +15,7 @@ async def test_newthought():
     try:
         # Test imports
         print("\n1. Testing imports...")
-        from src.chaos_llm.services.newthought import (
+        from chaos_llm.services.newthought import (
             newthought_service,
             QuantumCoherenceEngine,
             SpatialThoughtEncoder,

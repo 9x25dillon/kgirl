@@ -28,13 +28,13 @@ import numpy as np
 import torch
 
 # Import kgirl components
-from holographic_memory_system import HolographicAssociativeMemory
-from fractal_resonance import FractalGenerator, ResonanceConfig, ResonanceField
-from quantum_cognitive_processor import QuantumNeuralNetwork
-from distributed_knowledge_base import SQLiteKnowledgeStore, KnowledgeNode
+from kgirl.quantum.holographic_memory_system import HolographicAssociativeMemory
+from kgirl.embeddings.fractal_resonance import FractalGenerator, ResonanceConfig, ResonanceField
+from kgirl.quantum.quantum_cognitive_processor import QuantumNeuralNetwork
+from kgirl.core.distributed_knowledge_base import SQLiteKnowledgeStore, KnowledgeNode
 
 # Import QHKS components
-from quantum_holographic_knowledge_synthesis import (
+from kgirl.quantum.quantum_holographic_knowledge_synthesis import (
     DataSourceType,
     QualiaType,
     QuantumDimension,
@@ -42,14 +42,15 @@ from quantum_holographic_knowledge_synthesis import (
     KnowledgeQuantum,
     MultiSourceDataIngestion
 )
-from quantum_knowledge_processing import (
+from kgirl.quantum.quantum_knowledge_processing import (
     ChaosRaggedLearningModule,
     OrwellsEggedStructure,
     HolographicQualiaEncoder
 )
+from kgirl.paths import find_repo
 
 # Import Numbskull
-numbskull_path = Path("/home/kill/numbskull")
+numbskull_path = find_repo("numbskull")
 if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 

@@ -30,15 +30,15 @@ from enum import Enum
 import time
 
 # Import Quantum-LIMPS integration
-from quantum_limps_integration import (
+from kgirl.quantum.quantum_limps_integration import (
     QuantumLIMPSIntegration,
     QuantumLIMPSConfig,
     OptimizedQuantumState
 )
 
 # Import Quantum Knowledge components
-from quantum_holographic_knowledge_synthesis import KnowledgeQuantum, DataSourceType
-from quantum_knowledge_database import QuantumHolographicKnowledgeDatabase
+from kgirl.quantum.quantum_holographic_knowledge_synthesis import KnowledgeQuantum, DataSourceType
+from kgirl.quantum.quantum_knowledge_database import QuantumHolographicKnowledgeDatabase
 
 # Add NuRea_sim paths
 NUREA_PATH = Path(__file__).parent / "NuRea_sim"

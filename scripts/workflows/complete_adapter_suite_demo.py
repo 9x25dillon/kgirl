@@ -28,25 +28,26 @@ import logging
 import sys
 import time
 from pathlib import Path
+from kgirl.paths import find_repo
 
 # Add numbskull to path
-numbskull_path = Path("/home/kill/numbskull")
+numbskull_path = find_repo("numbskull")
 if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 
 # Import all 10 adapters
-from neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
-from signal_processing_numbskull_adapter import SignalProcessingNumbskullAdapter
-from aluls_numbskull_adapter import ALULSNumbskullAdapter
-from evolutionary_numbskull_adapter import EvolutionaryNumbskullAdapter
-from pytorch_components_numbskull_adapter import (
+from kgirl.cognitive.neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
+from kgirl.llm.signal_processing_numbskull_adapter import SignalProcessingNumbskullAdapter
+from kgirl.llm.aluls_numbskull_adapter import ALULSNumbskullAdapter
+from kgirl.llm.evolutionary_numbskull_adapter import EvolutionaryNumbskullAdapter
+from kgirl.llm.pytorch_components_numbskull_adapter import (
     TAULSNumbskullAdapter,
     HolographicNumbskullAdapter,
     QuantumNumbskullAdapter
 )
-from cognitive_organism_numbskull_adapter import CognitiveOrganismNumbskullAdapter
-from narrative_numbskull_adapter import NarrativeNumbskullAdapter
-from emergent_network_numbskull_adapter import EmergentNetworkNumbskullAdapter
+from kgirl.cognitive.cognitive_organism_numbskull_adapter import CognitiveOrganismNumbskullAdapter
+from kgirl.llm.narrative_numbskull_adapter import NarrativeNumbskullAdapter
+from kgirl.cognitive.emergent_network_numbskull_adapter import EmergentNetworkNumbskullAdapter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
