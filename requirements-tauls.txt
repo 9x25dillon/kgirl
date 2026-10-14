@@ -1,0 +1,6 @@
+# TA-ULS v2 language model (src/kgirl/tauls). Python 3.10+.
+# GPU desktop (CUDA 12.x):  pip install torch --index-url https://download.pytorch.org/whl/cu124 && pip install -r requirements-tauls.txt
+# CPU only:                 pip install torch --index-url https://download.pytorch.org/whl/cpu && pip install -r requirements-tauls.txt
+torch>=2.3
+numpy>=1.24
+# Optional Julia bridge (src/julia/tauls_bridge.jl): Julia ≥ 1.9 with HTTP.jl and JSON3.jl; the Python side needs nothing extra.

@@ -49,6 +49,8 @@ research_simulation_results.json
 NuRea_sim/
 numbskull/
 
+# TA-ULS checkpoints, token shards and tokenizers (python -m kgirl.tauls)
+runs/
 # sibling repos cloned or symlinked into the root (the dir/ patterns above miss symlinks)
 /numbskull
 /NuRea_sim
