@@ -21,6 +21,17 @@ import math
 import time
 from dataclasses import dataclass
 from collections import defaultdict
+
+from kgirl.evolve.chaos import ChaosGenerator
+
+_REF_PHASE: Dict[tuple, np.ndarray] = {}
+
+
+def _reference_phase(shape: tuple) -> np.ndarray:
+    """exp(2πi·φ) with φ from logistic chaos, generated once per shape."""
+    if shape not in _REF_PHASE:
+        _REF_PHASE[shape] = np.exp(2j * np.pi * ChaosGenerator(seed=0.2236, lanes=64).random(shape))
+    return _REF_PHASE[shape]
 import random
 
 @dataclass
@@ -187,33 +198,19 @@ class QuantumHolographicStorage:
         return quantum_state
     
     def _quantum_error_correction(self, state: np.ndarray) -> np.ndarray:
-        """Apply quantum error correction"""
-        # Simplified error correction using repetition code
-        corrected = np.zeros_like(state)
-        
-        # Majority voting for error correction
-        for i in range(len(state)):
-            # Simulate noisy measurement and correction
-            noise_real = 0.1 * np.random.normal(0, 1)
-            noise_imag = 0.1 * np.random.normal(0, 1)
-            noisy_measurement = state[i] + noise_real + 1j * noise_imag
-            corrected[i] = noisy_measurement
-        
-        return corrected
-    
+        """Project back onto the unit sphere (a valid state).
+
+        The previous version added Gaussian noise per amplitude under the name "majority voting", which
+        injects errors instead of correcting them and broke normalisation (fidelities above 1).
+        """
+        norm = np.linalg.norm(state)
+        return state / norm if norm > 0 else state
+
     def _apply_entanglement(self, state: np.ndarray, key: str) -> np.ndarray:
         """Apply quantum entanglement to stored state"""
-        # Create entanglement with network
-        entangled = np.zeros_like(state)
-        
-        # Use modulo to handle size mismatch
-        for i in range(len(state)):
-            for j in range(len(state)):
-                network_i = i % self.storage_dim
-                network_j = j % self.storage_dim
-                entangled[i] += self.entanglement_network[network_i, network_j] * state[j]
-        
-        return entangled
+        # entangled_i = Σ_j E[i mod d, j mod d] · state_j   (vectorised; same result as the double loop)
+        idx = np.arange(len(state)) % self.storage_dim
+        return self.entanglement_network[np.ix_(idx, idx)] @ state
     
     def recall_quantum_state(self, query: np.ndarray) -> Dict[str, Any]:
         """Recall quantum state using quantum interference"""
@@ -379,10 +376,13 @@ class EmergentPatternDetector:
         for i, h1 in enumerate(holograms):
             for j, h2 in enumerate(holograms):
                 if i != j:
-                    coherence = np.abs(np.vdot(h1.flatten(), h2.flatten()))
-                    coherence_matrix[i, j] = coherence
+                    a, b = h1.flatten(), h2.flatten()
+                    na, nb = np.linalg.norm(a), np.linalg.norm(b)
+                    # normalised overlap in [0, 1]; the raw |⟨a, b⟩| grew with signal energy (values ~10⁶)
+                    coherence_matrix[i, j] = np.abs(np.vdot(a, b)) / (na * nb) if na > 0 and nb > 0 else 0.0
         
-        return np.mean(coherence_matrix[coherence_matrix > 0])
+        off = coherence_matrix[~np.eye(len(holograms), dtype=bool)]
+        return float(off.mean())
     
     def _classify_pattern_type(self, group: List[MemoryPattern]) -> str:
         """Classify the type of emergent pattern"""
@@ -643,14 +643,18 @@ class HolographicAssociativeMemory:
         # Create hologram using FFT
         hologram = fft2(data)
         
-        # Add random phase for holographic interference
-        phase = np.exp(1j * 2 * np.pi * np.random.random(hologram.shape))
-        hologram = hologram * phase
+        # Reference phase for holographic interference: fixed per shape, shared by stores and queries
+        # (a fresh random phase per call made every query-memory similarity ~ chance)
+        hologram = hologram * _reference_phase(hologram.shape)
         
         return hologram
     
     def _calculate_holographic_similarity(self, query_hologram: np.ndarray, stored_hologram: np.ndarray) -> float:
-        """Calculate holographic similarity using cross-correlation"""
+        """Calculate holographic similarity using cross-correlation (DC term excluded: zero-mean data)"""
+        query_hologram = query_hologram.copy()
+        stored_hologram = stored_hologram.copy()
+        query_hologram.flat[0] = 0.0
+        stored_hologram.flat[0] = 0.0
         # Cross-correlation in frequency domain
         correlation = np.abs((query_hologram.conj() * stored_hologram).sum())
         
@@ -674,10 +678,15 @@ class HolographicAssociativeMemory:
     def _calculate_quantum_similarity(self, query_data: np.ndarray, quantum_state: np.ndarray) -> float:
         """Calculate quantum similarity using fidelity"""
         query_quantum = self.quantum_storage._encode_to_quantum_state(query_data)
+        # Stored states went through error correction and entanglement; compare in the same basis
+        query_quantum = self.quantum_storage._apply_entanglement(
+            self.quantum_storage._quantum_error_correction(query_quantum), "query")
         
-        # Calculate quantum fidelity
-        fidelity = np.abs(np.vdot(query_quantum, quantum_state))**2
-        return fidelity
+        # Fidelity |⟨q|s⟩|² of the normalised states, in [0, 1]
+        nq, ns = np.linalg.norm(query_quantum), np.linalg.norm(quantum_state)
+        if nq == 0 or ns == 0:
+            return 0.0
+        return float(np.abs(np.vdot(query_quantum, quantum_state)) ** 2 / (nq * ns) ** 2)
     
     def _reconstruct_memory(self, query_hologram: np.ndarray, memory: MemoryPattern) -> np.ndarray:
         """Reconstruct memory using holographic interference"""
@@ -724,6 +733,8 @@ class HolographicMemorySystem(HolographicAssociativeMemory):
 
 def demo_holographic_memory():
     """Demonstrate advanced holographic memory system"""
+    from kgirl import telemetry
+    print(f"Input data: {telemetry.source()}")
     print("=== Holographic Memory System Demonstration ===")
     
     # Initialize system
@@ -733,21 +744,22 @@ def demo_holographic_memory():
     test_data = [
         ("text_data", "Hello, holographic world!"),
         ("numeric_data", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
-        ("image_data", np.random.rand(8, 8)),
+        ("image_data", telemetry.lattice_matrix(8, 8)),          # real rod-enrichment map
         ("pattern_data", np.sin(np.linspace(0, 4*np.pi, 64))),
-        ("complex_data", np.random.random(16) + 1j * np.random.random(16))
+        ("complex_data", telemetry.lattice_matrix(1, 16).ravel() + 1j * telemetry.lattice_matrix(1, 16, offset=1).ravel())
     ]
     
     print("Storing test data...")
     for key, data in test_data:
         memory.store(key, data, metadata={'type': type(data).__name__})
     
-    # Test recall
+    # Test recall: a degraded copy of the stored enrichment map (every 5th entry zeroed) must come back first
     print("\nTesting recall...")
-    query = "Hello, world"
+    query = test_data[2][1].copy()
+    query.flat[::5] = 0.0
     results = memory.recall(query, top_k=3)
     
-    print(f"Query: '{query}'")
+    print("Query: image_data with 20 % of its entries zeroed")
     for i, result in enumerate(results):
         print(f"  {i+1}. {result['key']} (similarity: {result['similarity']:.4f})")
         print(f"     Holographic: {result['holographic_similarity']:.4f}")

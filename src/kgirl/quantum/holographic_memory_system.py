@@ -21,6 +21,30 @@ from dataclasses import dataclass
 from collections import defaultdict
 import matplotlib.pyplot as plt
 
+from kgirl.evolve.chaos import ChaosGenerator
+
+_rng = ChaosGenerator(seed=0.3141)          # deterministic chaos for every stochastic step (no PRNG)
+_PHASES: Dict[int, np.ndarray] = {}
+
+
+def _phase_map(n: int) -> np.ndarray:
+    """One fixed phase per component (chaos-generated once per length).
+
+    Stores and queries must share the phase key: a fresh random phase per call (the old code) makes
+    ⟨query, memory⟩ a random number and recall meaningless.
+    """
+    if n not in _PHASES:
+        _PHASES[n] = 2 * np.pi * ChaosGenerator(seed=0.1729 + 1e-4 * (n % 997), lanes=64).random(n)
+    return _PHASES[n]
+
+
+def _stable_hash(values: np.ndarray) -> int:
+    """blake2b of the float64 bytes: the built-in hash() is salted per process, so keys would not repeat."""
+    import hashlib
+    raw = np.ascontiguousarray(np.asarray(values, dtype=np.float64)).tobytes()
+    return int.from_bytes(hashlib.blake2b(raw, digest_size=8).digest(), "little")
+
+
 @dataclass
 class MemoryTrace:
     """Enhanced memory trace with multi-dimensional context"""
@@ -89,7 +113,7 @@ class HolographicAssociativeMemory:
     
     def _generate_memory_key(self, data: np.ndarray) -> str:
         """Generate unique memory key"""
-        key_hash = hash(tuple(data[:16]))  # Use first 16 components
+        key_hash = _stable_hash(np.asarray(data)[:16])  # first 16 components; stable across processes
         return f"mem_{abs(key_hash)}"
     
     def _encode_holographic_pattern(self, data: np.ndarray) -> np.ndarray:
@@ -100,9 +124,8 @@ class HolographicAssociativeMemory:
         else:
             pattern = np.pad(data, (0, self.hologram_dim - len(data)), mode='constant')
         
-        # Apply phase encoding
-        phase = np.random.random(len(pattern)) * 2 * np.pi
-        holographic_pattern = pattern * np.exp(1j * phase)
+        # Apply phase encoding (fixed key shared with recall)
+        holographic_pattern = pattern * np.exp(1j * _phase_map(len(pattern)))
         
         return holographic_pattern
     
@@ -126,20 +149,22 @@ class HolographicAssociativeMemory:
         else:
             query = np.pad(query, (0, self.hologram_dim - len(query)), mode='constant')
         
-        # Apply phase encoding to query
-        query_phase = np.random.random(len(query)) * 2 * np.pi
-        query_pattern = query * np.exp(1j * query_phase)
+        # Apply the same phase key as storage; similarity is the normalised overlap |⟨q, m⟩| / (‖q‖‖m‖)
+        phase = np.exp(1j * _phase_map(len(query)))
+        query_pattern = query * phase
+        qn = np.linalg.norm(query_pattern)
         
         similarities = []
         for i, trace in enumerate(self.memory_traces):
             if i < self.memory_size:
                 memory_pattern = self.holographic_memory[i]
-                similarity = np.abs(np.vdot(query_pattern, memory_pattern))
+                mn = np.linalg.norm(memory_pattern)
+                similarity = float(np.abs(np.vdot(query_pattern, memory_pattern)) / (qn * mn)) if qn > 0 and mn > 0 else 0.0
                 if similarity > threshold:
                     similarities.append({
                         'memory_key': trace['key'],
                         'similarity': similarity,
-                        'reconstructed_data': np.real(memory_pattern),
+                        'reconstructed_data': np.real(memory_pattern * np.conj(phase)),
                         'emotional_context': trace['emotional_valence']
                     })
         
@@ -288,9 +313,8 @@ class QuantumHolographicStorage:
         normalized_data = classical_data[:n] / (np.linalg.norm(classical_data[:n]) + 1e-12)
         quantum_state[:n] = normalized_data
         
-        # Add phase information
-        phase = np.random.random(n) * 2 * np.pi
-        quantum_state[:n] *= np.exp(1j * phase)
+        # Add phase information (fixed per basis state, so equal data gives equal states)
+        quantum_state[:n] *= np.exp(1j * _phase_map(n))
         
         # Normalize quantum state
         quantum_state = quantum_state / np.linalg.norm(quantum_state)
@@ -414,10 +438,15 @@ class CognitiveMemoryOrchestrator:
         
         # Encode with fractal representation
         fractal_encoding = self.fractal_encoder.encode(data)
+        self.fractal_encoder.fractal_memory[holographic_key] = {
+            'self_similarity': float(fractal_encoding.get('self_similarity', 0.0)),
+            'fractal_dimension': float(fractal_encoding.get('fractal_dimension', 0.0)),
+            'data': np.asarray(data, dtype=float).ravel().copy(),
+        }
         
         # Store in quantum memory
         quantum_state = self.quantum_storage.encode_quantum_state(data)
-        quantum_key = f"q_{hash(tuple(quantum_state[:16].real))}"
+        quantum_key = f"q_{_stable_hash(quantum_state[:16].real)}"
         self.quantum_storage.quantum_memory_states += quantum_state
         
         # Detect emergence
@@ -468,18 +497,29 @@ class CognitiveMemoryOrchestrator:
     def _calculate_memory_resilience(self) -> float:
         """Calculate memory resilience"""
         # Based on fractal dimension and self-similarity
-        if hasattr(self.fractal_encoder, 'fractal_memory') and self.fractal_encoder.fractal_memory:
-            # Calculate average resilience from stored fractal encodings
-            return 0.7  # Placeholder
-        return 0.5
+        # Mean multi-scale self-similarity of the stored encodings: a pattern that survives
+        # downsampling can be recovered from a coarser (partial) copy. 0 when nothing is stored.
+        stored = getattr(self.fractal_encoder, 'fractal_memory', {})
+        if not stored:
+            return 0.0
+        return float(np.mean([v['self_similarity'] for v in stored.values()]))
     
     def _update_metacognition(self, integration_data: Dict):
         """Update metacognitive awareness"""
         self.memory_metacognition = {
             'last_update': np.datetime64('now'),
             'integration_strength': integration_data['emergence_analysis'].get('cognitive_emergence_level', 0.0),
-            'memory_efficiency': 0.6  # Placeholder
+            'memory_efficiency': self._memory_efficiency()
         }
+
+    def _memory_efficiency(self) -> float:
+        """Energy compaction of the holographic store: share of |M|² in its top 10 % of coefficients."""
+        m = getattr(self.holographic_memory, 'holographic_memory', None)
+        if m is None or not np.any(m):
+            return 0.0
+        e = np.sort(np.abs(np.asarray(m)).ravel() ** 2)[::-1]
+        k = max(1, e.size // 10)
+        return float(e[:k].sum() / e.sum())
     
     def emergent_memory_recall(self, query: Dict, recall_type: str = 'integrated') -> Dict:
         """Perform emergent memory recall"""
@@ -513,23 +553,46 @@ class CognitiveMemoryOrchestrator:
         return results
     
     def _fractal_recall(self, query_data: np.ndarray, fractal_encoding: Dict, scale_preference: str) -> Dict:
-        """Perform fractal-based recall"""
-        # Simple implementation - in practice would involve pattern matching
-        # across fractal scales
+        """Multi-scale match: mean |Pearson r| between query and each stored pattern over dyadic scales.
+
+        Scales 2^0 … 2^k (downsampling by 2) with ≥ 8 common points; 'coarse' keeps the coarser half,
+        'fine' the finer half, 'adaptive' all of them. Confidence = best match quality (0 if none).
+        """
+        q = np.asarray(query_data, dtype=float).ravel()
+        matches = []
+        for key, entry in self.fractal_encoder.fractal_memory.items():
+            x = entry.get('data')
+            if x is None:
+                continue
+            rs = []
+            a, b = q, x
+            while min(len(a), len(b)) >= 8:
+                n = min(len(a), len(b))
+                if a[:n].std() > 0 and b[:n].std() > 0:
+                    rs.append(abs(float(np.corrcoef(a[:n], b[:n])[0, 1])))
+                a, b = a[::2], b[::2]
+            if not rs:
+                continue
+            half = max(1, len(rs) // 2)
+            rs = rs[half:] if scale_preference == 'coarse' else rs[:half] if scale_preference == 'fine' else rs
+            matches.append({'memory_key': key, 'match_quality': float(np.mean(rs)),
+                            'fractal_encoding': {'self_similarity': entry.get('self_similarity', 0.0)},
+                            'predicted_completion': x})
+        matches.sort(key=lambda m: m['match_quality'], reverse=True)
         return {
-            'fractal_completion_confidence': 0.7,
-            'best_matches': [],
+            'fractal_completion_confidence': matches[0]['match_quality'] if matches else 0.0,
+            'best_matches': matches[:5],
             'scale_preference': scale_preference
         }
     
     def _quantum_recall(self, query_state: np.ndarray) -> List[Dict]:
-        """Perform quantum recall"""
-        # Simple implementation - would involve quantum amplitude amplification
-        return [{
-            'state_index': 0,
-            'overlap_probability': 0.8,
-            'quantum_amplitude': 0.9
-        }]
+        """Overlap of the query state with the stored superposition: p = |⟨q|M⟩|² / (‖q‖²‖M‖²)."""
+        m = self.quantum_storage.quantum_memory_states
+        mn, qn = np.linalg.norm(m), np.linalg.norm(query_state)
+        if mn == 0 or qn == 0:
+            return []
+        amp = float(np.abs(np.vdot(query_state, m)) / (mn * qn))
+        return [{'state_index': 0, 'overlap_probability': amp ** 2, 'quantum_amplitude': amp}]
     
     def _synthesize_integrated_recall(self, recall_results: Dict) -> Dict:
         """Synthesize integrated recall from all subsystems"""
@@ -562,13 +625,13 @@ class EnhancedHolographicAssociativeMemory(HolographicAssociativeMemory):
         super().__init__(memory_size, hologram_dim)
         self.quantum_enhancement = QuantumMemoryEnhancement()
         self.fractal_encoder = AdvancedFractalEncoder()
-        self.emotional_context_weights = np.random.random(hologram_dim)
+        self.emotional_context_weights = _rng.random(hologram_dim)
         
     def _generate_memory_key(self, data: np.ndarray) -> str:
         """Generate unique memory key using quantum-inspired hashing"""
         # Use quantum amplitude encoding for key generation
         quantum_state = self.quantum_enhancement.encode_quantum_state(data)
-        key_hash = hash(tuple(quantum_state[:16].real))  # Use first 16 components
+        key_hash = _stable_hash(quantum_state[:16].real)  # first 16 components; stable across processes
         return f"mem_{abs(key_hash)}"
     
     def _create_associative_links(self, memory_key: str, metadata: Dict):
@@ -639,7 +702,7 @@ class EnhancedHolographicAssociativeMemory(HolographicAssociativeMemory):
         
         # Use quantum-enhanced recall for better reconstruction
         quantum_recall = self.quantum_enhancement.quantum_associative_recall(
-            trace.get('quantum_encoding', np.random.random(self.hologram_dim))
+            trace.get('quantum_encoding', np.zeros(self.hologram_dim))
         )
         
         # Combine with holographic reconstruction
@@ -849,7 +912,7 @@ class QuantumMemoryEnhancement(QuantumHolographicStorage):
             encoded_state = entangled_state
         
         # Generate holographic key
-        hologram_key = f"qholo_{hash(tuple(encoded_state[:8].real))}"
+        hologram_key = f"qholo_{_stable_hash(encoded_state[:8].real)}"
         
         # Update quantum memory with interference pattern
         self.quantum_memory_states += encoded_state
@@ -877,7 +940,7 @@ class QuantumMemoryEnhancement(QuantumHolographicStorage):
     def _quantum_error_correction(self, state: np.ndarray) -> np.ndarray:
         """Simple quantum error correction simulation"""
         # Add small random phase errors
-        phase_error = np.exp(1j * 0.01 * np.random.random(len(state)))
+        phase_error = np.exp(1j * 0.01 * _rng.random(len(state)))
         corrupted_state = state * phase_error
         
         # Simple correction by projecting to nearest valid state
@@ -1046,6 +1109,20 @@ class EnhancedCognitiveMemoryOrchestrator(CognitiveMemoryOrchestrator):
         self.metacognitive_controller = MetacognitiveController()
         self.cognitive_trajectory = []
         self.learning_rate = 0.1
+
+    def integrated_memory_processing(self, experience: Dict, context: Dict) -> Dict:
+        """Base processing, then record the outcome: efficiency and learning progress read this trajectory
+        (it was declared but never appended to, so both metrics were stuck at 0)."""
+        result = super().integrated_memory_processing(experience, context)
+        self.cognitive_trajectory.append({
+            'cognitive_integration_level': result['cognitive_integration_level'],
+            'memory_resilience': result['memory_resilience'],
+            'emergence_detected': bool(result['emergence_detected']),
+        })
+        result['metacognition'] = self._update_metacognition({
+            'emergence_analysis': result['emergence_analysis'], 'fractal_encoding': result['memory_integration']['fractal'],
+            'holographic_key': result['memory_integration']['holographic'], 'quantum_key': result['memory_integration']['quantum']})
+        return result
         
     def _estimate_cognitive_load(self, experience: Dict) -> float:
         """Estimate cognitive load based on experience complexity"""
@@ -1216,7 +1293,7 @@ class EnhancedCognitiveMemoryOrchestrator(CognitiveMemoryOrchestrator):
         quality_metrics = {
             'coverage': (holographic_matches + quantum_matches) / max(1, holographic_matches + quantum_matches + 1),
             'confidence': fractal_confidence,
-            'diversity': len(set([m['source'] for m in self._combine_best_matches(recall_results, [1/3, 1/3, 1/3])])),
+            'diversity': len(set([m['source'] for m in self._combine_best_matches(recall_results, [1/3, 1/3, 1/3])])) / 3.0,  # share of the 3 subsystems
             'consistency': self._assess_recall_consistency(recall_results)
         }
         
@@ -1227,9 +1304,22 @@ class EnhancedCognitiveMemoryOrchestrator(CognitiveMemoryOrchestrator):
     
     def _assess_recall_consistency(self, recall_results: Dict) -> float:
         """Assess consistency across different recall methods"""
-        # This would involve comparing the results from different subsystems
-        # For now, return a placeholder value
-        return 0.7
+        # Agreement of the subsystems' top scores (each in [0, 1]): 1 − their spread.
+        # Needs at least two subsystems with a result; otherwise there is nothing to compare (0).
+        scores = []
+        holo = recall_results.get('holographic', [])
+        if holo:
+            scores.append(max(float(m.get('similarity', 0.0)) for m in holo))
+        fractal = recall_results.get('fractal', {})
+        if fractal.get('best_matches'):
+            scores.append(float(fractal.get('fractal_completion_confidence', 0.0)))
+        quantum = recall_results.get('quantum', [])
+        if quantum:
+            scores.append(max(float(m.get('overlap_probability', 0.0)) for m in quantum))
+        if len(scores) < 2:
+            return 0.0
+        scores = np.clip(scores, 0.0, 1.0)
+        return float(1.0 - 2.0 * np.std(scores))      # std of values in [0, 1] is at most 0.5
 
 class MetacognitiveController:
     """Controller for metacognitive awareness and adaptation"""
@@ -1270,6 +1360,8 @@ class MetacognitiveController:
             self.metacognitive_state['learning_mode'] = 'conservative'
 
 def demo_enhanced_holographic_memory():
+    from kgirl import telemetry
+    print(f"Input data: {telemetry.source()}")
     """Demonstrate enhanced holographic memory system capabilities"""
     
     orchestrator = EnhancedCognitiveMemoryOrchestrator()
@@ -1279,19 +1371,19 @@ def demo_enhanced_holographic_memory():
     # Test memory storage with complex experiences
     experiences = [
         {
-            'data': np.random.random(256) * 2 - 1,  # Bipolar data for more interesting patterns
+            'data': telemetry.lattice_matrix(1, 256).ravel() * 2 - 1,  # real rod enrichments, bipolar
             'context': 'Emotional memory with high significance',
             'emotional_intensity': 0.9,
             'cognitive_significance': 0.8
         },
         {
-            'data': np.sin(np.linspace(0, 4*np.pi, 256)) + 0.1 * np.random.random(256),
+            'data': np.sin(np.linspace(0, 4*np.pi, 256)) + 0.1 * _rng.random(256),
             'context': 'Periodic pattern with noise',
             'emotional_intensity': 0.3,
             'cognitive_significance': 0.6
         },
         {
-            'data': np.cumsum(np.random.random(256) - 0.5),  # Random walk
+            'data': np.cumsum(telemetry.lattice_signal(256)) / 16.0,  # cumulative k_inf deviations
             'context': 'Non-stationary temporal pattern',
             'emotional_intensity': 0.5,
             'cognitive_significance': 0.7
@@ -1327,7 +1419,7 @@ def demo_enhanced_holographic_memory():
             'scale_preference': 'adaptive'
         },
         {
-            'data': experiences[1]['data'][:128] + 0.1 * np.random.random(128),  # Partial with noise
+            'data': experiences[1]['data'][:128] + 0.1 * _rng.random(128),  # Partial with noise
             'similarity_threshold': 0.6,
             'scale_preference': 'fine'
         }

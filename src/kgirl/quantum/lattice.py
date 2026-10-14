@@ -108,7 +108,9 @@ class FractalInfrasonomancer:
     def __init__(self, seed_text: str, config: Optional[FractalLatticeConfig] = None):
         self.seed_text = seed_text
         self.seed_hash = int(hashlib.sha256(seed_text.encode()).hexdigest(), 16)
-        np.random.seed(self.seed_hash & 0xFFFFFFFF)
+        # Per-instance chaos stream seeded by the text (used to reseed numpy's global PRNG: a side effect)
+        from kgirl.evolve.chaos import ChaosGenerator
+        self._rng = ChaosGenerator(seed=0.05 + 0.9 * ((self.seed_hash & 0xFFFFFFFF) / 2**32))
 
         # Derive small variations from seed
         julia_real = -0.8 + (self.seed_hash % 1600) / 1000.0  # [-0.8, 0.8]
@@ -149,7 +151,7 @@ class FractalInfrasonomancer:
                 if lattice[y, x] >= thresh:
                     note = int(midi_grid[y, x])
                     start = float(t_grid[x])
-                    dur = float(length_seconds / w * np.random.uniform(0.5, 1.5))
+                    dur = float(length_seconds / w * self._rng.uniform(0.5, 1.5))
                     notes.append((note, start, dur))
 
         # Infrasonic envelope from a low-res projection
@@ -326,24 +328,27 @@ class FractalInfrasonomancer:
     """Fractal pattern generator using seed text (minimal implementation)."""
     def __init__(self, seed_text: str):
         self.seed_text = seed_text
-        random.seed(hash(seed_text) % (2**32))
+        # hash() is salted per process, so the old random.seed(hash(seed_text)) gave a new pattern every run
+        from kgirl.evolve.chaos import ChaosGenerator
+        h = int.from_bytes(hashlib.blake2b(seed_text.encode(), digest_size=8).digest(), "little")
+        self._rng = ChaosGenerator(seed=0.05 + 0.9 * (h / 2**64))
 
     def build_pattern(self, length_seconds: float = 16.0, note_density: float = 0.1) -> Any:
         """Build fractal note pattern (simulated)."""
         num_notes = int(length_seconds * note_density * 10)
         notes = []
         for _ in range(num_notes):
-            midi = random.randint(20, 80)  # Low freq for infrasound-ish
-            start = random.uniform(0, length_seconds)
-            duration = random.uniform(0.5, 4.0)
+            midi = int(self._rng.integers(61)) + 20  # 20..80: low freq for infrasound-ish
+            start = float(self._rng.uniform(0, length_seconds))
+            duration = float(self._rng.uniform(0.5, 4.0))
             notes.append([midi, start, duration])
         
-        class Pattern:
-            notes = sorted(notes, key=lambda x: x[1])
-            infrasonic_envelope = np.sin(np.linspace(0, 2*np.pi, int(length_seconds*10)))
-            control_curves = {'coherence': np.random.rand(int(length_seconds*10)).tolist()}
-        
-        return Pattern()
+        # A class body cannot read the enclosing function's locals (`notes = sorted(notes)` raised NameError)
+        from types import SimpleNamespace
+        n = int(length_seconds * 10)
+        return SimpleNamespace(notes=sorted(notes, key=lambda x: x[1]),
+                               infrasonic_envelope=np.sin(np.linspace(0, 2 * np.pi, n)),
+                               control_curves={'coherence': self._rng.random(n).tolist()})
 
 # ================================ ENHANCED FREQUENCY TRANSLATOR ================================
 
@@ -487,6 +492,8 @@ class NSCTS:
         self.states: List[ConsciousnessState] = []
         self.current_phase: LearningPhase = LearningPhase.ATTUNEMENT
         self.coherence_history: List[float] = []
+        from kgirl.evolve.chaos import ChaosGenerator
+        self._rng = ChaosGenerator(seed=0.4142)       # simulated amplitudes/complexities (reproducible)
     
     def initialize_infrasonomancer(self, seed_text: str):
         """Initialize infrasonomancer for pattern generation."""
@@ -507,10 +514,10 @@ class NSCTS:
             signatures.append(BiometricSignature(
                 stream=stream_map,
                 frequency=sig['frequency'],
-                amplitude=random.uniform(0.5, 1.5),
+                amplitude=float(self._rng.uniform(0.5, 1.5)),
                 variability=1.0 / (sig['duration'] + 1e-6),
                 phase=(sig['start_time'] % (2 * np.pi)),
-                complexity=entropy(np.random.rand(10)),  # Simulated complexity
+                complexity=entropy(self._rng.random(10)),  # simulated: chaos-driven, reproducible
                 timestamp=sig['start_time']
             ))
         return signatures

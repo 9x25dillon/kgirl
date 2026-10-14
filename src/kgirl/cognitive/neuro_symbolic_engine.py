@@ -484,12 +484,14 @@ class RLAgent:
     def __init__(self, actions: List[str] = None, eps: float = 0.1):
         self.actions = actions or ["bpsk", "qpsk", "ofdm"]
         self.eps = eps
+        from kgirl.evolve.chaos import ChaosGenerator
+        self._rng = ChaosGenerator(seed=0.2357)          # exploration from logistic chaos (reproducible)
         # state -> action -> {q, n}
         self.q: Dict[Tuple[int, int, int], Dict[str, Dict[str, float]]] = {}
     
     def choose_action(self, state: Tuple[int, int, int]) -> str:
-        if np.random.random() < self.eps or state not in self.q:
-            return np.random.choice(self.actions)
+        if self._rng.random() < self.eps or state not in self.q:
+            return str(self._rng.choice(self.actions))
         
         action_values = {
             action: self.q[state][action]["q"] 
@@ -498,7 +500,7 @@ class RLAgent:
         }
         
         if not action_values:
-            return np.random.choice(self.actions)
+            return str(self._rng.choice(self.actions))
             
         return max(action_values.items(), key=lambda x: x[1])[0]
     
@@ -832,6 +834,8 @@ def demo_neuro_symbolic_engine():
     ]
     
     results = []
+    from kgirl.evolve.chaos import ChaosGenerator
+    link_rng = ChaosGenerator(seed=0.6180)
     
     for i, text in enumerate(test_texts):
         logger.info(f"Processing text {i+1}: {text[:30]}...")
@@ -842,8 +846,10 @@ def demo_neuro_symbolic_engine():
         # Generate plan
         config, explanation = planner.plan(text, analysis)
         
-        # Simulate success/failure
-        success = np.random.random() > 0.3  # 70% success rate
+        # Measure: send the text with the planned modulation (Hamming(7,4), AWGN BER at 6 dB Eb/N0)
+        from kgirl.utils.link import transmit
+        link = transmit(text, config["modulation"], ebn0_db=6.0, rng=link_rng)
+        success = link["success"]
         
         # Update planner
         planner.reward_and_record(
