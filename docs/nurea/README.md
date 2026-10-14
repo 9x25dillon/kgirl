@@ -45,6 +45,29 @@ The methods are:
 
 The objective is ½‖X − M‖²_F, plus λ‖X‖₁ for `sparsity` or τ‖X‖_* for `rank`. Every operator is closed form, so `iterations` is always 1.
 
+## LIMPS protocol (LiMp, bigLIMp)
+
+LiMp's `JuliaClient` and `LIMPSJuliaIntegration` (`9x25dillon/LiMp/julia_client.py`) and bigLIMp's revised LIMPS modules use the same `{"function", "args"}` dispatch. The backend now serves their functions too, so the same server handles NuRea, LIMPS and kgirl clients.
+
+| Function | Upstream behaviour | Here |
+|---|---|---|
+| `optimize_matrix(matrix, "sparsity")` | Zeroed entries below 10 % of the maximum | Soft-threshold (L1 prox). λ defaults to 10 % of the maximum |
+| `optimize_matrix(matrix, "rank")` | Always kept half the rank | Without τ: rank chosen by BIC, hard truncation. With τ: singular-value threshold |
+| `optimize_matrix(matrix, "structure")` | Row means + column means − mean, with a constant `complexity_reduction = 0.3` | The same additive fit, but reporting a measured R², row and column effect variances, and interaction RMS |
+| `optimize_matrix(matrix, "auto")` | Chose a method from fixed thresholds on a complexity score | Fits every candidate (structure, rank-r, Chebyshev degree-d, top-s sparsity) and keeps the lowest BIC = N·ln(RSS/N) + k·ln N |
+| `matrix_to_polynomials` / `analyze_matrix_structure` | Symbolic `x[i,j]` strings and fixed-weight scores | Numerical rank, stable rank, condition number, sparsity, additive R², and complexity = normalised spectral entropy ∈ [0, 1] |
+| `create_polynomials` / `analyze_polynomials` | Linear forms; `matrices.jl` did not load (`@polyvar` without `DynamicPolynomials`) | The same linear forms. Complexity = mean normalised entropy of \|coefficients\| |
+| `analyze_text_structure` | `complexity_score = text_length / 100` (unbounded) | Shannon entropy in nats (`text_entropy`, LiMp's unit) and bits, normalised entropy, Zipf exponent |
+
+Every reply carries `compression_ratio` at the top level, which `optimize_limps_matrix` reads; it is the share of numbers saved. `GET /` answers `test_connection`.
+
+**L0 tests:**
+
+- The additive fit is exact on additive matrices.
+- `auto` selects `structure` for an additive matrix, and rank 2 for a rank-2 matrix.
+- LiMp's own `JuliaClient` and `LIMPSJuliaIntegration` complete `process_entropy_matrix`, `analyze_natural_language` and `optimize_limps_matrix` against the stdlib server (`tests/integration/test_nurea_backend.py`).
+- A static test checks that the `.jl` file serves the same function names. Julia itself still has not been executed here.
+
 ## Evidence
 
 **L0 tests** (`tests/integration/test_nurea_backend.py`):

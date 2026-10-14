@@ -31,9 +31,9 @@
 #   rank                  U·diag(max(σ − τ, 0))·Vᵀ                  prox of τ‖M‖_*
 #   objective             ½‖X − M‖²_F (+ λ‖X‖₁ | + τ‖X‖_*);  iterations = 1 (closed form)
 
-using HTTP, JSON3, LinearAlgebra, Statistics
+using HTTP, JSON3, LinearAlgebra, Printf, Statistics
 
-const METHODS = ("chebyshev_projection", "sparsity", "rank")
+const METHODS = ("chebyshev_projection", "sparsity", "rank", "structure", "auto")
 const BASES = ("chebyshev", "legendre", "monomial")
 
 function to_matrix(rows)::Matrix{Float64}
@@ -131,30 +131,199 @@ function to_matrix_lenient(rows)
     map(x -> isfinite(x) ? x : 0.0, A)
 end
 
+# ---------------------------------------------------------------- LIMPS functions (LiMp / bigLIMp protocol)
+
+function additive_structure(M::Matrix{Float64})
+    mu = mean(M)
+    out = mean(M; dims = 2) .+ mean(M; dims = 1) .- mu
+    sst = sum(abs2, M .- mu)
+    sse = sum(abs2, M .- out)
+    out, Dict("grand_mean" => mu, "r2" => sst > 0 ? 1 - sse / sst : 1.0,
+              "row_effect_var" => var(vec(mean(M; dims = 2)); corrected = false),
+              "col_effect_var" => var(vec(mean(M; dims = 1)); corrected = false),
+              "interaction_rms" => sqrt(sse / length(M)), "parameters" => size(M, 1) + size(M, 2) - 1)
+end
+
+function bic(M::Matrix{Float64}, X::Matrix{Float64}, k::Integer)
+    n = length(M)
+    tss = sum(abs2, M .- mean(M))
+    tss = tss > 0 ? tss : 1.0
+    rss = max(sum(abs2, M .- X), 1e-12 * tss)
+    n * log(rss / n) + k * log(n)
+end
+
+function auto_select(M::Matrix{Float64})
+    rows, cols = size(M)
+    cands = Dict{String, Tuple{Float64, Matrix{Float64}, Dict{String, Any}}}()
+    Xs, ds = additive_structure(M)
+    cands["structure"] = (bic(M, Xs, ds["parameters"]), Xs, Dict{String, Any}("r2" => ds["r2"]))
+    F = svd(M)
+    top = max(1, min(rows, cols) - 1)
+    rs = sort(unique(round.(Int, exp.(range(0, log(top); length = min(24, top))))))
+    best = nothing
+    for r in rs
+        X = F.U[:, 1:r] * Diagonal(F.S[1:r]) * F.Vt[1:r, :]
+        b = bic(M, X, r * (rows + cols - r))
+        (best === nothing || b < best[1]) && (best = (b, X, Dict{String, Any}("rank" => r)))
+    end
+    cands["rank"] = best
+    best = nothing
+    for d in 0:min(cols - 1, 12)
+        X, _ = chebyshev_projection(M; degree = d)
+        b = bic(M, X, rows * (d + 1))
+        (best === nothing || b < best[1]) && (best = (b, X, Dict{String, Any}("degree" => d)))
+    end
+    cands["chebyshev_projection"] = best
+    flat = vec(permutedims(M))                               # row-major, as numpy ravel
+    order = sortperm(-abs.(flat); alg = MergeSort)
+    best = nothing
+    for sz in sort(unique([max(1, round(Int, length(M) * f)) for f in (0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7)]))
+        x = zeros(length(M))
+        x[order[1:sz]] .= flat[order[1:sz]]
+        X = permutedims(reshape(x, cols, rows))
+        b = bic(M, X, 2 * sz)
+        (best === nothing || b < best[1]) && (best = (b, X, Dict{String, Any}("kept" => sz)))
+    end
+    cands["sparsity"] = best
+    choice = first(sort(collect(keys(cands)); by = k -> cands[k][1]))
+    cands[choice][2], Dict("selected" => choice, "selected_setting" => cands[choice][3],
+                           "bic" => Dict(k => v[1] for (k, v) in cands), "settings" => Dict(k => v[3] for (k, v) in cands))
+end
+
+function matrix_structure(M::Matrix{Float64})
+    rows, cols = size(M)
+    s = svdvals(M)
+    tol = maximum(size(M)) * eps(Float64) * (isempty(s) ? 0.0 : s[1])
+    s2 = s .^ 2
+    p = sum(s2) > 0 ? s2[s2 .> 0] ./ sum(s2) : Float64[]
+    ent = length(s) > 1 && !isempty(p) ? -sum(p .* log.(p)) / log(length(s)) : 0.0
+    mx = maximum(abs, M)
+    Dict("shape" => [rows, cols], "matrix_shape" => [rows, cols], "polynomial_terms" => rows * cols,
+         "representation" => "hybrid_polynomial", "rank" => count(>(tol), s),
+         "stable_rank" => !isempty(s) && s[1] > 0 ? sum(s2) / s2[1] : 0.0,
+         "condition_number" => !isempty(s) && s[end] > 0 ? s[1] / s[end] : 1e308,
+         "sparsity" => mean(M .== 0.0), "near_zero_fraction" => mean(abs.(M) .< 0.01 * (mx > 0 ? mx : 1.0)),
+         "additive_r2" => additive_structure(M)[2]["r2"], "complexity_score" => ent,
+         "coeff_matrix" => [M[i, :] for i in 1:rows])
+end
+
+fmt(a) = @sprintf("%g", a)                                  # same text as Python's f"{a:g}"
+
+function create_polynomials(data, variables)
+    M = to_matrix(data)
+    size(M, 2) == length(variables) || error("$(size(M, 2)) columns but $(length(variables)) variables")
+    out = Dict{String, Any}()
+    for i in 1:size(M, 1)
+        nz = [j for j in 1:size(M, 2) if M[i, j] != 0.0]
+        terms = ["$(fmt(M[i, j]))*$(variables[j])" for j in nz]
+        str = isempty(terms) ? "0" : replace(join(terms, " + "), "+ -" => "- ")
+        out["P$i"] = Dict("string" => str, "coeffs" => [M[i, j] for j in nz], "terms" => [String(variables[j]) for j in nz],
+                          "degree" => isempty(nz) ? 0 : 1, "term_count" => length(nz))
+    end
+    out
+end
+
+function analyze_polynomials(polys)
+    if polys isa AbstractDict && haskey(polys, :coeff_matrix)
+        M = to_matrix(polys[:coeff_matrix])
+        polys = create_polynomials([M[i, :] for i in 1:size(M, 1)], ["x$j" for j in 1:size(M, 2)])
+    end
+    vals = [v for v in values(polys) if v isa AbstractDict]
+    isempty(vals) && return Dict("total_polynomials" => 0, "complexity_score" => 0.0)
+    g(v, k, d) = haskey(v, k) ? v[k] : (haskey(v, Symbol(k)) ? v[Symbol(k)] : d)
+    degrees = [Int(g(v, "degree", 0)) for v in vals]
+    counts = [Int(g(v, "term_count", length(g(v, "terms", [])))) for v in vals]
+    ents = Float64[]
+    for v in vals
+        c = abs.(Float64.(collect(g(v, "coeffs", Float64[]))))
+        if length(c) > 1 && sum(c) > 0
+            q = c[c .> 0] ./ sum(c)
+            push!(ents, -sum(q .* log.(q)) / log(length(c)))
+        else
+            push!(ents, 0.0)
+        end
+    end
+    Dict("total_polynomials" => length(vals), "average_degree" => mean(degrees), "max_degree" => maximum(degrees),
+         "average_terms" => mean(counts), "max_terms" => maximum(counts), "complexity_score" => mean(ents))
+end
+
+function analyze_text_structure(text::AbstractString; top::Int = 50)
+    words = String.(split(text))
+    n = length(words)
+    n == 0 && return Dict("text_length" => length(text), "word_count" => 0, "unique_words" => 0, "text_entropy" => 0.0,
+                          "entropy_bits" => 0.0, "normalised_entropy" => 0.0, "complexity_score" => 0.0)
+    freq = Dict{String, Int}()
+    for w in words
+        freq[w] = get(freq, w, 0) + 1
+    end
+    vocab = sort(collect(keys(freq)))                        # numpy.unique order, then a stable count sort
+    counts = [freq[w] for w in vocab]
+    p = counts ./ n
+    h = -sum(p .* log.(p))
+    order = sortperm(-counts; alg = MergeSort)
+    f = Float64.(counts[order])
+    rep = f[f .>= 2]
+    zipf = nothing
+    if length(rep) >= 3
+        x = log.(1:length(rep))
+        y = log.(rep)
+        slope = sum((x .- mean(x)) .* (y .- mean(y))) / sum((x .- mean(x)) .^ 2)
+        zipf = -slope
+    end
+    norm = length(vocab) > 1 ? h / log(length(vocab)) : 0.0
+    Dict("text_length" => length(text), "word_count" => n, "unique_words" => length(vocab),
+         "average_word_length" => mean(length.(words)), "text_entropy" => h, "entropy_bits" => h / log(2),
+         "normalised_entropy" => norm, "vocabulary_richness" => length(vocab) / n, "zipf_exponent" => zipf,
+         "complexity_score" => norm, "word_frequency" => Dict(vocab[i] => counts[i] for i in order[1:min(top, end)]))
+end
+
 getp(p, key, default) = (p !== nothing && haskey(p, key)) ? p[key] : default
 
 function optimize(rows, method::AbstractString, params)
     M = to_matrix(rows)
     method == "poly" && (method = "chebyshev_projection")
+    kept = nothing
     if method == "chebyshev_projection"
         out, diag = chebyshev_projection(M; degree = round(Int, Float64(getp(params, :degree, 8))),
                                          sparsity = Float64(getp(params, :sparsity, 0.0)),
                                          basis = String(getp(params, :basis, "chebyshev")))
         objective = 0.5 * sum(abs2, out .- M)
+        kept = diag["coefficients_kept"]
     elseif method == "sparsity"
-        lambda = Float64(getp(params, :lambda, 1.0))
+        lambda = Float64(getp(params, :lambda, 0.1 * maximum(abs, M)))     # default: LiMp's 10 % of max
         out, diag = soft_threshold(M; lambda = lambda)
         objective = 0.5 * sum(abs2, out .- M) + lambda * sum(abs, out)
+        kept = count(!iszero, out)
     elseif method == "rank"
-        tau = Float64(getp(params, :tau, 1.0))
-        out, diag = singular_value_threshold(M; tau = tau)
-        objective = 0.5 * sum(abs2, out .- M) + tau * diag["nuclear_after"]
+        if params !== nothing && haskey(params, :tau)
+            tau = Float64(params[:tau])
+            out, diag = singular_value_threshold(M; tau = tau)
+            objective = 0.5 * sum(abs2, out .- M) + tau * diag["nuclear_after"]
+            r = diag["rank_after"]
+        else                                                  # no τ: rank chosen by BIC, hard truncation
+            r = auto_select(M)[2]["settings"]["rank"]["rank"]
+            F = svd(M)
+            out = F.U[:, 1:r] * Diagonal(F.S[1:r]) * F.Vt[1:r, :]
+            diag = Dict{String, Any}("rank_selected_by_bic" => r)
+            objective = 0.5 * sum(abs2, out .- M)
+        end
+        kept = r * (size(M, 1) + size(M, 2) - r)
+    elseif method == "structure"
+        out, diag = additive_structure(M)
+        objective = 0.5 * sum(abs2, out .- M)
+        kept = diag["parameters"]
+    elseif method == "auto"
+        out, diag = auto_select(M)
+        objective = 0.5 * sum(abs2, out .- M)
     else
         error("unknown method $method; one of $(join(METHODS, ", ")), poly")
     end
+    diag = Dict{String, Any}(diag)
+    kept === nothing || (diag["compression_ratio"] = max(0.0, 1.0 - kept / length(M)))
     rowsout = [out[i, :] for i in 1:size(out, 1)]
     Dict("optimized_matrix" => rowsout, "rows" => size(out, 1), "cols" => size(out, 2), "method" => method,
          "params" => params === nothing ? Dict() : params, "diagnostics" => diag,
+         "compression_ratio" => get(diag, "compression_ratio", nothing),
          "objective" => objective, "matrix_opt" => rowsout, "iterations" => 1,
          "meta" => merge(Dict{String,Any}("method" => method), diag))
 end
@@ -185,7 +354,7 @@ function handle(path::AbstractString, body)
         return chebyshev_project(get(body, :matrix, nothing), get(body, :degree, 3), get(body, :basis, "chebyshev"))
     elseif path == "/"
         name = String(get(body, :function, ""))      # a missing name must be a 400, not the KeyError → 404 path
-        name == "ping" && return Dict("ok" => true)
+        name in ("ping", "health_check") && return Dict("ok" => true)
         args = collect(get(body, :args, []))
         isempty(args) && error("args are required")
         if name == "optimize"
@@ -200,6 +369,15 @@ function handle(path::AbstractString, body)
         elseif name == "optimize_matrix"
             return optimize(args[1], length(args) > 1 ? String(args[2]) : "chebyshev_projection",
                             length(args) > 2 ? args[3] : nothing)
+        elseif name in ("matrix_to_polynomials", "analyze_matrix_structure")
+            return matrix_structure(to_matrix(args[1]))
+        elseif name == "create_polynomials"
+            vars = length(args) > 1 ? String.(collect(args[2])) : ["x$j" for j in 1:length(args[1][1])]
+            return create_polynomials(args[1], vars)
+        elseif name == "analyze_polynomials"
+            return analyze_polynomials(args[1])
+        elseif name == "analyze_text_structure"
+            return analyze_text_structure(String(args[1]))
         elseif name in METHODS || name == "poly"
             return optimize(args[1], name, length(args) > 1 ? args[2] : nothing)
         end
@@ -211,6 +389,7 @@ end
 function route(req::HTTP.Request)
     path = HTTP.URI(req.target).path
     if HTTP.method(req) == "GET"
+        path == "/" && return jsonresp(health())                 # LiMp JuliaClient.test_connection
         path == "/healthz" && return HTTP.Response(200, ["Content-Type" => "text/plain"], "ok")
         path == "/health" && return jsonresp(health())
         return jsonresp(Dict("error" => "not found"); status = 404)
@@ -219,7 +398,7 @@ function route(req::HTTP.Request)
             body = isempty(req.body) ? JSON3.read("{}") : JSON3.read(String(req.body))
             return jsonresp(handle(path, body))
         catch e
-            e isa KeyError && return jsonresp(Dict("error" => "not found"); status = 404)
+            e isa KeyError && e.key isa AbstractString && return jsonresp(Dict("error" => "not found"); status = 404)
             return jsonresp(Dict("error" => sprint(showerror, e)); status = 400)
         end
     end

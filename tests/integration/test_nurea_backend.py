@@ -183,3 +183,101 @@ class NuReaClientEndToEndTests(unittest.TestCase):
         self.assertLess(np.abs(np.array(proj[0]) - _mat()[0]).max(), 1e-10)    # degree-3 row is exact
         self.assertEqual(opt.iterations, 1)
         self.assertEqual(opt.meta["rank_after"], nb.singular_value_threshold(_mat(), 0.5)[1]["rank_after"])
+
+
+class LimpsFunctionTests(unittest.TestCase):
+    """LIMPS functions (LiMp / bigLIMp protocol) with measured outputs instead of fixed scores."""
+
+    def test_structure_fits_additive_matrices_exactly(self):
+        m = np.add.outer(np.arange(5.0), 10 * np.arange(7.0)) + 3.0
+        out, d = nb.additive_structure(m)
+        self.assertTrue(np.allclose(out, m))
+        self.assertAlmostEqual(d["r2"], 1.0)
+        self.assertLess(nb.additive_structure(_mat())[1]["r2"], 0.99)
+
+    def test_auto_selects_the_generating_structure(self):
+        x = np.linspace(-1, 1, 40)
+        rank2 = np.outer(np.cos(np.arange(30.0)), np.sin(3 * x)) + np.outer(np.arange(30.0) / 30, x ** 2)
+        additive = np.add.outer(np.cos(np.arange(30.0)), np.sin(5 * x))
+        self.assertEqual(nb.optimize(additive.tolist(), "auto")["diagnostics"]["selected"], "structure")
+        sel = nb.optimize(rank2.tolist(), "auto")["diagnostics"]
+        self.assertEqual(sel["selected"], "rank")
+        self.assertEqual(sel["selected_setting"], {"rank": 2})
+
+    def test_text_structure_information_measures(self):
+        t = "the cat saw the dog and the dog saw the cat " * 5
+        a = nb.analyze_text_structure(t)
+        self.assertEqual(a["unique_words"], 5)
+        self.assertAlmostEqual(a["entropy_bits"], a["text_entropy"] / np.log(2))
+        self.assertTrue(0.0 < a["normalised_entropy"] <= 1.0)
+        self.assertEqual(a["complexity_score"], a["normalised_entropy"])
+        self.assertIsNotNone(a["zipf_exponent"])
+
+    def test_polynomials_round_trip(self):
+        p = nb.create_polynomials([[1.0, -2.0, 0.0], [0.5, 0.0, 4.0]], ["a", "b", "c"])
+        self.assertEqual(p["P1"]["string"], "1*a - 2*b")
+        self.assertEqual(p["P2"]["terms"], ["a", "c"])
+        a = nb.analyze_polynomials(p)
+        self.assertEqual((a["total_polynomials"], a["max_degree"]), (2, 1))
+        self.assertTrue(0.0 <= a["complexity_score"] <= 1.0)
+
+
+def _load_limp_client():
+    import importlib.util
+    from kgirl.paths import find_repo
+    path = find_repo("LiMp") / "julia_client.py"
+    if not path.is_file():
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location("limp_julia_client", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:                         # requests missing
+        return None
+
+
+class LimpClientEndToEndTests(unittest.TestCase):
+    """LiMp's own JuliaClient / LIMPSJuliaIntegration against the kgirl server (no fallbacks exist there)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.jc = _load_limp_client()
+        if cls.jc is None:
+            raise unittest.SkipTest("LiMp/julia_client.py not importable (LIMP_PATH, <kgirl>/LiMp, ../LiMp)")
+        cls.srv = nb.make_server("127.0.0.1", 0)
+        cls.url = f"http://127.0.0.1:{cls.srv.server_address[1]}"
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+
+    def test_limps_client_round_trip(self):
+        client = self.jc.JuliaClient(self.url)
+        self.assertTrue(client.test_connection())
+        integ = self.jc.LIMPSJuliaIntegration(client)
+        m = np.add.outer(np.arange(6.0), np.arange(8.0))
+        ent = integ.process_entropy_matrix(m)
+        self.assertNotIn("error", ent)
+        self.assertIn(ent["optimization_method"], ("rank", "structure", "sparsity"))
+        lang = integ.analyze_natural_language("kgirl serves the limps protocol and the limps client reads it")
+        self.assertNotIn("error", lang)
+        self.assertEqual(lang["polynomial_features"]["P1"]["term_count"], 5)
+        opt = integ.optimize_limps_matrix(m, target_compression=0.5)
+        self.assertNotIn("error", opt)
+        self.assertTrue(0.0 <= opt["achieved_compression"] <= 1.0)
+
+
+class JuliaParityTests(unittest.TestCase):
+    """Julia is not runnable in CI here; at least the .jl must serve every name the Python server does."""
+
+    def test_jl_serves_the_same_functions_and_methods(self):
+        from pathlib import Path
+        jl = (Path(__file__).resolve().parents[2] / "src" / "julia" / "nurea_backend.jl").read_text()
+        for name in ("optimize_matrix", "matrix_to_polynomials", "analyze_matrix_structure", "create_polynomials",
+                     "analyze_polynomials", "analyze_text_structure", "chebyshev_project", "health_check", "ping",
+                     '"/entropy"', '"/chebyshev_project"', '"/optimize"', '"/health"', '"/healthz"'):
+            self.assertIn(name, jl)
+        for method in nb.METHODS:
+            self.assertIn(f'"{method}"', jl)
