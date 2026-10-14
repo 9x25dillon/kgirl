@@ -9,6 +9,7 @@ from tests.harness._fixtures import SRC, make_repos
 
 from kgirl.harness.assistant import Assistant
 from kgirl.harness.hermes import Router
+from kgirl.harness.jev import SwarmResult
 from kgirl.harness.llm import ScriptedBackend
 from kgirl.harness.mcp_server import MCPServer
 from kgirl.harness.report import atlas_report
@@ -126,6 +127,27 @@ class MCPTests(unittest.TestCase):
             self.assertEqual(verify_allowlist(), [["python", "-m", "pytest", "-q"], ["npm", "test"]])
         finally:
             os.environ.pop("KGIRL_VERIFY_ALLOWLIST")
+
+    def test_swarm_task_over_mcp_runs_with_mcp_origin(self):
+        seen = {}
+
+        def task(*args, **kw):
+            seen.update(kw)
+            return SwarmResult("x", None, [], None, proposals=[(7, "staged trajectory"), (8, "staged")],
+                               origin=kw.get("origin"))
+        self.a.task = task
+        os.environ["KGIRL_VERIFY_ALLOWLIST"] = "python -m pytest -q"
+        try:
+            res = self.call("tools/call", {"name": "jev_swarm_task", "arguments": {
+                "goal": "x", "repo_path": str(self.lib), "verify": "python -m pytest -q"}})
+        finally:
+            os.environ.pop("KGIRL_VERIFY_ALLOWLIST")
+        self.assertFalse(res["result"]["isError"], res)
+        self.assertEqual(seen["origin"], "mcp")
+        text = res["result"]["content"][0]["text"]
+        self.assertIn("trajectory #7 came from mcp", text)
+        self.assertIn("soup promote 7", text)
+        self.assertNotIn("promote 8", text)
 
     def test_stdio_roundtrip(self):
         msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},

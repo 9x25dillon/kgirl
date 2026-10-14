@@ -86,7 +86,8 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
             roots = {Path(r["root"]).resolve() for r in a.atlas.repos()}
             if os.environ.get("KGIRL_MCP_APPLY") != "1" or Path(p["repo_path"]).resolve() not in roots:
                 raise PermissionError("apply over MCP needs KGIRL_MCP_APPLY=1 and repo_path set to an indexed repo root")
-        res = a.task(p["goal"], p["repo_path"], cmd, size=int(p.get("size", 3)), apply=apply)
+        # A model chose the goal: what the run teaches is staged under "mcp" for a person to promote (KFM-12).
+        res = a.task(p["goal"], p["repo_path"], cmd, size=int(p.get("size", 3)), apply=apply, origin="mcp")
         return res.render()
 
     def ecl_quantify(p):
@@ -170,7 +171,8 @@ _DESCRIPTIONS = {
     "kgirl_ask": "Answer a question about the user's repos from a cited, token-bounded context pack.",
     "jev_swarm_task": "Run a swarm of sandboxed Jev agents on a coding goal; returns the verified diff. verify must be "
                       "one of the user's KGIRL_VERIFY_ALLOWLIST commands; apply needs KGIRL_MCP_APPLY=1 and an indexed "
-                      "repo root. Requires local Ollama models.",
+                      "repo root. The run's trajectory and rules are staged until a person promotes them. Requires "
+                      "local Ollama models.",
     "ecl_quantify": "CN121933729A c-BPE-ECL: convert CEA/AFP anode ECL intensities (a.u.) to ng/mL (mode=conc) or "
                     "MCF-7 cells/mL (mode=cells) with the patent's calibration curves; flags reads below the LOD scar.",
     "ecl_protocol": "Run the dual-marker c-BPE-ECL assay end to end (nine levels: probe synthesis → capture → "
