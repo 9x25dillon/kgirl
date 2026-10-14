@@ -55,3 +55,32 @@ The surrogate follows the approach of `Eopiez/refactored/neutronics_surrogate.py
 - Both files are independent samples with the same 41 columns, so that pairing has no physical meaning.
 
 **The fix here:** enrichments (columns 2–40) predict (k_inf, PPPF) (columns 0–1) within the same row.
+
+## Evolving loading patterns (`python -m kgirl.evolve fuel`)
+
+The validated surrogate becomes a design tool. MAP-Elites (`kgirl.evolve`, chaos-driven) searches the 39 rod enrichments:
+
+- **Fitness:** −PPPF, so flatter power wins.
+- **Behaviour grid:** mean enrichment (fuel cost) × predicted k_inf (reactivity).
+- **Result:** the archive holds the flattest design found for each cost/reactivity trade-off.
+
+```sh
+PYTHONPATH=src python -m kgirl.evolve fuel -g 1500 -b 128 --out runs/fuel_elites.json
+```
+
+**Trust region.** Each rod in the training designs is drawn independently from U(0.7, 5.0) wt%. The 39-rod mean is therefore concentrated at 2.851 ± 0.198 wt%: the observed range is 2.14–3.63. Every elite carries `trust_sd` = |mean − 2.851| / 0.198, and fitness is penalised beyond 3 SD. Each elite is also compared with the best design *actually simulated* in its behaviour cell (Level 0).
+
+**Measured runs** (L0 for the numbers, L2 for the designs; 10 × 10 grid, batch 128):
+
+| Generations | Wall | Coverage | Champion PPPF (pred.) | k_inf | Mean wt% | Trust | Elite flatter than best simulated, same cell |
+|---|---|---|---|---|---|---|---|
+| 300 | 5.8 s | 59 % | 1.435 | 1.376 | 3.44 | 2.98 | 17 of 35 |
+| 1 500 | 30 s | 61 % | 1.420 | 1.373 | 3.44 | 3.00 | 20 of 35 (median ΔPPPF −0.028) |
+
+The best design actually simulated in the dataset has PPPF 1.528.
+
+Reading the table:
+
+- The champion is predicted 0.11 flatter than the best simulated design. That is about 1.7 times the surrogate's PPPF error (RMSE 0.063, R² 0.74), so the elites are candidates for a lattice-code run, not results.
+- The champion sits at the trust boundary. The optimiser uses the high-enrichment edge of the data, which is where the surrogate is least constrained.
+- The next step is to simulate the elites in `--out`. Refitting on them closes the loop.
