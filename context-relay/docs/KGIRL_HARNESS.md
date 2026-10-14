@@ -77,20 +77,23 @@ The model maps every one of the server's 15 tools to the component it reaches (`
 
 ### What the analysis shows
 
-- **As built, the agent and `soup.db` share an uncontained loop** (`agent, assistant, kgirl-mcp, soup, soup-db`). Enumerating elementary cycles misses it, because the loop passes the MCP server twice. Porter's check now also tests strongly connected components (D-016). With C-STAGE-MCP alone, the loop closes.
-- **As built, an agent reaches code execution** on the host through `jev_swarm_task`. With a verify allowlist, that path is contained.
+- **Before #55, the agent and `soup.db` shared an uncontained loop** (`agent, assistant, kgirl-mcp, soup, soup-db`). Enumerating elementary cycles misses it, because the loop passes the MCP server twice. Porter's check now also tests strongly connected components (D-016). C-STAGE-MCP alone closes it, and #55 shipped it.
+- **Before #55, an agent reached code execution** on the host through `jev_swarm_task`. As built, the verify allowlist contains that path.
 - **As built, secrets in repos reach the scout model unmitigated.** Redaction only damps this, and a second barrier would need to be a different mechanism (see BLAST_RADIUS §5).
 - **The Porter bridge has one outflow**: sanitized output to the agent. It writes nothing into kgirl.
 - **Trajectories bypass the curator.** The swarm stores a winner's record with `soup.add`, which defaults to `active`; only the rules distilled from it go through `curator.propose`. The model used to put C-CURATOR on that edge, which overstated it. It now separates `distiller → soup` (C-CURATOR) from `jev-swarm → trajectories` (C-VERIFIED-WIN, partial). **(L1)**
-- **With #55 and #59 merged, one loop stays open**: `kgirl-mcp → jev-swarm → trajectories → skill-export → skills-dir → agent`. It is damped, not unmitigated, because only the person-run CLI writes `SKILL.md` (C-EXPORT-CLI). C-STAGE-TRAJECTORY (proposed) closes it: store MCP-started trajectories `staged` with `source="mcp"`. #59 already makes forge and intuition read only `active` trajectories, so that one change is enough.
+- **As built (main `2e6638b`, with #55, #59 and #60), no persistent loop is open and no data node is exposed.**
+  - **Before #60, one loop stayed open:** `kgirl-mcp → jev-swarm → trajectories → skill-export → skills-dir → agent`. It was damped, not unmitigated, because only the person-run CLI writes `SKILL.md` (C-EXPORT-CLI).
+  - **How #60 closed it:** [9x25dillon/kgirl#60](https://github.com/9x25dillon/kgirl/pull/60) implements C-STAGE-TRAJECTORY. MCP-started trajectories are stored `staged` with `source="mcp"`, and #59 already makes forge and intuition read only `active` trajectories.
+  - **Result:** `skills-dir` is now contained for agent-written content. Only C-DATA-FRAMING and C-REDACT remain `proposed`.
 - **`soup_remember` notes can't reach the forge.** They have no steps, so the model gives trajectory rows their own data node (`trajectories`) and routes only those into intuition, the forge and the export.
 
 ### Patches
 
 The patches for KFM-01, KFM-02, KFM-03 and KFM-09, plus server instructions for KFM-04, are in
-[9x25dillon/kgirl#55](https://github.com/9x25dillon/kgirl/pull/55), stacked on the harness branch. 44 kgirl tests pass, 6 of them
-new. The model keeps these controls `proposed` until that PR merges, so `as_built` describes kgirl's default branch. The
-sketches below show the approach; the PR has the tested code.
+[9x25dillon/kgirl#55](https://github.com/9x25dillon/kgirl/pull/55), merged as `cc92cd5`. The model marks their controls
+`implemented`. C-APPLY-CONFIRM now describes what shipped: a standing opt-in (`KGIRL_MCP_APPLY=1`) plus an indexed repo
+root, not a confirmation for each apply. The sketches below show the approach; the PR has the tested code.
 
 **KFM-01: stage model-written memory.** Don't route it through `curator.propose`. `propose` reinforces near-duplicates and credits every new fragment as "born from a verified success", which would let a model promote its own memory by repeating it.
 
@@ -129,7 +132,7 @@ requested = params.get("protocolVersion")
 result = {"protocolVersion": requested if requested in SUPPORTED else PROTOCOL_VERSION, ...}
 ```
 
-**KFM-11: close the forge's trust boundary.** Fixed in [9x25dillon/kgirl#59](https://github.com/9x25dillon/kgirl/pull/59). `util.inline` collapses control, format and separator characters and caps length, and every caller-supplied string goes through it before grouping, storing or rendering. Forge and `Intuition.from_soup` read only `active` trajectories. Forged skills are stored `staged`. MCP `skills_forge` has floors (`min_support >= 2`, `min_utility >= 0.5`). It adds 5 tests, and merges cleanly with #55: 54 harness tests pass on the combined tree. **(L0)**
+**KFM-11: close the forge's trust boundary.** Fixed in [9x25dillon/kgirl#59](https://github.com/9x25dillon/kgirl/pull/59), merged as `93bfbfa`. `util.inline` collapses control, format and separator characters and caps length, and every caller-supplied string goes through it before grouping, storing or rendering. Forge and `Intuition.from_soup` read only `active` trajectories. Forged skills are stored `staged`. MCP `skills_forge` has floors (`min_support >= 2`, `min_utility >= 0.5`). It adds 5 tests, and merges cleanly with #55: 54 harness tests pass on the combined tree. **(L0)**
 
 **KFM-07: record how each import was resolved.** Add a `resolution` column: `relative`, `exact`, `suffix`, or `bare-guess`. Consumers could then weight edges instead of inferring from the target's shape, which is what the bridge does today (`exclude_bare_names`).
 
