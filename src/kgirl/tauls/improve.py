@@ -48,6 +48,8 @@ class ImproveConfig:
     alpha: float = 0.5
     lr: float = 1e-4
     min_gain: float = 1e-4               # nats/token on half B needed to accept a round
+    accept_on: str = "both"              # all: half B improves | novel: its unseen positions improve |
+                                         # both: half B improves and novel positions do not get worse
     seed: float = 0.4123
     memory: dict = field(default_factory=dict)   # MemoryConfig overrides
 
@@ -254,7 +256,11 @@ def improve(model: TAULS, data: TokenData, ic: ImproveConfig, out: str | Path | 
         d = distil(model, mem, sc["gate"], data, ic, len(y), device, r, log)
         after_b = half_b(plain_nll(model, data, "val", ic.eval_tokens, ic.batch, device), seen)
         after = after_b["all"]
-        accepted = after < best - ic.min_gain
+        improved_all = after < best - ic.min_gain
+        nov_b, nov_a = kept.get("novel"), after_b.get("novel")
+        improved_novel = nov_a is not None and nov_b is not None and nov_a < nov_b - ic.min_gain
+        held_novel = nov_a is None or nov_b is None or nov_a <= nov_b
+        accepted = {"all": improved_all, "novel": improved_novel, "both": improved_all and held_novel}[ic.accept_on]
         before_b = kept
         if accepted:
             best, kept = after, after_b

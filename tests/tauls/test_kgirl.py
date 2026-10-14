@@ -135,3 +135,24 @@ class ImproveTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAVE_TORCH, "numpy/torch not installed")
+class HyperparameterSearchTests(unittest.TestCase):
+    def test_search_fills_an_archive_and_writes_a_trainable_champion(self):
+        from tests.tauls.test_train import corpus
+        from kgirl.tauls.hpsearch import search
+        from kgirl.tauls.train import TrainConfig
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            corpus(d)
+            base = {"data": str(d / "data"), "preset": "tiny", "model": {"ctx": 32}, "batch": 4, "accum": 1,
+                    "eval_tokens": 1024, "device": "cpu", "guard_warmup": 2, "log_every": 100}
+            rec = search(base, d / "hp", steps=6, generations=1, batch=2, init=3, bins=3, log=lambda *a: None)
+            self.assertEqual(rec["runs"], 5)
+            self.assertGreater(rec["coverage"], 0.0)
+            self.assertTrue(all(math.isfinite(e["val_loss"]) for e in rec["elites"]))
+            champ = json.loads((d / "hp" / "champion.json").read_text())
+            tc = TrainConfig.from_dict(champ)
+            self.assertEqual(tc.steps, 6)
+            self.assertEqual(rec["champion"]["val_loss"], min(e["val_loss"] for e in rec["elites"]))

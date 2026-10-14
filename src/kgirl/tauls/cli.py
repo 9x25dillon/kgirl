@@ -1,4 +1,4 @@
-"""python -m kgirl.tauls — tokenizer, data, plan, train, eval, generate, memory, improve, stability, info.
+"""python -m kgirl.tauls — tokenizer, data, plan, train, eval, generate, memory, improve, hpsearch, stability, info.
 
 Typical desktop run (see docs/tauls/README.md):
 
@@ -9,6 +9,7 @@ Typical desktop run (see docs/tauls/README.md):
     python -m kgirl.tauls generate  --ckpt runs/tauls/small/best.pt --tokenizer runs/tauls/tokenizer.json --prompt "def "
     python -m kgirl.tauls memory    --ckpt runs/tauls/small/best.pt --data runs/tauls/data --out runs/tauls/memory
     python -m kgirl.tauls improve   --ckpt runs/tauls/small/best.pt --data runs/tauls/data --out runs/tauls/kgirl
+    python -m kgirl.tauls hpsearch  --data runs/tauls/data --out runs/tauls/hp --preset small --steps 400
 """
 
 from __future__ import annotations
@@ -104,6 +105,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--set", nargs="*", default=[], help="ImproveConfig overrides, e.g. rounds=4 distil_steps=500")
     p.add_argument("--memory-set", nargs="*", default=[], help="MemoryConfig overrides")
     p.add_argument("--device", default="auto")
+
+    p = sub.add_parser("hpsearch", help="chaos MAP-Elites over TA-ULS hyperparameters (equal-budget short runs)")
+    p.add_argument("--data", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--preset", default="small")
+    p.add_argument("--steps", type=int, default=400, help="optimizer steps per candidate")
+    p.add_argument("--generations", type=int, default=6)
+    p.add_argument("--batch", type=int, default=4, help="candidates per generation")
+    p.add_argument("--init", type=int, default=12, help="initial candidates")
+    p.add_argument("--bins", type=int, default=6)
+    p.add_argument("--set", nargs="*", default=[], help="model overrides shared by every candidate")
+    p.add_argument("--train-set", nargs="*", default=[], help="TrainConfig overrides, e.g. batch=16 device=cuda")
 
     p = sub.add_parser("stability", help="spectral / KFP / entropy report of a checkpoint's weight matrices")
     p.add_argument("--ckpt", required=True)
@@ -206,6 +219,11 @@ def main(argv: list[str] | None = None) -> int:
             ic.memory = {**ic.memory, **_set_pairs(args.memory_set)}
             rec = improve(model, data, ic, args.out, dev, ckpt=ck)
             print(json.dumps({k: rec[k] for k in ("baseline_val_B_nll", "final_val_B_nll", "total_gain_nats")}, indent=2))
+    elif args.cmd == "hpsearch":
+        from .hpsearch import search
+        base = {"data": args.data, "preset": args.preset, "model": _set_pairs(args.set), **_set_pairs(args.train_set)}
+        rec = search(base, args.out, args.steps, args.generations, args.batch, args.init, args.bins)
+        print(json.dumps(rec["champion"], indent=2, default=float))
     elif args.cmd == "stability":
         import torch
         from .julia_bridge import DEFAULT_URL, JuliaBridge, summarize, weight_report
