@@ -188,12 +188,13 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("checkpoint and data use different tokenizers")
         if args.cmd == "memory":
             from .holo import HoloMemory, MemoryConfig
-            from .improve import collect, score, token_stats
+            from .improve import collect, score, seen_mask, token_stats
             mem = HoloMemory(model.cfg.d_model, model.cfg.vocab_size, MemoryConfig(**_set_pairs(args.set)))
             z, y = collect(model, mem, data, "train", args.tokens, args.batch, dev)
             mem.build(z, y)
             rep = {"memory": mem.summary(),
-                   "score": score(token_stats(model, mem, data, "val", args.eval_tokens, args.batch, dev))}
+                   "score": score(token_stats(model, mem, data, "val", args.eval_tokens, args.batch, dev),
+                                  seen_mask(data, "val", args.eval_tokens, model.cfg.ctx))}
             if args.out:
                 Path(args.out).mkdir(parents=True, exist_ok=True)
                 mem.save(Path(args.out) / "memory.npz")

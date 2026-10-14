@@ -100,7 +100,29 @@ def memory_kwargs(g: dict) -> dict:
     return {"beta": g.get("beta"), "eta": g.get("eta", 0.0), "knn_eta": g.get("knn_eta", 0.0), "tau": g.get("tau", 0.05)}
 
 
-def score(stats: dict[float, dict[str, np.ndarray]]) -> dict[str, Any]:
+def seen_mask(data: TokenData, split: str, max_tokens: int, ctx: int, n: int = 16) -> np.ndarray:
+    """For each scored target (in token_stats order), whether the n-gram ending at it occurs verbatim in train.
+
+    Exact-file dedupe leaves near-duplicate files (vendored copies) on both sides of the split. A memory
+    can recall those, so the gain is reported separately on seen and novel positions.
+    """
+    def grams(a: np.ndarray) -> np.ndarray:
+        w = np.lib.stride_tricks.sliding_window_view(a, n)
+        h = np.zeros(len(w), np.uint64)
+        for j in range(n):
+            h = h * np.uint64(1000003) + w[:, j].astype(np.uint64)
+        return h
+    train = np.unique(grams(np.asarray(data.split["train"], np.int64)))
+    windows = min((len(data.split[split]) - 1) // ctx, max(1, max_tokens // ctx))
+    stream = np.asarray(data.split[split][:windows * ctx + 1], np.int64)
+    g = grams(stream)                                    # g[i] covers tokens i … i+n−1
+    seen = np.zeros(windows * ctx, bool)                 # target t = i + 1 for flattened position i
+    hit = np.isin(g, train)
+    seen[n - 2:] = hit[: len(seen) - (n - 2)]
+    return seen
+
+
+def score(stats: dict[tuple, dict[str, np.ndarray]], seen: np.ndarray | None = None) -> dict[str, Any]:
     """Fit the gate on half A, report on half B (contiguous halves of the validation stream)."""
     n = len(next(iter(stats.values()))["p_lm_t"])
     a, b = np.arange(n) < n // 2, np.arange(n) >= n // 2
@@ -113,7 +135,17 @@ def score(stats: dict[float, dict[str, np.ndarray]]) -> dict[str, Any]:
     # memory-only NLL of every setting on half B: which ingredients carry information
     per_setting = {f"beta={st[0]:g} eta={st[1]:g} knn={st[2]:g} tau={st[3]:g}":
                    float(-np.log(np.clip(v["p_mem_t"][b], 1e-30, None)).mean()) for st, v in stats.items()}
-    return {"tokens_fit": int(a.sum()), "tokens_report": int(b.sum()),
+    split: dict[str, Any] = {}
+    if seen is not None and len(seen) == n:
+        nll_lm_b = -np.log(np.clip(s["p_lm_t"][b], 1e-30, None))
+        nll_mix_b = mixed_nll(s["p_lm_t"][b], s["p_mem_t"][b], w)
+        sb = seen[b]
+        for name, m in (("seen_in_train", sb), ("novel", ~sb)):
+            if m.any():
+                split[name] = {"tokens": int(m.sum()), "nll_lm": float(nll_lm_b[m].mean()),
+                               "nll_mixed": float(nll_mix_b[m].mean()),
+                               "bits_per_token_gain": float((nll_lm_b[m].mean() - nll_mix_b[m].mean()) / math.log(2))}
+    return {"tokens_fit": int(a.sum()), "tokens_report": int(b.sum()), "by_novelty_16gram": split,
             "gate": {k: g[k] for k in ("beta", "eta", "knn_eta", "tau", "prior", "temp")},
             "memory_only_by_setting": per_setting,
             "nll_lm": lm, "nll_memory_only": mem_only, "nll_mixed": mix,
@@ -121,17 +153,25 @@ def score(stats: dict[float, dict[str, np.ndarray]]) -> dict[str, Any]:
 
 
 @torch.no_grad()
-def plain_loss(model: TAULS, data: TokenData, split: str, max_tokens: int, batch: int, device: torch.device,
-               half: str = "B") -> float:
-    """Mean NLL of the plain model on half A or B of the first max_tokens of `split`."""
+def plain_nll(model: TAULS, data: TokenData, split: str, max_tokens: int, batch: int, device: torch.device) -> np.ndarray:
+    """Per-token NLL of the plain model over the first max_tokens of `split` (token_stats order)."""
     model.eval()
     nll = []
     for x, y in data.sequential(split, batch, model.cfg.ctx, max_tokens):
         out = model(torch.from_numpy(x).to(device), torch.from_numpy(y).to(device))
         logp = torch.log_softmax(out.logits.float(), -1).reshape(-1, out.logits.shape[-1])
         nll.append((-logp[torch.arange(logp.shape[0]), torch.from_numpy(y.reshape(-1)).to(device)]).cpu().numpy())
-    v = np.concatenate(nll)
-    return float(v[len(v) // 2:].mean() if half == "B" else v[:len(v) // 2].mean())
+    return np.concatenate(nll)
+
+
+def half_b(v: np.ndarray, seen: np.ndarray | None = None) -> dict[str, float]:
+    b = v[len(v) // 2:]
+    out = {"all": float(b.mean())}
+    if seen is not None and len(seen) == len(v):
+        nb = ~seen[len(v) // 2:]
+        if nb.any():
+            out["novel"] = float(b[nb].mean())
+    return out
 
 
 # ---------------------------------------------------------------------- distillation
@@ -193,10 +233,13 @@ def improve(model: TAULS, data: TokenData, ic: ImproveConfig, out: str | Path | 
     out = Path(out) if out else None
     if out:
         out.mkdir(parents=True, exist_ok=True)
-    base = plain_loss(model, data, "val", ic.eval_tokens, ic.batch, device)
-    record: dict[str, Any] = {"config": ic.to_dict(), "baseline_val_B_nll": base, "rounds": []}
-    log(f"baseline: plain-model NLL on validation half B = {base:.4f}")
-    best = base
+    seen = seen_mask(data, "val", ic.eval_tokens, model.cfg.ctx)
+    base_b = half_b(plain_nll(model, data, "val", ic.eval_tokens, ic.batch, device), seen)
+    base = base_b["all"]
+    record: dict[str, Any] = {"config": ic.to_dict(), "baseline_val_B_nll": base, "baseline_val_B": base_b,
+                              "val_B_seen_fraction": float(seen[len(seen) // 2:].mean()), "rounds": []}
+    log(f"baseline: plain-model NLL on validation half B = {base:.4f} (novel positions {base_b.get('novel', float('nan')):.4f})")
+    best, kept = base, base_b
     for r in range(ic.rounds):
         depth = ic.depths[min(r, len(ic.depths) - 1)]
         t0 = time.perf_counter()
@@ -204,23 +247,26 @@ def improve(model: TAULS, data: TokenData, ic: ImproveConfig, out: str | Path | 
         mem = HoloMemory(model.cfg.d_model, model.cfg.vocab_size, mcfg)
         z, y = collect(model, mem, data, "train", ic.memory_tokens, ic.batch, device)
         mem.build(z, y)
-        sc = score(token_stats(model, mem, data, "val", ic.eval_tokens, ic.batch, device))
+        sc = score(token_stats(model, mem, data, "val", ic.eval_tokens, ic.batch, device), seen)
         log(f"round {r + 1}: depth {depth}, {mem.summary()['cells']} cells; LM {sc['nll_lm']:.4f} → "
             f"mixed {sc['nll_mixed']:.4f} nats ({sc['bits_per_token_gain']:+.4f} bits/token), gate {sc['gate']}")
         saved = copy.deepcopy(model.state_dict())
         d = distil(model, mem, sc["gate"], data, ic, len(y), device, r, log)
-        after = plain_loss(model, data, "val", ic.eval_tokens, ic.batch, device)
+        after_b = half_b(plain_nll(model, data, "val", ic.eval_tokens, ic.batch, device), seen)
+        after = after_b["all"]
         accepted = after < best - ic.min_gain
+        before_b = kept
         if accepted:
-            best = after
+            best, kept = after, after_b
         else:
             model.load_state_dict(saved)
         rec = {"round": r + 1, "depth": depth, "memory": mem.summary(), "memory_score": sc, "distil": d,
-               "val_B_before": record["rounds"][-1]["val_B_kept"] if record["rounds"] else base,
-               "val_B_after": after, "accepted": accepted, "val_B_kept": best,
+               "val_B_before": before_b["all"], "val_B_after": after, "accepted": accepted, "val_B_kept": best,
+               "val_B_novel_before": before_b.get("novel"), "val_B_novel_after": after_b.get("novel"),
                "seconds": round(time.perf_counter() - t0, 2)}
         record["rounds"].append(rec)
-        log(f"round {r + 1}: plain NLL {rec['val_B_before']:.4f} → {after:.4f}: {'ACCEPTED' if accepted else 'rejected, weights restored'}")
+        log(f"round {r + 1}: plain NLL {rec['val_B_before']:.4f} → {after:.4f} (novel {rec['val_B_novel_before']} → "
+            f"{rec['val_B_novel_after']}): {'ACCEPTED' if accepted else 'rejected, weights restored'}")
         if out:
             mem.save(out / f"memory_round{r + 1}.npz")
     record["final_val_B_nll"] = best
