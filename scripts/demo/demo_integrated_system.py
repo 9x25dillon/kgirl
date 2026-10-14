@@ -51,8 +51,8 @@ from kgirl.cognitive.advanced_cognitive_enhancements import (
 )
 
 try:
-    sys.path.append(str(find_repo("numbskull")))
-    from holographic_pipeline_adapter import (
+    # rebuilt in kgirl from its call sites (the LiMp original was never pushed)
+    from kgirl.cognitive.holographic_pipeline_adapter import (
         HolographicNumbskullAdapter,
         demo_holographic_adapter
     )

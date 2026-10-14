@@ -234,33 +234,33 @@ class FractalMemoryEncoder:
         return 0.0
     
     def _estimate_fractal_dimension(self, data: np.ndarray) -> float:
-        """Estimate fractal dimension"""
-        if len(data) < 2:
+        """Higuchi fractal dimension of a 1-D signal (Higuchi 1988): ≈ 1 for smooth curves, ≈ 2 for white noise.
+
+        L(k) = mean over offsets m of the normalised curve length at lag k; D = −slope of log L(k) on log k.
+        The previous estimator regressed transition counts on log(1/amplitude threshold), which is not a
+        box size, and returned exactly 1.0 whenever the counts tied.
+        """
+        x = np.asarray(data, dtype=np.float64).ravel()
+        n = len(x)
+        if n < 8 or np.ptp(x) == 0:
             return 1.0
-        
-        # Simple box-counting approximation
-        data_normalized = (data - np.min(data)) / (np.max(data) - np.min(data) + 1e-12)
-        thresholds = np.linspace(0.1, 0.9, 5)
-        counts = []
-        
-        for threshold in thresholds:
-            binary_signal = data_normalized > threshold
-            transitions = np.sum(np.diff(binary_signal.astype(int)) != 0)
-            counts.append(transitions + 1)  # Number of boxes needed
-        
-        if len(set(counts)) == 1:  # All counts same
+        kmax = max(2, min(10, n // 4))
+        ks, ls = [], []
+        for k in range(1, kmax + 1):
+            lm = []
+            for m in range(k):
+                idx = np.arange(m, n, k)
+                if len(idx) < 2:
+                    continue
+                length = np.abs(np.diff(x[idx])).sum() * (n - 1) / ((len(idx) - 1) * k)
+                lm.append(length / k)
+            if lm and np.mean(lm) > 0:
+                ks.append(k)
+                ls.append(np.mean(lm))
+        if len(ks) < 2:
             return 1.0
-        
-        # Linear fit in log-log space for dimension estimation
-        log_scales = np.log(1 / thresholds)
-        log_counts = np.log(np.array(counts) + 1)
-        
-        try:
-            dimension = np.polyfit(log_scales, log_counts, 1)[0]
-            return float(max(1.0, min(2.0, dimension)))
-        except:
-            return 1.0
-    
+        slope = np.polyfit(np.log(ks), np.log(ls), 1)[0]
+        return float(np.clip(-slope, 1.0, 2.0))
     def _calculate_self_similarity(self, scales: List[Dict]) -> float:
         """Calculate multi-scale self-similarity"""
         if len(scales) < 2:
@@ -275,7 +275,8 @@ class FractalMemoryEncoder:
             # Resize to common length for comparison
             min_len = min(len(scale1), len(scale2))
             if min_len > 1:
-                corr = np.corrcoef(scale1[:min_len], scale2[:min_len])[0, 1]
+                corr = (np.corrcoef(scale1[:min_len], scale2[:min_len])[0, 1]
+                        if np.std(scale1[:min_len]) > 0 and np.std(scale2[:min_len]) > 0 else 0.0)   # constant scale: no correlation
                 similarities.append(abs(corr) if not np.isnan(corr) else 0.0)
         
         return float(np.mean(similarities)) if similarities else 0.0
@@ -666,33 +667,33 @@ class EnhancedHolographicAssociativeMemory(HolographicAssociativeMemory):
         }
     
     def _estimate_fractal_dimension(self, data: np.ndarray) -> float:
-        """Estimate fractal dimension using box-counting method"""
-        if len(data) < 2:
+        """Higuchi fractal dimension of a 1-D signal (Higuchi 1988): ≈ 1 for smooth curves, ≈ 2 for white noise.
+
+        L(k) = mean over offsets m of the normalised curve length at lag k; D = −slope of log L(k) on log k.
+        The previous estimator regressed transition counts on log(1/amplitude threshold), which is not a
+        box size, and returned exactly 1.0 whenever the counts tied.
+        """
+        x = np.asarray(data, dtype=np.float64).ravel()
+        n = len(x)
+        if n < 8 or np.ptp(x) == 0:
             return 1.0
-        
-        # Simple box-counting approximation
-        data_normalized = (data - np.min(data)) / (np.max(data) - np.min(data) + 1e-12)
-        thresholds = np.linspace(0.1, 0.9, 5)
-        counts = []
-        
-        for threshold in thresholds:
-            binary_signal = data_normalized > threshold
-            transitions = np.sum(np.diff(binary_signal.astype(int)) != 0)
-            counts.append(transitions + 1)  # Number of boxes needed
-        
-        if len(set(counts)) == 1:  # All counts same
+        kmax = max(2, min(10, n // 4))
+        ks, ls = [], []
+        for k in range(1, kmax + 1):
+            lm = []
+            for m in range(k):
+                idx = np.arange(m, n, k)
+                if len(idx) < 2:
+                    continue
+                length = np.abs(np.diff(x[idx])).sum() * (n - 1) / ((len(idx) - 1) * k)
+                lm.append(length / k)
+            if lm and np.mean(lm) > 0:
+                ks.append(k)
+                ls.append(np.mean(lm))
+        if len(ks) < 2:
             return 1.0
-        
-        # Linear fit in log-log space for dimension estimation
-        log_scales = np.log(1 / thresholds)
-        log_counts = np.log(np.array(counts) + 1)
-        
-        try:
-            dimension = np.polyfit(log_scales, log_counts, 1)[0]
-            return float(max(1.0, min(2.0, dimension)))
-        except:
-            return 1.0
-    
+        slope = np.polyfit(np.log(ks), np.log(ls), 1)[0]
+        return float(np.clip(-slope, 1.0, 2.0))
     def _reconstruct_memory(self, memory_key: str) -> np.ndarray:
         """Enhanced memory reconstruction with error correction"""
         # Find memory trace
@@ -751,7 +752,8 @@ class AdvancedFractalEncoder(FractalMemoryEncoder):
             # Resize to common length for comparison
             min_len = min(len(scale1), len(scale2))
             if min_len > 1:
-                corr = np.corrcoef(scale1[:min_len], scale2[:min_len])[0, 1]
+                corr = (np.corrcoef(scale1[:min_len], scale2[:min_len])[0, 1]
+                        if np.std(scale1[:min_len]) > 0 and np.std(scale2[:min_len]) > 0 else 0.0)   # constant scale: no correlation
                 similarities.append(abs(corr) if not np.isnan(corr) else 0.0)
         
         return float(np.mean(similarities)) if similarities else 0.0

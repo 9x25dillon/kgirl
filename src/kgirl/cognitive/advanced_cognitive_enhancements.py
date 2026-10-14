@@ -31,8 +31,8 @@ from kgirl.paths import find_repo
 
 try:
     import sys
-    sys.path.append(str(find_repo("numbskull")))
-    from emergent_cognitive_system import (
+    # rebuilt in kgirl from its call sites (the LiMp original was never pushed)
+    from kgirl.cognitive.emergent_cognitive_system import (
         EmergentCognitiveOrchestrator,
         QuantumOptimizationStep,
         SwarmCognitiveStep,
