@@ -7,8 +7,10 @@ Comprehensive tests for all components of the emergent cognitive network system.
 
 import unittest
 import numpy as np
+from kgirl import telemetry  # real NuRea_sim lattice data; chaos fallback
+_rng = telemetry.chaos(0.61)
 import time
-from emergent_cognitive_network import (
+from kgirl.cognitive.emergent_cognitive_network import (
     QuantumInspiredOptimizer,
     SwarmCognitiveNetwork,
     NeuromorphicProcessor,
@@ -97,7 +99,7 @@ class TestSwarmCognitiveNetwork(unittest.TestCase):
         
         # Test with dispersed agents
         for i, agent in enumerate(self.swarm.agents):
-            agent['position'] = np.random.uniform(-10, 10, 10)
+            agent['position'] = _rng.uniform(-10, 10, 10)
         
         # Should not detect emergence with random positions
         self.assertFalse(self.swarm._detect_emergent_behavior())
@@ -118,7 +120,7 @@ class TestNeuromorphicProcessor(unittest.TestCase):
     
     def test_spiking_processing(self):
         """Test spiking input processing"""
-        input_spikes = np.random.poisson(0.1, 100)
+        input_spikes = telemetry.spike_input(100, 0.1)
         result = self.processor.process_spiking_input(input_spikes, timesteps=50)
         
         self.assertIn('output_activity', result)
@@ -134,7 +136,7 @@ class TestNeuromorphicProcessor(unittest.TestCase):
     def test_neuron_dynamics(self):
         """Test neuron dynamics update"""
         initial_potentials = self.processor.neuron_states['membrane_potentials'].copy()
-        input_currents = np.random.normal(0, 1, 100)
+        input_currents = telemetry.lattice_signal(100)
         
         self.processor._update_neuron_dynamics(input_currents)
         
@@ -158,7 +160,7 @@ class TestHolographicDataEngine(unittest.TestCase):
     
     def test_holographic_encoding(self):
         """Test holographic encoding"""
-        test_data = np.random.random(32 * 32)
+        test_data = telemetry.lattice_matrix(1, 32 * 32).ravel()
         hologram = self.engine.encode_holographic(test_data)
         
         self.assertEqual(hologram.shape, (32, 32))
@@ -168,7 +170,7 @@ class TestHolographicDataEngine(unittest.TestCase):
     def test_holographic_recall(self):
         """Test holographic recall"""
         # Store some data
-        original_data = np.random.random(32 * 32)
+        original_data = telemetry.lattice_matrix(1, 32 * 32, offset=40).ravel()
         self.engine.encode_holographic(original_data)
         
         # Create partial input
@@ -184,14 +186,14 @@ class TestHolographicDataEngine(unittest.TestCase):
     def test_associative_recall(self):
         """Test associative recall"""
         # Store some patterns
-        pattern1 = np.random.random(32 * 32)
-        pattern2 = np.random.random(32 * 32)
+        pattern1 = telemetry.lattice_matrix(1, 32 * 32, offset=0).ravel()
+        pattern2 = telemetry.lattice_matrix(1, 32 * 32, offset=500).ravel()
         
         self.engine.encode_holographic(pattern1)
         self.engine.encode_holographic(pattern2)
         
         # Query with similar pattern
-        query = pattern1 + np.random.normal(0, 0.1, pattern1.shape)
+        query = pattern1 + _rng.normal(0, 0.1, pattern1.shape)
         associations = self.engine.associative_recall(query, similarity_threshold=0.1)
         
         self.assertIsInstance(associations, list)
@@ -212,7 +214,7 @@ class TestHolographicAssociativeMemory(unittest.TestCase):
     
     def test_store_holographic(self):
         """Test holographic storage"""
-        test_data = np.random.random(32 * 32)
+        test_data = telemetry.lattice_matrix(1, 32 * 32).ravel()
         metadata = {'emotional_valence': 0.8, 'category': 'test'}
         
         memory_key = self.memory.store_holographic(test_data, metadata)
@@ -225,14 +227,14 @@ class TestHolographicAssociativeMemory(unittest.TestCase):
     def test_recall_associative(self):
         """Test associative recall"""
         # Store some memories
-        data1 = np.random.random(32 * 32)
-        data2 = np.random.random(32 * 32)
+        data1 = telemetry.lattice_matrix(1, 32 * 32, offset=1000).ravel()
+        data2 = telemetry.lattice_matrix(1, 32 * 32, offset=1500).ravel()
         
         key1 = self.memory.store_holographic(data1, {'emotional_valence': 0.8})
         key2 = self.memory.store_holographic(data2, {'emotional_valence': 0.2})
         
         # Query with similar data
-        query = data1 + np.random.normal(0, 0.1, data1.shape)
+        query = data1 + _rng.normal(0, 0.1, data1.shape)
         recalled = self.memory.recall_associative(query, similarity_threshold=0.1)
         
         self.assertIsInstance(recalled, list)
@@ -245,7 +247,7 @@ class TestHolographicAssociativeMemory(unittest.TestCase):
         """Test memory statistics"""
         # Store some memories
         for i in range(5):
-            data = np.random.random(32 * 32)
+            data = telemetry.lattice_matrix(1, 32 * 32).ravel()
             self.memory.store_holographic(data, {'emotional_valence': i * 0.2})
         
         stats = self.memory.get_memory_statistics()
@@ -264,7 +266,7 @@ class TestHolographicAssociativeMemory(unittest.TestCase):
         """Test memory consolidation"""
         # Store similar memories
         for i in range(3):
-            data = np.random.random(32 * 32)
+            data = telemetry.lattice_matrix(1, 32 * 32).ravel()
             self.memory.store_holographic(data, {'emotional_valence': 0.8})  # Similar valence
         
         consolidation_result = self.memory.consolidate_memories(consolidation_threshold=0.7)
@@ -304,7 +306,7 @@ class TestMorphogeneticSystem(unittest.TestCase):
     
     def test_structure_growth(self):
         """Test structure growth"""
-        pattern_template = np.random.random((20, 20)) > 0.5
+        pattern_template = telemetry.binary_pattern(20).astype(bool)
         result = self.system.grow_structure(pattern_template, iterations=50)
         
         self.assertIn('final_pattern', result)
@@ -394,13 +396,13 @@ class TestEmergentTechnologyOrchestrator(unittest.TestCase):
         """Test holographic memory demonstration"""
         test_data = [
             {
-                'data': np.random.random(64),
+                'data': telemetry.lattice_matrix(1, 64, offset=300).ravel(),
                 'emotional_valence': 0.8,
                 'category': 'positive',
                 'metadata': {'importance': 0.9}
             },
             {
-                'data': np.random.random(64),
+                'data': telemetry.lattice_matrix(1, 64, offset=300).ravel(),
                 'emotional_valence': 0.2,
                 'category': 'negative',
                 'metadata': {'importance': 0.3}
@@ -462,7 +464,7 @@ class TestIntegration(unittest.TestCase):
         
         # Benchmark neuromorphic processing
         start_time = time.time()
-        input_spikes = np.random.poisson(0.1, 100)
+        input_spikes = telemetry.spike_input(100, 0.1)
         neuromorphic_result = orchestrator.neuromorphic_processor.process_spiking_input(input_spikes, timesteps=50)
         neuromorphic_time = time.time() - start_time
         
@@ -499,7 +501,7 @@ def run_performance_tests():
         # Neuromorphic test
         processor = NeuromorphicProcessor(num_neurons=size)
         start_time = time.time()
-        input_spikes = np.random.poisson(0.1, size)
+        input_spikes = telemetry.spike_input(size, 0.1)
         processor.process_spiking_input(input_spikes, timesteps=20)
         neuromorphic_time = time.time() - start_time
         print(f"  Neuromorphic ({size} neurons): {neuromorphic_time:.3f}s")

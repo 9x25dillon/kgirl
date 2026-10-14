@@ -394,7 +394,8 @@ class FeatureExtractor:
         
         for i in range(len(s) - self.ngram + 1):
             ngram = s[i:i+self.ngram]
-            idx = hash(ngram) % self.dim
+            # blake2b, not hash(): Python salts str hashes per process, so features changed every run
+            idx = int.from_bytes(hashlib.blake2b(ngram.encode("utf-8"), digest_size=8).digest(), "big") % self.dim
             features[idx] += 1.0
         
         # Normalize
@@ -483,12 +484,14 @@ class RLAgent:
     def __init__(self, actions: List[str] = None, eps: float = 0.1):
         self.actions = actions or ["bpsk", "qpsk", "ofdm"]
         self.eps = eps
+        from kgirl.evolve.chaos import ChaosGenerator
+        self._rng = ChaosGenerator(seed=0.2357)          # exploration from logistic chaos (reproducible)
         # state -> action -> {q, n}
         self.q: Dict[Tuple[int, int, int], Dict[str, Dict[str, float]]] = {}
     
     def choose_action(self, state: Tuple[int, int, int]) -> str:
-        if np.random.random() < self.eps or state not in self.q:
-            return np.random.choice(self.actions)
+        if self._rng.random() < self.eps or state not in self.q:
+            return str(self._rng.choice(self.actions))
         
         action_values = {
             action: self.q[state][action]["q"] 
@@ -497,7 +500,7 @@ class RLAgent:
         }
         
         if not action_values:
-            return np.random.choice(self.actions)
+            return str(self._rng.choice(self.actions))
             
         return max(action_values.items(), key=lambda x: x[1])[0]
     
@@ -568,6 +571,81 @@ class MirrorCastEngine:
         self.memory.store(f"cast_{data_hash}", result)
         
         return result
+
+class NeuroSymbolicEngine:
+    """The analyze / store / recall API that kgirl's orchestrators and the unified platform call.
+
+    No class of this name existed (here or in numbskull), so every caller fell back to "not available".
+    It wraps MirrorCastEngine and maps cast() output onto the keys those callers read:
+
+        entropy             Shannon entropy of the text (bits per character)       cast["entropy"]
+        symbolic_depth      reflector's symbolic depth                             cast["reflection"]
+        matrix_projection   matrix transformer projection                           cast["matrix"]
+        fractal_dimension   information-dimension estimate: least-squares slope of
+                            layer entropy vs log2(layer length) over cast["fractal"]["layers"]
+        polynomial_analysis Chebyshev fit from the symbol engine                   cast["symbolic"]
+        semantic_mapping    semantic role weights                                   cast["semantic"]
+        reflection          reflector output                                        cast["reflection"]
+        emotional_analysis  love reflector output                                   cast["love"]
+        pattern_complexity  entropy / log2(distinct characters), in [0, 1]
+
+    store/recall keep vectors in memory and rank by cosine similarity: numeric patterns are used as
+    given (flattened), text is embedded with FeatureExtractor's stable n-gram hashing.
+    """
+
+    def __init__(self, feature_dim: int = 64):
+        self.engine = MirrorCastEngine()
+        self.features = FeatureExtractor(dim=feature_dim)
+        self._store: List[Tuple[str, np.ndarray, Dict[str, Any]]] = []
+
+    def analyze(self, data: Any) -> Dict[str, Any]:
+        r = self.engine.cast(data)
+        text = str(data)
+        layers = r.get("fractal", {}).get("layers", []) if isinstance(r.get("fractal"), dict) else []
+        pts = [(math.log2(len(l["content"])), l["entropy"]) for l in layers if l.get("content")]
+        if len(pts) >= 2 and len({x for x, _ in pts}) >= 2:
+            xs, ys = np.array([p[0] for p in pts]), np.array([p[1] for p in pts])
+            fractal_dim = float(np.polyfit(xs, ys, 1)[0])
+        else:
+            fractal_dim = 0.0
+        distinct = len(set(text))
+        return {
+            "entropy": float(r.get("entropy", 0.0)),
+            "symbolic_depth": int(r.get("reflection", {}).get("symbolic_depth", 0)),
+            "matrix_projection": r.get("matrix", {}),
+            "fractal_dimension": fractal_dim,
+            "polynomial_analysis": r.get("symbolic", {}),
+            "semantic_mapping": r.get("semantic", {}),
+            "reflection": r.get("reflection", {}),
+            "emotional_analysis": r.get("love", {}),
+            "pattern_complexity": float(r.get("entropy", 0.0) / math.log2(distinct)) if distinct > 1 else 0.0,
+            "cast": r,
+        }
+
+    async def analyze_async(self, data: Any) -> Dict[str, Any]:
+        import asyncio
+        return await asyncio.to_thread(self.analyze, data)
+
+    def _vector(self, pattern: Any) -> np.ndarray:
+        if isinstance(pattern, str):
+            v = np.asarray(self.features.extract(pattern), dtype=np.float64)
+        else:
+            v = np.asarray(pattern, dtype=np.float64).ravel()
+        n = np.linalg.norm(v)
+        return v / n if n > 0 else v
+
+    def store(self, pattern: Any, metadata: Optional[Dict[str, Any]] = None) -> str:
+        v = self._vector(pattern)
+        pid = hashlib.sha256(v.tobytes()).hexdigest()[:16]
+        self._store.append((pid, v, dict(metadata or {})))
+        return pid
+
+    def recall(self, query: Any, k: int = 5) -> List[Dict[str, Any]]:
+        q = self._vector(query)
+        hits = [{"id": pid, "similarity": float(q @ v), "metadata": md}
+                for pid, v, md in self._store if v.shape == q.shape]
+        return sorted(hits, key=lambda h: -h["similarity"])[:k]
+
 
 class AdaptiveLinkPlanner:
     """Neuro-Symbolic + RL planner for adaptive system configuration"""
@@ -756,6 +834,8 @@ def demo_neuro_symbolic_engine():
     ]
     
     results = []
+    from kgirl.evolve.chaos import ChaosGenerator
+    link_rng = ChaosGenerator(seed=0.6180)
     
     for i, text in enumerate(test_texts):
         logger.info(f"Processing text {i+1}: {text[:30]}...")
@@ -766,8 +846,10 @@ def demo_neuro_symbolic_engine():
         # Generate plan
         config, explanation = planner.plan(text, analysis)
         
-        # Simulate success/failure
-        success = np.random.random() > 0.3  # 70% success rate
+        # Measure: send the text with the planned modulation (Hamming(7,4), AWGN BER at 6 dB Eb/N0)
+        from kgirl.utils.link import transmit
+        link = transmit(text, config["modulation"], ebn0_db=6.0, rng=link_rng)
+        success = link["success"]
         
         # Update planner
         planner.reward_and_record(

@@ -117,7 +117,7 @@ class CompleteIntegrationRunner:
         logger.info("=" * 70)
 
         try:
-            from unified_quantum_llm_system import (
+            from kgirl.llm.unified_quantum_llm_system import (
                 UnifiedQuantumLLMSystem,
                 UnifiedSystemConfig,
                 OptimizationBackend
@@ -135,12 +135,12 @@ class CompleteIntegrationRunner:
         logger.info("=" * 70)
 
         try:
-            from quantum_holographic_knowledge_synthesis import (
+            from kgirl.quantum.quantum_holographic_knowledge_synthesis import (
                 KnowledgeQuantum,
                 DataSourceType
             )
-            from quantum_knowledge_database import QuantumHolographicKnowledgeDatabase
-            from quantum_limps_integration import QuantumLIMPSIntegration
+            from kgirl.quantum.quantum_knowledge_database import QuantumHolographicKnowledgeDatabase
+            from kgirl.quantum.quantum_limps_integration import QuantumLIMPSIntegration
 
             logger.info("✅ quantum_holographic_knowledge_synthesis")
             logger.info("✅ quantum_knowledge_database")

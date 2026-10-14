@@ -1,28 +1,3 @@
-cursor/bc-f408c7bd-bc2a-48a4-bc8d-0989f628ad52-ef2e
-class MatrixProcessor:
-    def available(self) -> bool:
-        return False
-
-    def semantic_state_suggest(self, prefix: str, state: str):
-        return []
-
-from __future__ import annotations
-from typing import List
-
-class MatrixProcessor:
-    def available(self) -> bool:
-        # Stub off by default; set True if you wire a real vector index
-        return False
-
-    def semantic_state_suggest(self, prefix: str, state: str) -> List[str]:
-        # Simple placeholder: n-gram expansions
-        base = (prefix or "").upper()
-        if not base:
-            return ["SELECT", "FILTER", "GROUP", "ORDER"]
-        return [base + s for s in ["_A", "_B", "_C"]]
-
-
-matrix_processor = MatrixProcessor()
 #!/usr/bin/env python3
 """
 Matrix Processor - Vector Compilation and Optimization
@@ -30,6 +5,7 @@ Handles matrix operations, vector embeddings, and knowledge compilation
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import numpy as np
@@ -57,6 +33,20 @@ class MatrixConfig:
     optimization_level: int = 2  # 0=basic, 1=moderate, 2=aggressive
     cache_embeddings: bool = True
     similarity_threshold: float = 0.7
+
+def _stable_bucket(token: str, dim: int) -> int:
+    return int.from_bytes(hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest(), "big") % dim
+
+
+def _trigram_vector(text: str, dim: int = 256) -> np.ndarray:
+    """Character-trigram bag (stable buckets), L2-normalised: similar spellings → nearby vectors."""
+    t = f"  {text.upper()} "
+    v = np.zeros(dim)
+    for i in range(len(t) - 2):
+        v[_stable_bucket(t[i:i + 3], dim)] += 1.0
+    n = np.linalg.norm(v)
+    return v / n if n > 0 else v
+
 
 class VectorEmbedder:
     """Handles vector embedding operations"""
@@ -92,9 +82,10 @@ class VectorEmbedder:
         words = text.lower().split()
         vector = np.zeros(self.config.embedding_dim)
         
-        # Simple hash-based embedding
+        # Hash-based embedding. blake2b, not hash(): Python salts str hashes per process, which made
+        # these "deterministic" vectors change on every run.
         for i, word in enumerate(words):
-            hash_val = hash(word) % self.config.embedding_dim
+            hash_val = _stable_bucket(word, self.config.embedding_dim)
             vector[hash_val] += 1.0 / (i + 1)  # Weight by position
         
         # Normalize
@@ -348,6 +339,26 @@ class MatrixProcessor:
         """Compile pre-existing vectors into knowledge structure"""
         return self.compiler.compile(vectors, metadata)
 
+    # -- token-suggestion API used by the QGI suggester (kgirl.utils.qgi, chaos_llm.services.qgi) --
+
+    def available(self) -> bool:
+        return True
+
+    def semantic_state_suggest(self, prefix: str, state: str, vocabulary: Optional[Dict[str, List[str]]] = None,
+                               k: int = 5, min_similarity: float = 0.1) -> List[str]:
+        """Rank the state's vocabulary by character-trigram cosine similarity to the prefix.
+
+        Complements exact prefix matching: 'GRUOP' still finds GROUP_BY. With no prefix, the state's
+        vocabulary is returned in order. Deterministic (stable hashing)."""
+        if vocabulary is None:
+            from kgirl.utils.suggestions import SUGGESTIONS as vocabulary
+        pool = list(vocabulary.get(state, []))
+        if not prefix:
+            return pool[:k]
+        q = _trigram_vector(prefix)
+        scored = sorted(((float(q @ _trigram_vector(t)), t) for t in pool), key=lambda x: (-x[0], x[1]))
+        return [t for s, t in scored if s >= min_similarity][:k]
+
 # FAISS-based knowledge base
 class FAISSKnowledgeBase:
     """FAISS-based distributed knowledge base"""
@@ -478,6 +489,12 @@ async def demo_matrix_processing():
         query_vector = np.random.rand(128).astype(np.float32)
         distances, indices = kb.query(query_vector, k=3)
         print(f"Query results: {len(indices)} similar vectors found")
+
+
+
+# Shared instance for the suggestion services (cheap to build: no model weights are loaded).
+matrix_processor = MatrixProcessor()
+
 
 if __name__ == "__main__":
     asyncio.run(demo_matrix_processing())

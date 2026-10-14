@@ -33,18 +33,19 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+from kgirl.paths import find_repo
 
 # Setup paths
-numbskull_path = Path("/home/kill/numbskull")
+numbskull_path = find_repo("numbskull")
 if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 
 # Import all integrated systems
 from complete_system_integration import CompleteSystemIntegration
-from unified_cognitive_orchestrator import UnifiedCognitiveOrchestrator
-from enhanced_vector_index import EnhancedVectorIndex
-from enhanced_graph_store import EnhancedGraphStore
-from limp_module_manager import LiMpModuleManager
+from kgirl.cognitive.unified_cognitive_orchestrator import UnifiedCognitiveOrchestrator
+from kgirl.neural.enhanced_vector_index import EnhancedVectorIndex
+from kgirl.neural.enhanced_graph_store import EnhancedGraphStore
+from kgirl.core.limp_module_manager import LiMpModuleManager
 
 try:
     from advanced_embedding_pipeline import HybridEmbeddingPipeline, HybridConfig

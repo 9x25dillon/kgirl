@@ -20,9 +20,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+from kgirl.paths import find_repo
 
 # Add numbskull to path
-numbskull_path = Path("/home/kill/numbskull")
+numbskull_path = find_repo("numbskull")
 if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 
@@ -33,7 +34,7 @@ except ImportError:
     NUMBSKULL_AVAILABLE = False
 
 try:
-    import signal_processing as dsp
+    from kgirl.core import signal_processing as dsp
     # Don't import EvolutionaryCommunicator directly due to dataclass issue
     # We'll work with signal processing directly
     EVOL_COMM_AVAILABLE = True

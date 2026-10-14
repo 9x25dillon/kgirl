@@ -16,7 +16,7 @@ import numpy as np
 import torch
 
 # Import LiMps components
-from dual_llm_orchestrator import (
+from kgirl.llm.dual_llm_orchestrator import (
     DualLLMOrchestrator,
     OrchestratorSettings,
     HTTPConfig,
@@ -25,17 +25,17 @@ from dual_llm_orchestrator import (
 )
 
 # Import holographic memory system
-from holographic_memory_system import EnhancedCognitiveMemoryOrchestrator
+from kgirl.quantum.holographic_memory_system import EnhancedCognitiveMemoryOrchestrator
 
 # Import integration bridge
-from cognitive_integration_bridge import (
+from kgirl.cognitive.cognitive_integration_bridge import (
     CognitiveHolographicBridge,
     CognitiveStateMapper,
     IntegratedCognitiveState
 )
 
 # Import advanced enhancements
-from advanced_cognitive_enhancements import (
+from kgirl.cognitive.advanced_cognitive_enhancements import (
     UnifiedEmergentOrchestrator,
     AdvancedQuantumClassicalBridge,
     DynamicEmergenceDetector,
@@ -43,7 +43,7 @@ from advanced_cognitive_enhancements import (
 )
 
 try:
-    from cognitive_communication_organism import (
+    from kgirl.cognitive.cognitive_communication_organism import (
         CognitiveCommunicationOrganism,
         CognitiveState,
         CommunicationContext
@@ -448,7 +448,7 @@ class EnhancedDualLLMOrchestrator(DualLLMOrchestrator):
     def _text_to_numeric(self, text: str) -> np.ndarray:
         """Convert text to numeric representation"""
         if not text:
-            return np.random.random(256)
+            return np.zeros(256)                        # no content, no signal
         
         char_values = np.array([ord(c) for c in text[:256]])
         char_values = char_values / 255.0
@@ -465,7 +465,10 @@ class EnhancedDualLLMOrchestrator(DualLLMOrchestrator):
         features = []
         
         if 'priority_level' in context:
-            features.append(context['priority_level'] / 10.0)
+            level = context['priority_level']
+            if isinstance(level, str):                  # "low" / "medium" / "high" / "critical"
+                level = {"low": 2.5, "medium": 5.0, "normal": 5.0, "high": 7.5, "critical": 10.0}.get(level.lower(), 5.0)
+            features.append(float(level) / 10.0)
         
         if 'latency_requirements' in context:
             features.append(min(1.0, context['latency_requirements']))
@@ -473,12 +476,14 @@ class EnhancedDualLLMOrchestrator(DualLLMOrchestrator):
         if 'reliability_requirements' in context:
             features.append(context['reliability_requirements'])
         
-        # Pad to 256
-        features = np.array(features)
+        # Pad to 256 (wrap needs at least one value; an empty context maps to zeros)
+        features = np.array(features, dtype=float)
+        if features.size == 0:
+            return np.zeros(256)
         if len(features) < 256:
             features = np.pad(features, (0, 256 - len(features)), mode='wrap')
         
-        return features
+        return features[:256]
     
     def get_enhanced_orchestrator_status(self) -> Dict:
         """Get comprehensive enhanced orchestrator status"""

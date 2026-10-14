@@ -57,6 +57,29 @@ class BasicReflector:
             "symbolic_depth": min(10, len(s) // 100)
         }
 
+class LogisticStream:
+    """U(0,1) from the r = 4 logistic map (u = (2/π)·asin(√x)), decimated, Weyl-rotated. No PRNG."""
+
+    PHI = (math.sqrt(5.0) - 1.0) / 2.0
+
+    def __init__(self, seed: float = 0.4123):
+        self.x = 0.05 + 0.9 * (seed % 1.0)
+        self.w = (seed * 7.0) % 1.0
+        for _ in range(16):
+            self.random()
+
+    def random(self) -> float:
+        for _ in range(3):
+            self.x = 4.0 * self.x * (1.0 - self.x)
+        if self.x < 1e-12 or self.x > 1 - 1e-12 or abs(self.x - 0.75) < 1e-12:
+            self.x = 0.05 + 0.9 * ((self.w + 0.137) % 1.0)
+        self.w = (self.w + self.PHI) % 1.0
+        return ((2.0 / math.pi) * math.asin(math.sqrt(self.x)) + self.w) % 1.0
+
+    def choice(self, seq):
+        return seq[min(int(self.random() * len(seq)), len(seq) - 1)]
+
+
 class BasicModulator:
     """Pure Python modulation concepts"""
     
@@ -97,6 +120,21 @@ class BasicModulator:
         return encoded
     
     @staticmethod
+    def hamming74_decode(code_bits: List[int]) -> List[int]:
+        """Syndrome decoding of the encoder's [p1, p2, d0, p3, d1, d2, d3] layout; corrects one error per block."""
+        out = []
+        for i in range(0, len(code_bits) - len(code_bits) % 7, 7):
+            c = list(code_bits[i:i + 7])
+            s1 = c[0] ^ c[2] ^ c[4] ^ c[6]
+            s2 = c[1] ^ c[2] ^ c[5] ^ c[6]
+            s3 = c[3] ^ c[4] ^ c[5] ^ c[6]
+            pos = s1 + 2 * s2 + 4 * s3          # 1-based error position, 0 = none
+            if pos:
+                c[pos - 1] ^= 1
+            out.extend([c[2], c[4], c[5], c[6]])
+        return out
+
+    @staticmethod
     def simulate_bfsk(bits: List[int], sample_rate: int = 8000, symbol_rate: int = 1000) -> List[float]:
         """Simulate BFSK modulation (returns sample points)"""
         samples_per_bit = sample_rate // symbol_rate
@@ -115,17 +153,16 @@ class BasicModulator:
 class BasicAdaptivePlanner:
     """Pure Python adaptive planning"""
     
-    def __init__(self):
+    def __init__(self, stream: Optional[LogisticStream] = None):
         self.q_values: Dict[Tuple[int, int], Dict[str, float]] = {}
         self.actions = ["bpsk", "qpsk", "ofdm"]
         self.epsilon = 0.1
+        self.stream = stream or LogisticStream(0.2357)
     
     def choose_action(self, state: Tuple[int, int]) -> str:
-        """Choose action using epsilon-greedy policy"""
-        import random
-        
-        if random.random() < self.epsilon or state not in self.q_values:
-            return random.choice(self.actions)
+        """Choose action using epsilon-greedy policy (exploration draws from logistic chaos)"""
+        if self.stream.random() < self.epsilon or state not in self.q_values:
+            return self.stream.choice(self.actions)
         
         action_values = self.q_values[state]
         return max(action_values.items(), key=lambda x: x[1])[0]
@@ -140,14 +177,38 @@ class BasicAdaptivePlanner:
         old_q = self.q_values[state][action]
         self.q_values[state][action] = old_q + alpha * (reward - old_q)
 
+# Uncoded bit-error rate on an AWGN channel at Eb/N0 (standard closed forms), and bits per symbol.
+#   BPSK, QPSK (Gray):  Pb = ½·erfc(√(Eb/N0))           1 and 2 bits/symbol
+#   "ofdm" here = 16-QAM subcarriers (Gray):  Pb ≈ ⅜·erfc(√(0.4·Eb/N0))   4 bits/symbol
+LINK_MODES = {
+    "bpsk": (1, lambda ebn0: 0.5 * math.erfc(math.sqrt(ebn0))),
+    "qpsk": (2, lambda ebn0: 0.5 * math.erfc(math.sqrt(ebn0))),
+    "ofdm": (4, lambda ebn0: 0.375 * math.erfc(math.sqrt(0.4 * ebn0))),
+}
+
+
 class BasicWaveCaster:
     """Main system demonstration"""
     
-    def __init__(self):
+    def __init__(self, ebn0_db: float = 6.0):
         self.entropy_analyzer = BasicEntropyAnalyzer()
         self.reflector = BasicReflector()
         self.modulator = BasicModulator()
+        self.channel_stream = LogisticStream(0.6180)
         self.planner = BasicAdaptivePlanner()
+        self.ebn0 = 10 ** (ebn0_db / 10.0)
+
+    def transmit(self, text: str, mode: str) -> Dict[str, Any]:
+        """Hamming(7,4) → binary symmetric channel at the mode's AWGN BER → decode; success = exact payload."""
+        bits_per_symbol, ber_fn = LINK_MODES[mode]
+        ber = ber_fn(self.ebn0)
+        data_bits = self.modulator.to_bits(text.encode("utf-8"))
+        coded = self.modulator.hamming74_encode(data_bits)
+        received = [b ^ (1 if self.channel_stream.random() < ber else 0) for b in coded]
+        decoded = self.modulator.hamming74_decode(received)[: len(data_bits)]
+        return {"ber": ber, "channel_bit_errors": sum(a != b for a, b in zip(coded, received)),
+                "residual_bit_errors": sum(a != b for a, b in zip(data_bits, decoded)),
+                "success": decoded == data_bits, "bits_per_symbol": bits_per_symbol}
     
     def analyze_text(self, text: str) -> Dict[str, Any]:
         """Comprehensive text analysis"""
@@ -196,10 +257,10 @@ class BasicWaveCaster:
             # Choose action
             action = self.planner.choose_action(state)
             
-            # Simulate success (70% success rate)
-            import random
-            success = random.random() > 0.3
-            reward = 1.0 if success else -1.0
+            # Measure: send the text over the link with the chosen modulation and check the decoded payload
+            link = self.transmit(text, action)
+            success = link["success"]
+            reward = float(link["bits_per_symbol"]) if success else -1.0     # throughput if delivered
             
             # Update planner
             self.planner.update(state, action, reward)
@@ -211,7 +272,9 @@ class BasicWaveCaster:
                 "state": state,
                 "action": action,
                 "success": success,
-                "reward": reward
+                "reward": reward,
+                "channel_bit_errors": link["channel_bit_errors"],
+                "residual_bit_errors": link["residual_bit_errors"],
             })
         
         success_rate = sum(r["success"] for r in results) / len(results)

@@ -20,12 +20,13 @@ import logging
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from kgirl.paths import find_repo
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # BLOOM model path
-BLOOM_MODEL_PATH = Path("/home/kill/aipyapp/bloom")
+BLOOM_MODEL_PATH = Path(str(find_repo("aipyapp") / "bloom"))
 
 
 class BLOOMBackend:

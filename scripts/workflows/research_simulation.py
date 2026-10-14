@@ -25,12 +25,13 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from kgirl.paths import find_repo
 
 warnings.filterwarnings("ignore")
-sys.path.insert(0, str(Path("/home/kill/numbskull")))
+sys.path.insert(0, str(find_repo("numbskull")))
 
-from recursive_cognitive_knowledge import RecursiveCognitiveKnowledge
-from matrix_processor_adapter import matrix_processor
+from kgirl.cognitive.recursive_cognitive_knowledge import RecursiveCognitiveKnowledge
+from kgirl.core.matrix_processor_adapter import matrix_processor
 import requests
 
 import logging

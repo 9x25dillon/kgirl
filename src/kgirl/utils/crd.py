@@ -1,5 +1,5 @@
 # crd.py — (condensed, production-ready)
-from crd import CRD  # ← our full engine
+from kgirl.utils.crd_engine import CRD  # ← our full engine (was never committed; now crd_engine.py)
 import numpy as np
 
 class UnifiedCoherenceRecovery:
@@ -18,14 +18,20 @@ class UnifiedCoherenceRecovery:
         self.recovery_count = 0
 
     async def process(self, kappa_dict: dict, timestamp=None):
-        # In real use: feed EEG → CRD → get κ
-        # Here: simulate recovery boost
-        recovered = {k: min(1.0, v + 0.3) for k, v in kappa_dict.items()}
-        self.recovery_count += 1
+        """One step of CRD recovery dynamics on band coherences κ (was a fixed "+0.3" placeholder)."""
+        recovered = self.crd.update(kappa_dict)
+        recovered.pop("global", None)
+        if any(recovered[b] > kappa_dict.get(b, recovered[b]) for b in recovered):
+            self.recovery_count += 1
         return recovered
+
+    def process_eeg(self, eeg):
+        """Raw EEG (channels × samples at sfreq) → per-window recovered κ, via the CRD engine."""
+        return self.crd.process_eeg(eeg)
 
     def get_statistics(self):
         return {
             'successful_recoveries': self.recovery_count,
-            'system': 'CRD'
+            'system': 'CRD',
+            **self.crd.statistics(),
         }

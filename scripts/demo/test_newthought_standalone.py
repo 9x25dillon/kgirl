@@ -69,8 +69,9 @@ async def test_newthought_standalone():
         # Test quantum coherence engine
         print("\n5. Testing QuantumCoherenceEngine...")
         import numpy as np
+        from kgirl import telemetry  # real NuRea_sim lattice data; chaos fallback
 
-        test_vector = np.random.randn(768)
+        test_vector = telemetry.lattice_signal(768)
         test_vector = test_vector / np.linalg.norm(test_vector)
 
         recovered = qce.coherence_recovery(test_vector, noise_threshold=0.1)
@@ -81,8 +82,8 @@ async def test_newthought_standalone():
         superposed = qce.quantum_superposition(thoughts)
         print(f"   ✓ Quantum superposition: '{superposed[:50]}...'")
 
-        vector_a = np.random.randn(768)
-        vector_b = np.random.randn(768)
+        vector_a = telemetry.lattice_signal(768)
+        vector_b = telemetry.lattice_signal(768, target="pppf", offset=768)
         vector_a /= np.linalg.norm(vector_a)
         vector_b /= np.linalg.norm(vector_b)
         entanglement = qce.entanglement_measure(vector_a, vector_b)

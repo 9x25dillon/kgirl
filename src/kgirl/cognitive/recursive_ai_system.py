@@ -13,11 +13,11 @@ from dataclasses import dataclass, field
 import numpy as np
 
 # Import all components
-from recursive_ai_core import RecursiveProcessor, RecursiveCognitionRequest
-from matrix_processor import MatrixProcessor, MatrixConfig
-from fractal_resonance import FractalResonanceSystem, ResonanceConfig
-from distributed_knowledge_base import DistributedKnowledgeBase, KnowledgeBaseConfig
-from emergent_visualizer import EmergentVisualizer, VisualizationConfig
+from kgirl.cognitive.recursive_ai_core import RecursiveProcessor, RecursiveCognitionRequest
+from kgirl.core.matrix_processor import MatrixProcessor, MatrixConfig
+from kgirl.embeddings.fractal_resonance import FractalResonanceSystem, ResonanceConfig
+from kgirl.core.distributed_knowledge_base import DistributedKnowledgeBase, KnowledgeBaseConfig
+from kgirl.cognitive.emergent_visualizer import EmergentVisualizer, VisualizationConfig
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

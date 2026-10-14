@@ -19,13 +19,14 @@ import sys
 import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from kgirl.paths import find_repo
 
 # Suppress async cleanup warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*coroutine.*never awaited")
 warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*no running event loop")
 
 # Add paths
-numbskull_path = Path("/home/kill/numbskull")
+numbskull_path = find_repo("numbskull")
 if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 
@@ -43,10 +44,10 @@ logging.getLogger('numbskull_dual_orchestrator').setLevel(logging.ERROR)
 
 # Import with clean error handling
 try:
-    from enable_aluls_and_qwen import MultiLLMOrchestrator, LocalALULSEvaluator
-    from neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
-    from signal_processing_numbskull_adapter import SignalProcessingNumbskullAdapter
-    from enhanced_vector_index import EnhancedVectorIndex
+    from kgirl.llm.enable_aluls_and_qwen import MultiLLMOrchestrator, LocalALULSEvaluator
+    from kgirl.cognitive.neuro_symbolic_numbskull_adapter import NeuroSymbolicNumbskullAdapter
+    from kgirl.llm.signal_processing_numbskull_adapter import SignalProcessingNumbskullAdapter
+    from kgirl.neural.enhanced_vector_index import EnhancedVectorIndex
     IMPORTS_OK = True
 except Exception as e:
     print(f"Import error: {e}")

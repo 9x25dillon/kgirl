@@ -7,7 +7,7 @@ Demonstrates the complete recursive AI architecture
 import asyncio
 import json
 import logging
-from recursive_ai_system import RecursiveAISystem, RecursiveAIConfig
+from kgirl.cognitive.recursive_ai_system import RecursiveAISystem, RecursiveAIConfig
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

@@ -48,3 +48,9 @@ research_simulation_results.json
 9xdSq-LIMPS-FemTO-R1C/
 NuRea_sim/
 numbskull/
+
+# sibling repos cloned or symlinked into the root (the dir/ patterns above miss symlinks)
+/numbskull
+/NuRea_sim
+/Eopiez
+/LiMp

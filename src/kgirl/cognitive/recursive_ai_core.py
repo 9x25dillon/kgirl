@@ -15,8 +15,8 @@ from pydantic import BaseModel
 import uvicorn
 
 # Import existing components
-from recursive_cognitive_system import RecursiveCognitiveKnowledge
-from llm_orchestrator import DualLLMOrchestrator
+from kgirl.cognitive.recursive_cognitive_system import RecursiveCognitiveKnowledge
+from kgirl.llm.llm_orchestrator import DualLLMOrchestrator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

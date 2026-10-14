@@ -25,7 +25,7 @@ from typing import Dict, Any, Optional
 
 import numpy as np
 import asyncio
-from llm_orchestrator import DualLLMOrchestrator
+from kgirl.llm.llm_orchestrator import DualLLMOrchestrator
 
 try:
     from Crypto.Cipher import AES
@@ -143,7 +143,7 @@ class WaveCaster:
             self.llm = llm_adapter
         else:
             try:
-                from llm_adapters import create_adapter_from_env
+                from kgirl.llm.llm_adapters import create_adapter_from_env
                 self.llm = create_adapter_from_env()
             except Exception:
                 self.llm = LLMClientStub(config)

@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 from typing import Dict, Any, List
 
-from numbskull_dual_orchestrator import (
+from kgirl.llm.numbskull_dual_orchestrator import (
     create_numbskull_orchestrator,
     NUMBSKULL_AVAILABLE
 )
@@ -340,7 +340,7 @@ async def main():
     # Check numbskull availability
     if not NUMBSKULL_AVAILABLE:
         logger.error("❌ Numbskull pipeline not available!")
-        logger.error("Please ensure /home/kill/numbskull is accessible and contains the embedding pipeline.")
+        logger.error("Please ensure numbskull is reachable (NUMBSKULL_PATH, <kgirl>/numbskull or ../numbskull) and contains the embedding pipeline.")
         sys.exit(1)
     
     logger.info("✅ Numbskull pipeline available")

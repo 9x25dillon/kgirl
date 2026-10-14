@@ -8,6 +8,7 @@ A synthesis of:
 
 Bridging mathematical purity with biological quantum coherence.
 """
+from __future__ import annotations
 
 import numpy as np
 from dataclasses import dataclass, field
@@ -21,6 +22,10 @@ from scipy.fft import fft2, ifft2, fftshift
 import logging
 from numpy.typing import NDArray
 from scipy import signal
+
+# Not defined in this file: the same classes as kgirl.core.yyybet's bio section.
+from kgirl.core.yyybet import (BioFractalConfig, BioResonantSignal, CDWManifold, InfrasonomanthertzEngine,
+                               QuantumBioFractalLattice, UnifiedFrequencyMapper)
 from scipy.spatial.distance import cdist
 import math
 

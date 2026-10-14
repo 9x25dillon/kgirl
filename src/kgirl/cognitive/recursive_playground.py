@@ -21,14 +21,15 @@ import json
 import sys
 import warnings
 from pathlib import Path
+from kgirl.paths import find_repo
 
 # Suppress warnings for clean output
 warnings.filterwarnings("ignore")
 
 # Add paths
-sys.path.insert(0, str(Path("/home/kill/numbskull")))
+sys.path.insert(0, str(find_repo("numbskull")))
 
-from recursive_cognitive_knowledge import RecursiveCognitiveKnowledge
+from kgirl.cognitive.recursive_cognitive_knowledge import RecursiveCognitiveKnowledge
 
 import logging
 logging.getLogger('advanced_embedding_pipeline').setLevel(logging.ERROR)

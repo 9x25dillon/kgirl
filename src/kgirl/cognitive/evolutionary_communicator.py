@@ -18,14 +18,14 @@ License: MIT
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # Local imports from existing modules
-import dual_llm_orchestrator as dllo
-import neuro_symbolic_engine as nse
-import signal_processing as dsp
+from kgirl.llm import dual_llm_orchestrator as dllo
+from kgirl.cognitive import neuro_symbolic_engine as nse
+from kgirl.core import signal_processing as dsp
 
 
 log = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ class EvolutionContext:
     want_wav: bool = True
     want_iq: bool = True
     fec: dsp.FEC = dsp.FEC.HAMMING74
-    security: dsp.SecurityConfig = dsp.SecurityConfig()
+    security: dsp.SecurityConfig = field(default_factory=dsp.SecurityConfig)
 
 
 class EvolutionaryCommunicator:

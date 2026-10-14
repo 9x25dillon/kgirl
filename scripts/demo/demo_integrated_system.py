@@ -21,27 +21,29 @@ import sys
 import os
 import asyncio
 import numpy as np
+from kgirl import telemetry  # real NuRea_sim lattice data; chaos fallback
 import torch
 from typing import Dict, List
 import logging
 import json
+from kgirl.paths import find_repo
 
 # Setup paths
-sys.path.append('/home/kill/LiMp')
-sys.path.append('/home/kill/numbskull')
+sys.path.append(str(find_repo("LiMp")))
+sys.path.append(str(find_repo("numbskull")))
 
 # Import all integrated components
-from holographic_memory_system import (
+from kgirl.quantum.holographic_memory_system import (
     EnhancedCognitiveMemoryOrchestrator,
     demo_enhanced_holographic_memory
 )
 
-from cognitive_integration_bridge import (
+from kgirl.cognitive.cognitive_integration_bridge import (
     CognitiveHolographicBridge,
     create_integrated_bridge
 )
 
-from advanced_cognitive_enhancements import (
+from kgirl.cognitive.advanced_cognitive_enhancements import (
     UnifiedEmergentOrchestrator,
     AdvancedQuantumClassicalBridge,
     DynamicEmergenceDetector,
@@ -49,8 +51,8 @@ from advanced_cognitive_enhancements import (
 )
 
 try:
-    sys.path.append('/home/kill/numbskull')
-    from holographic_pipeline_adapter import (
+    # rebuilt in kgirl from its call sites (the LiMp original was never pushed)
+    from kgirl.cognitive.holographic_pipeline_adapter import (
         HolographicNumbskullAdapter,
         demo_holographic_adapter
     )
@@ -59,7 +61,7 @@ except ImportError:
     NUMBSKULL_AVAILABLE = False
     logging.warning("Numbskull adapter not available")
 
-from limps_holographic_orchestrator import (
+from kgirl.core.limps_holographic_orchestrator import (
     EnhancedDualLLMOrchestrator,
     create_enhanced_orchestrator,
     HTTPConfig,
@@ -162,7 +164,7 @@ class IntegratedSystemDemo:
         # Create test experiences
         experiences = [
             {
-                'data': np.random.random(256) * 2 - 1,
+                'data': telemetry.lattice_matrix(1, 256, offset=0).ravel() * 2 - 1,
                 'context': 'Emergency communication scenario',
                 'emotional_intensity': 0.9
             },
@@ -172,7 +174,7 @@ class IntegratedSystemDemo:
                 'emotional_intensity': 0.3
             },
             {
-                'data': np.cumsum(np.random.random(256) - 0.5),
+                'data': np.cumsum(telemetry.lattice_signal(256, offset=0)),
                 'context': 'Random walk temporal pattern',
                 'emotional_intensity': 0.5
             }
@@ -397,7 +399,7 @@ class IntegratedSystemDemo:
         
         # Test integrated cognitive processing
         experience = {
-            'data': np.random.random(256),
+            'data': telemetry.lattice_matrix(1, 256, offset=300).ravel(),
             'context': 'Multi-modal cognitive test'
         }
         
@@ -472,7 +474,7 @@ class IntegratedSystemDemo:
         # Step 2: Unified emergent processing
         print("\n→ Step 2: Emergent Orchestration")
         exp = {
-            'data': np.random.random(256),
+            'data': telemetry.lattice_matrix(1, 256, offset=300).ravel(),
             'context': pipeline_input['message']
         }
         emergent_result = self.unified_orchestrator.integrated_cognitive_processing(
@@ -560,7 +562,7 @@ class IntegratedSystemDemo:
     def save_demo_results(self):
         """Save demo results to file"""
         
-        output_file = '/home/kill/LiMp/demo_results.json'
+        output_file = str(find_repo("LiMp") / "demo_results.json")
         
         # Prepare serializable results
         serializable_results = {

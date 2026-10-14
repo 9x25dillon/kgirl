@@ -3,7 +3,7 @@ import math
 from typing import Dict, Any
 
 try:
-    from tauls_model import TAULSEvaluator, TAULSRunner
+    from kgirl.llm.tauls_model import TAULSEvaluator, TAULSRunner
     HAS_TAULS = True
 except Exception:
     HAS_TAULS = False

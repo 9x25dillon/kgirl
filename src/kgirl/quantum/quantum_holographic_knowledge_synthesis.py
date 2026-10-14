@@ -32,6 +32,7 @@ from enum import Enum
 import numpy as np
 import torch
 import torch.nn as nn
+from kgirl.paths import find_repo
 
 # Try to import PDF processing
 try:
@@ -50,17 +51,17 @@ except ImportError:
     logging.warning("FAISS not available - using numpy fallback")
 
 # Import kgirl components
-from holographic_memory_system import HolographicAssociativeMemory
-from fractal_resonance import FractalGenerator, ResonanceConfig
-from quantum_cognitive_processor import QuantumNeuralNetwork, QuantumWalkOptimizer
-from distributed_knowledge_base import (
+from kgirl.quantum.holographic_memory_system import HolographicAssociativeMemory
+from kgirl.embeddings.fractal_resonance import FractalGenerator, ResonanceConfig
+from kgirl.quantum.quantum_cognitive_processor import QuantumNeuralNetwork, QuantumWalkOptimizer
+from kgirl.core.distributed_knowledge_base import (
     KnowledgeNode,
     KnowledgeBaseConfig,
     SQLiteKnowledgeStore
 )
 
 # Import Numbskull if available
-numbskull_path = Path("/home/kill/numbskull")
+numbskull_path = find_repo("numbskull")
 if numbskull_path.exists() and str(numbskull_path) not in sys.path:
     sys.path.insert(0, str(numbskull_path))
 

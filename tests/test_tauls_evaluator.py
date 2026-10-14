@@ -1,4 +1,4 @@
-from tauls_model import TAULSEvaluator
+from kgirl.llm.tauls_model import TAULSEvaluator
 
 
 def test_tauls_evaluator_basic():

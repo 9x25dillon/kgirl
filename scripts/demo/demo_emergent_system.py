@@ -7,9 +7,10 @@ system through various scenarios and visualizations.
 """
 
 import numpy as np
+from kgirl import telemetry  # real NuRea_sim lattice data; chaos fallback
 import matplotlib.pyplot as plt
 import seaborn as sns
-from emergent_cognitive_network import (
+from kgirl.cognitive.emergent_cognitive_network import (
     QuantumInspiredOptimizer,
     SwarmCognitiveNetwork,
     NeuromorphicProcessor,
@@ -79,7 +80,7 @@ def demonstrate_neuromorphic_processing():
     processor = NeuromorphicProcessor(num_neurons=500)
     
     # Generate input spikes (simulating sensory input)
-    input_spikes = np.random.poisson(0.1, processor.num_neurons)
+    input_spikes = telemetry.spike_input(processor.num_neurons, 0.1)
     
     print("Processing spiking input through neuromorphic network...")
     start_time = time.time()
@@ -90,7 +91,7 @@ def demonstrate_neuromorphic_processing():
     print(f"Output activity range: {min(result['output_activity']):.4f} - {max(result['output_activity']):.4f}")
     print(f"Network entropy: {result['network_entropy']:.4f}")
     print(f"Criticality measure: {result['criticality_measure']:.4f}")
-    print(f"Total spikes generated: {sum(len(spikes) for spikes in result['spike_trains'])}")
+    print(f"Total spikes generated: {int(sum(np.sum(spikes) for spikes in result['spike_trains']))}")
     print()
 
 def demonstrate_holographic_encoding():
@@ -101,7 +102,7 @@ def demonstrate_holographic_encoding():
     engine = HolographicDataEngine(data_dim=64)
     
     # Create test data (image-like pattern)
-    test_data = np.random.random((64, 64))
+    test_data = telemetry.lattice_matrix(64, 64)
     test_data[20:40, 20:40] = 1.0  # Add a square pattern
     
     print("Encoding data into holographic representation...")
@@ -122,8 +123,10 @@ def demonstrate_holographic_encoding():
     
     # Calculate reconstruction accuracy
     known_mask = ~np.isnan(partial_input)
-    reconstruction_error = np.mean((recalled[known_mask] - test_data[known_mask])**2)
-    print(f"Reconstruction error: {reconstruction_error:.6f}")
+    reconstruction_error = np.mean((recalled[~known_mask] - test_data[~known_mask])**2)
+    baseline_error = np.mean((np.nanmean(partial_input) - test_data[~known_mask])**2)
+    print(f"Reconstruction MSE on the removed region: {reconstruction_error:.6f} "
+          f"(mean-fill baseline {baseline_error:.6f})")
     
     # Test associative recall
     query = test_data[25:35, 25:35]  # Small query pattern
@@ -204,25 +207,25 @@ def demonstrate_holographic_memory():
     # Create test data with different emotional contexts
     test_data = [
         {
-            'data': np.random.random(64) + 0.5,  # Positive pattern
+            'data': telemetry.lattice_matrix(1, 64, offset=0).ravel() + 0.5,  # Positive pattern
             'emotional_valence': 0.8,
             'category': 'positive_experience',
             'metadata': {'importance': 0.9, 'temporal_context': 'recent'}
         },
         {
-            'data': np.random.random(64) - 0.3,  # Negative pattern
+            'data': telemetry.lattice_matrix(1, 64, offset=100).ravel() - 0.3,  # Negative pattern
             'emotional_valence': 0.2,
             'category': 'negative_experience',
             'metadata': {'importance': 0.7, 'temporal_context': 'past'}
         },
         {
-            'data': np.random.random(64) * 0.1,  # Neutral pattern
+            'data': telemetry.lattice_matrix(1, 64, offset=200).ravel() * 0.1,  # Neutral pattern
             'emotional_valence': 0.5,
             'category': 'neutral_experience',
             'metadata': {'importance': 0.3, 'temporal_context': 'present'}
         },
         {
-            'data': np.random.random(64) + 0.2,  # Similar to first
+            'data': telemetry.lattice_matrix(1, 64, offset=0).ravel() + 0.2,  # Similar to first
             'emotional_valence': 0.7,
             'category': 'positive_experience',
             'metadata': {'importance': 0.6, 'temporal_context': 'recent'}
@@ -268,8 +271,8 @@ def demonstrate_cognitive_evolution():
     if evolution_result['evolutionary_trajectory']:
         print("Evolution progression:")
         for i, metrics in enumerate(evolution_result['evolutionary_trajectory'][:3]):
-            print(f"  Generation {i+1}: Quantum={metrics['quantum_complexity']}, "
-                  f"Swarm={metrics['swarm_intelligence']}, Neural={metrics['neural_capacity']}")
+            print(f"  Generation {i+1}: complexity={metrics['complexity']:.3f}, "
+                  f"robustness={metrics['robustness']:.3f}, mean spikes/neuron={metrics['mean_rate']:.3f}")
     print()
 
 def create_visualizations():
@@ -309,7 +312,7 @@ def create_visualizations():
     
     # 3. Neuromorphic spike patterns
     processor = NeuromorphicProcessor(num_neurons=100)
-    input_spikes = np.random.poisson(0.1, 100)
+    input_spikes = telemetry.spike_input(100, 0.1)
     result = processor.process_spiking_input(input_spikes, timesteps=50)
     
     spike_matrix = np.array(result['spike_trains']).T
@@ -320,7 +323,7 @@ def create_visualizations():
     
     # 4. Holographic encoding
     engine = HolographicDataEngine(data_dim=32)
-    test_data = np.random.random((32, 32))
+    test_data = telemetry.lattice_matrix(32, 32)
     hologram = engine.encode_holographic(test_data)
     
     im = axes[1, 0].imshow(np.abs(hologram), cmap='viridis')
@@ -331,7 +334,7 @@ def create_visualizations():
     
     # 5. Morphogenetic pattern
     system = MorphogeneticSystem(grid_size=40)
-    target = np.random.random((40, 40)) > 0.5
+    target = telemetry.binary_pattern(40).astype(bool)
     result = system.grow_structure(target, iterations=200)
     
     axes[1, 1].imshow(result['final_pattern'], cmap='binary')
@@ -361,6 +364,7 @@ def create_visualizations():
     print()
 
 def main():
+    print(f"Input data: {telemetry.source()}")
     """Run the complete demonstration"""
     print("🚀 Emergent Cognitive Network Infrastructure Demonstration")
     print("=" * 70)

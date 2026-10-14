@@ -2,7 +2,7 @@ import time
 import re
 import hashlib
 import numpy as np
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import scipy.signal as signal
 
 class FrequencyTranslator:

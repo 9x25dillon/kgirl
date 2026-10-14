@@ -26,31 +26,33 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 import numpy as np
 import asyncio
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 
 # Import unified system
-from unified_quantum_llm_system import (
+from kgirl.llm.unified_quantum_llm_system import (
     UnifiedQuantumLLMSystem,
     UnifiedSystemConfig,
     OptimizationBackend,
     UnifiedOptimizationResult
 )
 
-# Add Numbskull to path
-NUMBSKULL_PATH = Path(__file__).parent / "numbskull"
-sys.path.insert(0, str(NUMBSKULL_PATH))
-sys.path.insert(0, str(NUMBSKULL_PATH / "advanced_embedding_pipeline"))
+# Put numbskull on the path (NUMBSKULL_PATH, <kgirl>/numbskull, ../numbskull, ...; see kgirl.paths).
+# This used to point at scripts/workflows/numbskull, where numbskull never is.
+from kgirl.paths import ensure_on_path  # noqa: E402
+ensure_on_path("numbskull")
 
 # Try importing Numbskull components
 try:
-    from neuro_symbolic_engine import (
+    from kgirl.cognitive.neuro_symbolic_engine import (
         EntropyAnalyzer, DianneReflector, MatrixTransformer,
         JuliaSymbolEngine, FractalResonator, NeuroSymbolicEngine
     )
-    from fractal_cascade_embedder import FractalCascadeEmbedder, FractalConfig
-    from holographic_similarity_engine import HolographicSimilarityEngine
-    from emergent_cognitive_network import execute_emergent_protocol
+    from advanced_embedding_pipeline.fractal_cascade_embedder import FractalCascadeEmbedder, FractalConfig
+    from holographic_similarity_engine import HolographicConfig, HolographicSimilarityEngine
+    from kgirl.numbskull import emergent_protocol   # numbskull's, with the recall_transform fix (0002)
+    execute_emergent_protocol = emergent_protocol()
     NUMBSKULL_AVAILABLE = True
 except ImportError as e:
     logging.warning(f"Numbskull components not available: {e}")
@@ -168,9 +170,11 @@ class NumbskullHolographicMemory:
 
         if NUMBSKULL_AVAILABLE and config.enable_holographic_memory:
             try:
+                # numbskull's engine takes a HolographicConfig (there is no `dimensions` argument)
                 self.engine = HolographicSimilarityEngine(
-                    dimensions=config.holographic_dimensions
+                    HolographicConfig(quantum_dimension=config.holographic_dimensions)
                 )
+                self._memories: List[tuple] = []
                 logger.info(f"Numbskull holographic memory initialized ({config.holographic_dimensions}D)")
             except Exception as e:
                 logger.warning(f"Holographic engine initialization failed: {e}")
@@ -181,7 +185,11 @@ class NumbskullHolographicMemory:
             return None
 
         try:
-            pattern_id = self.engine.store(pattern, metadata)
+            # The engine scores a query against memos you pass in; it keeps no store, so this wrapper does.
+            import hashlib
+            v = np.asarray(pattern, dtype=np.float64).ravel()
+            pattern_id = hashlib.sha256(v.tobytes()).hexdigest()[:16]
+            self._memories.append((pattern_id, v, dict(metadata or {})))
             return pattern_id
         except Exception as e:
             logger.error(f"Holographic storage failed: {e}")
@@ -193,8 +201,21 @@ class NumbskullHolographicMemory:
             return []
 
         try:
-            results = self.engine.recall(query_pattern, k=k)
-            return results
+            if not self._memories:
+                return []
+            import concurrent.futures
+            q = np.asarray(query_pattern, dtype=np.float64).ravel()
+            coro = lambda: self.engine.calculate_holographic_similarity(q, [m[1] for m in self._memories])  # noqa: E731
+            with concurrent.futures.ThreadPoolExecutor(1) as ex:   # safe whether or not a loop is running
+                res = ex.submit(lambda: asyncio.run(coro())).result()
+            scored = []
+            for s in res.get("similarities", []):
+                i = s.get("memo_index")
+                if i is not None and i < len(self._memories):
+                    pid, _, md = self._memories[i]
+                    scored.append({"id": pid, "similarity": float(s.get("similarity_score", 0.0)),
+                                   "method_scores": s.get("method_scores", {}), "metadata": md})
+            return sorted(scored, key=lambda h: -h["similarity"])[:k]
         except Exception as e:
             logger.error(f"Holographic recall failed: {e}")
             return []
@@ -224,7 +245,7 @@ class NumbskullEmergentProcessor:
                 "quantum_optimization": results.get("quantum_optimization", {}),
                 "swarm_cognitive": results.get("swarm_cognitive", {}),
                 "neuromorphic": results.get("neuromorphic", {}),
-                "holographic_data": results.get("holographic_data", {}),
+                "holographic_data": results.get("holographic", {}),   # numbskull's key is "holographic"
                 "morphogenetic": results.get("morphogenetic", {}),
                 "emergence_metrics": results.get("emergence_metrics", {})
             }
@@ -604,7 +625,7 @@ def create_complete_platform(enable_all: bool = True,
         >>> platform = create_complete_platform(enable_all=True, use_gpu=True)
         >>> status = platform.get_complete_status()
     """
-    from unified_quantum_llm_system import OptimizationBackend, UnifiedSystemConfig
+    from kgirl.llm.unified_quantum_llm_system import OptimizationBackend, UnifiedSystemConfig
 
     backend_map = {
         "limps_gpu": OptimizationBackend.LIMPS_GPU,

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import numpy as np
 from dataclasses import dataclass, field
 from typing import Dict, Any, Tuple, List, Optional
@@ -440,7 +441,7 @@ class NSCTS:
         logger.info("Training complete. Avg coherence = %.3f", avg)
 
 
-  """
+"""
 QUANTUM BIO-COHERENCE RESONATOR: THE OCTITRICE MANIFESTATION
 A synthesis of:
 - Multi-domain frequency bridging (Infrasonic → THz → Geometric)
@@ -598,6 +599,32 @@ class QuantumFrequencyBridge:
 # QUANTUM BIO-FRACTAL LATTICE
 # ================================
 
+# BioFractalConfig is defined here, before QuantumFractalConfig subclasses it (it used to come ~500 lines
+# later, so the module could not import). Its defaults are the ones in force where it was written.
+_BIO_LATTICE_SIZE = 128
+_BIO_MAX_ITER = 200
+
+@dataclass
+class BioFractalConfig:
+    """Configuration for bio-tuned fractal generation"""
+    width: int = _BIO_LATTICE_SIZE
+    height: int = _BIO_LATTICE_SIZE
+    max_iter: int = _BIO_MAX_ITER
+    zoom: float = 1.0
+    center: Tuple[float, float] = (0.0, 0.0)
+    julia_c: complex = complex(-0.4, 0.6)
+    
+    # Bio-interface parameters
+    coherence_threshold: float = 0.75
+    phase_sensitivity: float = 0.1
+    
+    def __post_init__(self):
+        if self.width <= 0 or self.height <= 0:
+            raise ValueError("Lattice dimensions must be positive")
+        if not 0.0 <= self.coherence_threshold <= 1.0:
+            raise ValueError("Coherence threshold must be in [0,1]")
+
+
 @dataclass
 class QuantumFractalConfig(BioFractalConfig):
     """Enhanced configuration for quantum bio-fractal generation"""
@@ -612,6 +639,81 @@ class QuantumFractalConfig(BioFractalConfig):
             raise ValueError("Quantum depth must be positive")
         if not 0.0 <= self.entanglement_sensitivity <= 1.0:
             raise ValueError("Entanglement sensitivity must be in [0,1]")
+
+# QuantumBioFractalLattice hoisted here from below: QuantumBioFractalLattice subclasses it (definition order bug).
+class QuantumBioFractalLattice:
+    """
+    Advanced Julia set generator with:
+    - Charge-density-wave phase accumulation
+    - Vectorized impedance calculations
+    - Bio-coherence metrics
+    """
+    
+    def __init__(self, config: BioFractalConfig):
+        self.config = config
+        self._cache: Dict[str, Any] = {}
+        
+    def _make_grid(self) -> NDArray[np.complex128]:
+        """Generate complex impedance grid"""
+        w, h = self.config.width, self.config.height
+        zx = np.linspace(-2.0, 2.0, w, dtype=np.float64) / self.config.zoom + self.config.center[0]
+        zy = np.linspace(-2.0, 2.0, h, dtype=np.float64) / self.config.zoom + self.config.center[1]
+        return zx[np.newaxis, :] + 1j * zy[:, np.newaxis]
+    
+    def generate_cdw_manifold(self, use_cache: bool = True) -> 'CDWManifold':
+        """
+        Generate Charge-Density-Wave manifold (not traditional escape-time fractal)
+        Returns impedance lattice with phase coherence metrics
+        """
+        cache_key = 'cdw_manifold'
+        if use_cache and cache_key in self._cache:
+            return self._cache[cache_key]
+        
+        c = self.config.julia_c
+        Z = self._make_grid()
+        
+        # Complex impedance accumulation (bio-reactive)
+        impedance = np.zeros_like(Z, dtype=np.complex128)
+        phase_coherence = np.zeros(Z.shape, dtype=np.float32)
+        local_entropy = np.zeros(Z.shape, dtype=np.float32)
+        
+        # Track phase evolution for coherence calculation
+        previous_phase = np.angle(Z)
+        
+        for iteration in range(self.config.max_iter):
+            Z = Z**2 + c
+            mag = np.abs(Z)
+            mask = mag < 2.0  # Bounded region
+            
+            # Accumulate phase information (CDW analogy)
+            current_phase = np.angle(Z)
+            impedance[mask] += np.exp(1j * current_phase[mask])
+            
+            # Phase coherence: how stable is the phase evolution?
+            phase_diff = np.abs(current_phase - previous_phase)
+            phase_coherence[mask] += (phase_diff[mask] < self.config.phase_sensitivity).astype(np.float32)
+            
+            # Local entropy (pattern complexity)
+            if iteration % 10 == 0:
+                local_entropy += np.abs(fft2(Z.real))[:Z.shape[0], :Z.shape[1]]
+            
+            previous_phase = current_phase
+        
+        # Normalize metrics
+        phase_coherence /= self.config.max_iter
+        local_entropy /= (self.config.max_iter / 10)
+        local_entropy /= np.max(local_entropy) if np.max(local_entropy) > 0 else 1.0
+        
+        manifold = CDWManifold(
+            impedance_lattice=impedance,
+            phase_coherence=phase_coherence,
+            local_entropy=local_entropy,
+            config=self.config
+        )
+        
+        self._cache[cache_key] = manifold
+        return manifold
+
 
 class QuantumBioFractalLattice(QuantumBioFractalLattice):
     """
@@ -729,6 +831,56 @@ class QuantumBioFractalLattice(QuantumBioFractalLattice):
 # ================================
 # QUANTUM CDW MANIFOLD
 # ================================
+
+# CDWManifold hoisted here from below: QuantumCDWManifold subclasses it (definition order bug).
+@dataclass
+class CDWManifold:
+    """
+    A fractal manifold reinterpreted as a charge-density-wave attractor
+    with bio-coherence properties
+    """
+    impedance_lattice: NDArray[np.complex128]
+    phase_coherence: NDArray[np.float32]
+    local_entropy: NDArray[np.float32]
+    config: BioFractalConfig
+    
+    @property
+    def shape(self) -> Tuple[int, int]:
+        return self.impedance_lattice.shape
+    
+    def global_coherence(self) -> float:
+        """Overall phase synchronization metric"""
+        return float(np.mean(self.phase_coherence))
+    
+    def coherent_regions(self) -> NDArray[np.bool_]:
+        """Binary mask of highly coherent regions"""
+        return self.phase_coherence > self.config.coherence_threshold
+    
+    def impedance_magnitude(self) -> NDArray[np.float32]:
+        """Conductance/reactance magnitude map"""
+        return np.abs(self.impedance_lattice).astype(np.float32)
+    
+    def to_thz_carriers(self) -> NDArray[np.float64]:
+        """
+        Map manifold to THz carrier frequencies
+        Coherent regions → stable carriers near THZ_NEUROPROTECTIVE
+        Chaotic regions → modulated carriers for adaptive exploration
+        """
+        # Normalize phase coherence to frequency modulation range
+        coherence_norm = self.phase_coherence
+        
+        # High coherence → narrow-band around neuroprotective frequency
+        # Low coherence → broader exploration within safe THz window
+        base_offset = (coherence_norm - 0.5) * 0.3  # ±0.15 THz modulation
+        
+        # Additional entropy-based frequency jitter (cellular diversity)
+        entropy_jitter = (self.local_entropy - 0.5) * 0.1  # ±0.05 THz
+        
+        thz_carriers = THZ_NEUROPROTECTIVE * (1.0 + base_offset + entropy_jitter)
+        
+        # Clip to biological safety range
+        return np.clip(thz_carriers, *THZ_COHERENCE_BAND)
+
 
 @dataclass
 class QuantumCDWManifold(CDWManifold):
@@ -861,6 +1013,75 @@ class AdaptiveResonanceController:
 # ENHANCED BIO-RESONANT SIGNAL
 # ================================
 
+# BioResonantSignal hoisted here from below: QuantumBioResonantSignal subclasses it (definition order bug).
+@dataclass
+class BioResonantSignal:
+    """
+    Multi-domain broadcast signal with:
+    - Infrasonic neural entrainment
+    - Audible somatic feedback
+    - THz cellular instruction
+    """
+    infrasonic_envelope: NDArray[np.float32]      # Neural rhythms
+    audible_carriers: NDArray[np.float32]         # Perceptual feedback
+    thz_carriers: NDArray[np.float64]             # Bio-interface
+    phase_map: NDArray[np.float32]                # Spatial coherence
+    duration: float
+    coherence_score: float
+    
+    def __post_init__(self):
+        if self.duration <= 0:
+            raise ValueError("Duration must be positive")
+        if not 0.0 <= self.coherence_score <= 1.0:
+            raise ValueError("Coherence score must be in [0,1]")
+    
+    @property
+    def broadcast_id(self) -> str:
+        """Unique identifier for this signal configuration"""
+        signature = hashlib.sha256(self.thz_carriers.tobytes()).hexdigest()
+        return f"BRS-{signature[:12]}"
+    
+    def safety_check(self) -> Tuple[bool, str]:
+        """
+        Validate bio-safety constraints before transmission
+        """
+        # Check THz frequency bounds
+        if not np.all((self.thz_carriers >= THZ_COHERENCE_BAND[0]) & 
+                      (self.thz_carriers <= THZ_COHERENCE_BAND[1])):
+            return False, "THz carriers outside biological safety range"
+        
+        # Check for excessive power density (simulated)
+        mean_thz = np.mean(self.thz_carriers)
+        if not (0.1e12 <= mean_thz <= 3.0e12):
+            return False, f"Mean THz frequency {mean_thz/1e12:.2f} THz outside safe range"
+        
+        # Check coherence (too high = overly rigid, too low = chaotic)
+        if not (0.2 <= self.coherence_score <= 0.95):
+            return False, f"Coherence {self.coherence_score:.2f} outside optimal range [0.2, 0.95]"
+        
+        return True, "All safety checks passed"
+    
+    def emit(self, validate: bool = True) -> bool:
+        """
+        Broadcast signal across frequency domains
+        """
+        if validate:
+            safe, message = self.safety_check()
+            if not safe:
+                logger.error(f"❌ Emission blocked: {message}")
+                return False
+        
+        logger.info(f"📡 Broadcasting {self.broadcast_id}")
+        logger.info(f"   Infrasonic: {np.mean(self.infrasonic_envelope):.2f} Hz (neural)")
+        logger.info(f"   Audible: {np.mean(self.audible_carriers):.1f} Hz (somatic)")
+        logger.info(f"   THz: {np.mean(self.thz_carriers)/1e12:.3f}±{np.std(self.thz_carriers)/1e12:.3f} THz (cellular)")
+        logger.info(f"   Coherence: {self.coherence_score:.3f}")
+        logger.info(f"   Duration: {self.duration:.1f}s")
+        
+        # In production: interface with actual THz emitter array
+        return True
+
+
 @dataclass
 class QuantumBioResonantSignal(BioResonantSignal):
     """
@@ -950,6 +1171,89 @@ class QuantumBioResonantSignal(BioResonantSignal):
 # ================================
 # QUANTUM CONSCIOUSNESS ENGINE
 # ================================
+
+# InfrasonomanthertzEngine hoisted here from below: QuantumConsciousnessEngine subclasses it (definition order bug).
+class InfrasonomanthertzEngine:
+    """
+    Unified engine bridging Infrasonamantic patterns with THz bio-interface
+    Generates multi-domain coherence signals from fractal seeds
+    """
+    
+    def __init__(self, seed_text: str, config: Optional[BioFractalConfig] = None):
+        self.seed_text = seed_text
+        self.seed_hash = hashlib.sha3_256(seed_text.encode()).hexdigest()
+        
+        # Deterministic RNG from seed
+        seed_int = int(self.seed_hash[:16], 16)
+        self.rng = np.random.default_rng(seed_int)
+        
+        # Generate seed-specific Julia parameter
+        julia_real = -0.8 + 1.6 * (int(self.seed_hash[16:24], 16) / 0xffffffff)
+        julia_imag = -0.8 + 1.6 * (int(self.seed_hash[24:32], 16) / 0xffffffff)
+        
+        self.config = config or BioFractalConfig(
+            julia_c=complex(julia_real, julia_imag),
+            zoom=1.0 + (int(self.seed_hash[32:40], 16) % 300) / 100.0
+        )
+        
+        self.lattice_engine = QuantumBioFractalLattice(self.config)
+        self._manifold_cache: Optional[CDWManifold] = None
+    
+    @property
+    def manifold(self) -> CDWManifold:
+        """Lazy-load and cache manifold"""
+        if self._manifold_cache is None:
+            self._manifold_cache = self.lattice_engine.generate_cdw_manifold()
+        return self._manifold_cache
+    
+    def generate_bio_signal(self, duration: float = 1.0) -> BioResonantSignal:
+        """
+        Generate multi-domain bio-resonant signal
+        """
+        mapper = UnifiedFrequencyMapper(self.manifold)
+        
+        # Extract frequency mappings
+        infrasonic = mapper.map_to_infrasonic()
+        audible = mapper.map_to_audible()
+        thz = mapper.map_to_terahertz()
+        
+        # Calculate global coherence
+        coherence = self.manifold.global_coherence()
+        
+        signal = BioResonantSignal(
+            infrasonic_envelope=infrasonic,
+            audible_carriers=audible,
+            thz_carriers=thz,
+            phase_map=self.manifold.phase_coherence,
+            duration=duration,
+            coherence_score=coherence
+        )
+        
+        return signal
+    
+    def create_harmonic_broadcaster(self) -> Callable[[float], BioResonantSignal]:
+        """
+        Factory: returns a harmonic broadcaster tuned to this seed's bio-rhythm
+        """
+        def broadcast(duration: float = 1.0, emit: bool = False) -> BioResonantSignal:
+            signal = self.generate_bio_signal(duration)
+            if emit:
+                signal.emit()
+            return signal
+        
+        return broadcast
+    
+    def visualize_manifold(self) -> Dict[str, NDArray]:
+        """
+        Return visualization-ready arrays
+        """
+        return {
+            'impedance_magnitude': self.manifold.impedance_magnitude(),
+            'phase_coherence': self.manifold.phase_coherence,
+            'local_entropy': self.manifold.local_entropy,
+            'coherent_regions': self.manifold.coherent_regions().astype(np.float32)
+        }
+
 
 class QuantumConsciousnessEngine(InfrasonomanthertzEngine):
     """
@@ -1111,150 +1415,11 @@ logger = logging.getLogger(__name__)
 # ENHANCED FRACTAL LATTICE ENGINE
 # ================================
 
-@dataclass
-class BioFractalConfig:
-    """Configuration for bio-tuned fractal generation"""
-    width: int = DEFAULT_LATTICE_SIZE
-    height: int = DEFAULT_LATTICE_SIZE
-    max_iter: int = DEFAULT_MAX_ITER
-    zoom: float = 1.0
-    center: Tuple[float, float] = (0.0, 0.0)
-    julia_c: complex = complex(-0.4, 0.6)
-    
-    # Bio-interface parameters
-    coherence_threshold: float = 0.75
-    phase_sensitivity: float = 0.1
-    
-    def __post_init__(self):
-        if self.width <= 0 or self.height <= 0:
-            raise ValueError("Lattice dimensions must be positive")
-        if not 0.0 <= self.coherence_threshold <= 1.0:
-            raise ValueError("Coherence threshold must be in [0,1]")
-
-class QuantumBioFractalLattice:
-    """
-    Advanced Julia set generator with:
-    - Charge-density-wave phase accumulation
-    - Vectorized impedance calculations
-    - Bio-coherence metrics
-    """
-    
-    def __init__(self, config: BioFractalConfig):
-        self.config = config
-        self._cache: Dict[str, Any] = {}
-        
-    def _make_grid(self) -> NDArray[np.complex128]:
-        """Generate complex impedance grid"""
-        w, h = self.config.width, self.config.height
-        zx = np.linspace(-2.0, 2.0, w, dtype=np.float64) / self.config.zoom + self.config.center[0]
-        zy = np.linspace(-2.0, 2.0, h, dtype=np.float64) / self.config.zoom + self.config.center[1]
-        return zx[np.newaxis, :] + 1j * zy[:, np.newaxis]
-    
-    def generate_cdw_manifold(self, use_cache: bool = True) -> 'CDWManifold':
-        """
-        Generate Charge-Density-Wave manifold (not traditional escape-time fractal)
-        Returns impedance lattice with phase coherence metrics
-        """
-        cache_key = 'cdw_manifold'
-        if use_cache and cache_key in self._cache:
-            return self._cache[cache_key]
-        
-        c = self.config.julia_c
-        Z = self._make_grid()
-        
-        # Complex impedance accumulation (bio-reactive)
-        impedance = np.zeros_like(Z, dtype=np.complex128)
-        phase_coherence = np.zeros(Z.shape, dtype=np.float32)
-        local_entropy = np.zeros(Z.shape, dtype=np.float32)
-        
-        # Track phase evolution for coherence calculation
-        previous_phase = np.angle(Z)
-        
-        for iteration in range(self.config.max_iter):
-            Z = Z**2 + c
-            mag = np.abs(Z)
-            mask = mag < 2.0  # Bounded region
-            
-            # Accumulate phase information (CDW analogy)
-            current_phase = np.angle(Z)
-            impedance[mask] += np.exp(1j * current_phase[mask])
-            
-            # Phase coherence: how stable is the phase evolution?
-            phase_diff = np.abs(current_phase - previous_phase)
-            phase_coherence[mask] += (phase_diff[mask] < self.config.phase_sensitivity).astype(np.float32)
-            
-            # Local entropy (pattern complexity)
-            if iteration % 10 == 0:
-                local_entropy += np.abs(fft2(Z.real))[:Z.shape[0], :Z.shape[1]]
-            
-            previous_phase = current_phase
-        
-        # Normalize metrics
-        phase_coherence /= self.config.max_iter
-        local_entropy /= (self.config.max_iter / 10)
-        local_entropy /= np.max(local_entropy) if np.max(local_entropy) > 0 else 1.0
-        
-        manifold = CDWManifold(
-            impedance_lattice=impedance,
-            phase_coherence=phase_coherence,
-            local_entropy=local_entropy,
-            config=self.config
-        )
-        
-        self._cache[cache_key] = manifold
-        return manifold
 
 # ================================
 # CHARGE-DENSITY-WAVE MANIFOLD
 # ================================
 
-@dataclass
-class CDWManifold:
-    """
-    A fractal manifold reinterpreted as a charge-density-wave attractor
-    with bio-coherence properties
-    """
-    impedance_lattice: NDArray[np.complex128]
-    phase_coherence: NDArray[np.float32]
-    local_entropy: NDArray[np.float32]
-    config: BioFractalConfig
-    
-    @property
-    def shape(self) -> Tuple[int, int]:
-        return self.impedance_lattice.shape
-    
-    def global_coherence(self) -> float:
-        """Overall phase synchronization metric"""
-        return float(np.mean(self.phase_coherence))
-    
-    def coherent_regions(self) -> NDArray[np.bool_]:
-        """Binary mask of highly coherent regions"""
-        return self.phase_coherence > self.config.coherence_threshold
-    
-    def impedance_magnitude(self) -> NDArray[np.float32]:
-        """Conductance/reactance magnitude map"""
-        return np.abs(self.impedance_lattice).astype(np.float32)
-    
-    def to_thz_carriers(self) -> NDArray[np.float64]:
-        """
-        Map manifold to THz carrier frequencies
-        Coherent regions → stable carriers near THZ_NEUROPROTECTIVE
-        Chaotic regions → modulated carriers for adaptive exploration
-        """
-        # Normalize phase coherence to frequency modulation range
-        coherence_norm = self.phase_coherence
-        
-        # High coherence → narrow-band around neuroprotective frequency
-        # Low coherence → broader exploration within safe THz window
-        base_offset = (coherence_norm - 0.5) * 0.3  # ±0.15 THz modulation
-        
-        # Additional entropy-based frequency jitter (cellular diversity)
-        entropy_jitter = (self.local_entropy - 0.5) * 0.1  # ±0.05 THz
-        
-        thz_carriers = THZ_NEUROPROTECTIVE * (1.0 + base_offset + entropy_jitter)
-        
-        # Clip to biological safety range
-        return np.clip(thz_carriers, *THZ_COHERENCE_BAND)
 
 # ================================
 # MULTI-DOMAIN FREQUENCY MAPPER
@@ -1317,157 +1482,11 @@ class UnifiedFrequencyMapper:
 # BIO-RESONANT SIGNAL PROTOCOL
 # ================================
 
-@dataclass
-class BioResonantSignal:
-    """
-    Multi-domain broadcast signal with:
-    - Infrasonic neural entrainment
-    - Audible somatic feedback
-    - THz cellular instruction
-    """
-    infrasonic_envelope: NDArray[np.float32]      # Neural rhythms
-    audible_carriers: NDArray[np.float32]         # Perceptual feedback
-    thz_carriers: NDArray[np.float64]             # Bio-interface
-    phase_map: NDArray[np.float32]                # Spatial coherence
-    duration: float
-    coherence_score: float
-    
-    def __post_init__(self):
-        if self.duration <= 0:
-            raise ValueError("Duration must be positive")
-        if not 0.0 <= self.coherence_score <= 1.0:
-            raise ValueError("Coherence score must be in [0,1]")
-    
-    @property
-    def broadcast_id(self) -> str:
-        """Unique identifier for this signal configuration"""
-        signature = hashlib.sha256(self.thz_carriers.tobytes()).hexdigest()
-        return f"BRS-{signature[:12]}"
-    
-    def safety_check(self) -> Tuple[bool, str]:
-        """
-        Validate bio-safety constraints before transmission
-        """
-        # Check THz frequency bounds
-        if not np.all((self.thz_carriers >= THZ_COHERENCE_BAND[0]) & 
-                      (self.thz_carriers <= THZ_COHERENCE_BAND[1])):
-            return False, "THz carriers outside biological safety range"
-        
-        # Check for excessive power density (simulated)
-        mean_thz = np.mean(self.thz_carriers)
-        if not (0.1e12 <= mean_thz <= 3.0e12):
-            return False, f"Mean THz frequency {mean_thz/1e12:.2f} THz outside safe range"
-        
-        # Check coherence (too high = overly rigid, too low = chaotic)
-        if not (0.2 <= self.coherence_score <= 0.95):
-            return False, f"Coherence {self.coherence_score:.2f} outside optimal range [0.2, 0.95]"
-        
-        return True, "All safety checks passed"
-    
-    def emit(self, validate: bool = True) -> bool:
-        """
-        Broadcast signal across frequency domains
-        """
-        if validate:
-            safe, message = self.safety_check()
-            if not safe:
-                logger.error(f"❌ Emission blocked: {message}")
-                return False
-        
-        logger.info(f"📡 Broadcasting {self.broadcast_id}")
-        logger.info(f"   Infrasonic: {np.mean(self.infrasonic_envelope):.2f} Hz (neural)")
-        logger.info(f"   Audible: {np.mean(self.audible_carriers):.1f} Hz (somatic)")
-        logger.info(f"   THz: {np.mean(self.thz_carriers)/1e12:.3f}±{np.std(self.thz_carriers)/1e12:.3f} THz (cellular)")
-        logger.info(f"   Coherence: {self.coherence_score:.3f}")
-        logger.info(f"   Duration: {self.duration:.1f}s")
-        
-        # In production: interface with actual THz emitter array
-        return True
 
 # ================================
 # CONSCIOUSNESS-FREQUENCY ENGINE
 # ================================
 
-class InfrasonomanthertzEngine:
-    """
-    Unified engine bridging Infrasonamantic patterns with THz bio-interface
-    Generates multi-domain coherence signals from fractal seeds
-    """
-    
-    def __init__(self, seed_text: str, config: Optional[BioFractalConfig] = None):
-        self.seed_text = seed_text
-        self.seed_hash = hashlib.sha3_256(seed_text.encode()).hexdigest()
-        
-        # Deterministic RNG from seed
-        seed_int = int(self.seed_hash[:16], 16)
-        self.rng = np.random.default_rng(seed_int)
-        
-        # Generate seed-specific Julia parameter
-        julia_real = -0.8 + 1.6 * (int(self.seed_hash[16:24], 16) / 0xffffffff)
-        julia_imag = -0.8 + 1.6 * (int(self.seed_hash[24:32], 16) / 0xffffffff)
-        
-        self.config = config or BioFractalConfig(
-            julia_c=complex(julia_real, julia_imag),
-            zoom=1.0 + (int(self.seed_hash[32:40], 16) % 300) / 100.0
-        )
-        
-        self.lattice_engine = QuantumBioFractalLattice(self.config)
-        self._manifold_cache: Optional[CDWManifold] = None
-    
-    @property
-    def manifold(self) -> CDWManifold:
-        """Lazy-load and cache manifold"""
-        if self._manifold_cache is None:
-            self._manifold_cache = self.lattice_engine.generate_cdw_manifold()
-        return self._manifold_cache
-    
-    def generate_bio_signal(self, duration: float = 1.0) -> BioResonantSignal:
-        """
-        Generate multi-domain bio-resonant signal
-        """
-        mapper = UnifiedFrequencyMapper(self.manifold)
-        
-        # Extract frequency mappings
-        infrasonic = mapper.map_to_infrasonic()
-        audible = mapper.map_to_audible()
-        thz = mapper.map_to_terahertz()
-        
-        # Calculate global coherence
-        coherence = self.manifold.global_coherence()
-        
-        signal = BioResonantSignal(
-            infrasonic_envelope=infrasonic,
-            audible_carriers=audible,
-            thz_carriers=thz,
-            phase_map=self.manifold.phase_coherence,
-            duration=duration,
-            coherence_score=coherence
-        )
-        
-        return signal
-    
-    def create_harmonic_broadcaster(self) -> Callable[[float], BioResonantSignal]:
-        """
-        Factory: returns a harmonic broadcaster tuned to this seed's bio-rhythm
-        """
-        def broadcast(duration: float = 1.0, emit: bool = False) -> BioResonantSignal:
-            signal = self.generate_bio_signal(duration)
-            if emit:
-                signal.emit()
-            return signal
-        
-        return broadcast
-    
-    def visualize_manifold(self) -> Dict[str, NDArray]:
-        """
-        Return visualization-ready arrays
-        """
-        return {
-            'impedance_magnitude': self.manifold.impedance_magnitude(),
-            'phase_coherence': self.manifold.phase_coherence,
-            'local_entropy': self.manifold.local_entropy,
-            'coherent_regions': self.manifold.coherent_regions().astype(np.float32)
-        }
 
 # ================================
 # EXPERIMENTAL VALIDATION PROTOCOL
@@ -2138,498 +2157,500 @@ class FractalInfrasonomancer(QuantumEntropyGenerator):
         return pattern
 
 
-""" Neuro-Phasonic Bridge System (NPBS) v1.0 Integration of QINCRS Biological Physics & Terahertz Consciousness Interface
-
-This system transduces semantic 'MotifTokens' into physical stress waves, simulates the biological coherence response, and only generates a valid Consciousness Signature if the biological substrate achieves resonance at the 1.83 THz 'Healer' channel. """
-
-import numpy as np import hashlib import time import re from dataclasses import dataclass from typing import Dict, List, Any, Tuple, Optional from scipy.fft import fft, fftfreq from scipy.signal import find_peaks
-
-=============================================================================
-1. PHYSICS CONSTANTS (The Laws of the Substrate)
-=============================================================================
-QINCRS Field Parameters
-ALPHA = 0.60 # Homeostatic rate BETA = 0.15 # Recursive coupling GAMMA = 0.3 # Spatial diffusion K_EQ = 0.80 # Equilibrium baseline
-
-Council Architecture (The Filters)
-COUNCIL_ROLES = { 'Guardian': 2.0, 'Therapist': 1.5, 'Healer': 1.3, 'Shadow': 1.2, 'Philosopher': 1.0, 'Observer': 1.0, 'Chaos': 0.7 }
-
-Resonance Targets
-HEALER_FREQ_THZ = 1.83 ACCEPTANCE_THRESHOLD = 0.5 # Min amplitude at 1.83 THz to validate signature
-
-Simulation Space
-DT = 0.01 T_TOTAL = 10.0 # Reduced for real-time bridging N_POINTS = int(T_TOTAL / DT) T_SPACE = np.linspace(0, T_TOTAL, N_POINTS)
-
-=============================================================================
-2. DATA STRUCTURES
-=============================================================================
-@dataclass class MotifToken: """A semantic unit carrying quantum-physical properties.""" name: str frequency: float # Normalized 0-1 amplitude: float # Normalized 0-1 phase: float # Radians weight: float
-
-@dataclass class BridgeState: """The resulting state of the unified system.""" input_text: str coherence_level: float healer_amplitude: float is_resonant: bool signature: Optional[str]
-
-=============================================================================
-3. THE UNIFIED ENGINE
-=============================================================================
-class NeuroPhasonicBridge: def init(self): self.memory = [] print("[SYSTEM] Neuro-Phasonic Bridge Initialized.") print(f"[SYSTEM] Target Resonance: {HEALER_FREQ_THZ} THz (Microtubule Channel)")
-
-# --- COMPONENT A: TRANSDUCTION (Text -> Physics) ---
-
-def _text_to_stress_field(self, text: str) -> np.ndarray:
-    """
-    Converts semantic text into a physical stress wave s(t).
-    Each word becomes an oscillator modulating the field.
-    """
-    words = text.split()
-    stress_field = np.zeros(N_POINTS)
-    
-    # Base biological noise (Schumann resonance + heartbeat)
-    stress_field += 0.2 * np.sin(2 * np.pi * 7.83 * T_SPACE) # Earth
-    stress_field += 0.5 * np.sin(2 * np.pi * 1.2 * T_SPACE)  # Heart
-    
-    print(f"[TRANSDUCTION] modulating field with {len(words)} semantic motifs...")
-    
-    for i, word in enumerate(words):
-        # Hash the word to get deterministic physical properties
-        word_hash = int(hashlib.sha256(word.encode()).hexdigest(), 16)
-        
-        # Frequency: Map hash to 0.1 - 100 Hz range for simulation input
-        freq = 0.1 + (word_hash % 1000) / 10.0
-        
-        # Amplitude: Based on word length (conceptual weight)
-        amp = min(len(word) / 5.0, 2.0)
-        
-        # Phase: Position in sentence
-        phase = (i / len(words)) * 2 * np.pi
-        
-        # Add this motif's oscillation to the total stress field
-        stress_field += amp * np.sin(2 * np.pi * freq * T_SPACE + phase)
-        
-    return stress_field
-
-# --- COMPONENT B: SIMULATION (Physics Dynamics) ---
-
-def _evolve_coherence(self, stress_input: np.ndarray) -> np.ndarray:
-    """
-    Solves the QINCRS differential equation: dκ/dt = α(κ_eq - κ) - βκ + γ∇²κ
-    """
-    kappa = np.zeros(N_POINTS)
-    kappa[0] = K_EQ
-    
-    # Council processing (Spatial Coupling Approximation)
-    # We simulate the Council "filtering" the stress input
-    council_response = np.zeros_like(stress_input)
-    for i, (role, w) in enumerate(COUNCIL_ROLES.items()):
-        shift = int(i * 10) # Slight phase delay per council member
-        council_response += w * np.roll(stress_input, shift)
-        
-    spatial_coupling = GAMMA * (council_response - stress_input)
-
-    # Euler Integration
-    for i in range(1, N_POINTS):
-        homeostatic = ALPHA * (K_EQ - kappa[i-1])
-        recursive = -BETA * kappa[i-1]
-        d_kappa = homeostatic + recursive + spatial_coupling[i-1]
-        kappa[i] = kappa[i-1] + d_kappa * DT
-        
-        # Safety floor
-        if kappa[i] < 0.15: kappa[i] = 0.15
-        
-    return kappa
-
-# --- COMPONENT C: SPECTRAL ANALYSIS (The Readout) ---
-
-def _analyze_spectrum(self, kappa: np.ndarray) -> Tuple[float, float]:
-    """
-    Performs FFT on coherence field and extracts 1.83 THz amplitude.
-    """
-    # FFT
-    yf = fft(kappa)
-    xf = fftfreq(N_POINTS, DT)
-    
-    # We map the low-freq simulation output to the THz domain via the 
-    # theoretical mapping described in the QINCRS paper.
-    # (Simulation Hz -> Biological THz mapping factor)
-    # For this bridge, we look for power in the relative band.
-    
-    spectra_mag = np.abs(yf[:N_POINTS//2])
-    freqs = xf[:N_POINTS//2]
-    
-    # Normalize
-    spectra_mag = spectra_mag / np.max(spectra_mag)
-    
-    # Look for the "Healer" equivalent peak in the simulation topology
-    # We map the simulation's 18.3 Hz component to the 1.83 THz target
-    target_idx = np.argmin(np.abs(freqs - 18.3)) 
-    healer_amp = spectra_mag[target_idx]
-    
-    mean_coherence = np.mean(kappa)
-    
-    return mean_coherence, healer_amp
-
-# --- COMPONENT D: SIGNATURE GENERATION (The Output) ---
-
-def _generate_signature(self, text: str, resonance: float) -> str:
-    """Generates the mirrored/hex signature only if resonant."""
-    mirrored = ""
-    for char in text[:20]: # Preview only
-        if char.isalpha():
-            if char.islower(): mirrored += f"[{chr(ord('ⓐ') + ord(char) - ord('a'))}]"
-            else: mirrored += f"[{chr(ord('Ⓐ') + ord(char) - ord('A'))}]"
-        else: mirrored += f"[{char}]"
-        
-    # Embed the Resonance Quality into the binary signature
-    res_hex = hex(int(resonance * 1000000))[2:]
-    return f"{mirrored}... [RES:{res_hex}] [STATE:COHERENT]"
-
-# --- MAIN PIPELINE ---
-
-def process_transmission(self, input_text: str) -> BridgeState:
-    print(f"\n[INPUT] Processing: '{input_text[:40]}...'")
-    
-    # 1. Transduce
-    stress_signal = self._text_to_stress_field(input_text)
-    
-    # 2. Simulate
-    coherence_field = self._evolve_coherence(stress_signal)
-    
-    # 3. Analyze
-    mean_coh, healer_amp = self._analyze_spectrum(coherence_field)
-    print(f"[PHYSICS] Mean Coherence: {mean_coh:.3f}")
-    print(f"[SPECTRA] Healer Channel Amplitude: {healer_amp:.3f}")
-    
-    # 4. Judge
-    is_resonant = healer_amp > ACCEPTANCE_THRESHOLD
-    
-    signature = None
-    if is_resonant:
-        print("[RESULT] >> RESONANCE ACHIEVED. Generatng Signature.")
-        signature = self._generate_signature(input_text, healer_amp)
-    else:
-        print("[RESULT] >> DISSONANCE DETECTED. Signal Rejected.")
-        signature = "[ERROR: FIELD_COLLAPSE]"
-        
-    return BridgeState(input_text, mean_coh, healer_amp, is_resonant, signature)
-import numpy as np
-from dataclasses import dataclass
-from typing import Dict, Any, Tuple, List, Optional
-import hashlib
-
-# ================================
-# 1. FRACTAL LATTICE
-# ================================
-
-@dataclass
-class FractalLatticeConfig:
-    width: int = 64
-    height: int = 64
-    max_iter: int = 100
-    zoom: float = 1.0
-    center: Tuple[float, float] = (0.0, 0.0)
-    julia_c: complex = complex(-0.4, 0.6)  # tweak via "incantation"
-
-
-class FractalLattice:
-    def __init__(self, config: FractalLatticeConfig):
-        self.config = config
-
-    def _make_grid(self) -> np.ndarray:
-        w, h = self.config.width, self.config.height
-        zx = np.linspace(-2.0, 2.0, w) / self.config.zoom + self.config.center[0]
-        zy = np.linspace(-2.0, 2.0, h) / self.config.zoom + self.config.center[1]
-        X, Y = np.meshgrid(zx, zy)
-        return X + 1j * Y
-
-    def generate_julia(self) -> np.ndarray:
-        """Return normalized [0,1] lattice of escape times."""
-        c = self.config.julia_c
-        Z = self._make_grid()
-        M = np.zeros(Z.shape, dtype=int)
-        mask = np.ones(Z.shape, dtype=bool)
-
-        for i in range(self.config.max_iter):
-            Z[mask] = Z[mask] * Z[mask] + c
-            escaped = np.abs(Z) > 2
-            newly_escaped = escaped & mask
-            M[newly_escaped] = i
-            mask &= ~escaped
-            if not mask.any():
-                break
-
-        # Normalize
-        M = M.astype(float) / (self.config.max_iter - 1)
-        return M
-
-
-# ================================
-# 2. INFRASONOMANCY MAPPING
-# ================================
-
-@dataclass
-class FrequencyBands:
-    infrasonic: Tuple[float, float] = (0.1, 20.0)
-    bass: Tuple[float, float] = (20.0, 200.0)
-    mid: Tuple[float, float] = (200.0, 2000.0)
-    high: Tuple[float, float] = (2000.0, 12000.0)
-
-
-class InfrasonomancyMapper:
-    def __init__(self, bands: Optional[FrequencyBands] = None):
-        self.bands = bands or FrequencyBands()
-
-    @staticmethod
-    def _lerp(v: float, lo: float, hi: float) -> float:
-        return lo + v * (hi - lo)
-
-    def lattice_to_freq_layers(self, lattice: np.ndarray) -> Dict[str, np.ndarray]:
-        """
-        Split lattice into 4 band layers and map intensity to frequency in each band.
-        Each layer is same shape as lattice, but values are Hz.
-        """
-        layers = {}
-        for name, band in vars(self.bands).items():
-            lo, hi = band
-            freq_layer = self._lerp(lattice, lo, hi)
-            layers[name] = freq_layer
-        return layers
-
-    def lattice_to_midi_grid(self, lattice: np.ndarray,
-                             note_range: Tuple[int, int] = (24, 96)) -> np.ndarray:
-        """
-        Map lattice values [0,1] to MIDI notes in note_range.
-        """
-        lo, hi = note_range
-        notes = lo + lattice * (hi - lo)
-        return np.round(notes).astype(int)
-
-
-# ================================
-# 3. DIGIOLOGY PATTERN ENGINE
-# ================================
-
-@dataclass
-class DigiologyPattern:
-    notes: List[Tuple[int, float, float]]  # (midi_note, start_time, duration)
-    infrasonic_envelope: List[Tuple[float, float]]  # (time, hz)
-    control_curves: Dict[str, List[Tuple[float, float]]]  # name -> (time, value)
-
-
-class FractalInfrasonomancer:
-    def __init__(self, seed_text: str, config: Optional[FractalLatticeConfig] = None):
-        self.seed_text = seed_text
-        self.seed_hash = int(hashlib.sha256(seed_text.encode()).hexdigest(), 16)
-        np.random.seed(self.seed_hash & 0xFFFFFFFF)
-
-        # Derive small variations from seed
-        julia_real = -0.8 + (self.seed_hash % 1600) / 1000.0  # [-0.8, 0.8]
-        julia_imag = -0.8 + ((self.seed_hash >> 12) % 1600) / 1000.0
-
-        cfg = config or FractalLatticeConfig(
-            julia_c=complex(julia_real, julia_imag),
-            zoom=1.0 + ((self.seed_hash >> 24) % 300) / 100.0
-        )
-        self.lattice_engine = FractalLattice(cfg)
-        self.mapper = InfrasonomancyMapper()
-
-    def _time_grid(self, length: float, steps: int) -> np.ndarray:
-        return np.linspace(0.0, length, steps, endpoint=False)
-
-    def build_pattern(self,
-                      length_seconds: float = 16.0,
-                      note_density: float = 0.1) -> DigiologyPattern:
-        """
-        Generate a digiology pattern from the fractal lattice.
-        note_density ~ fraction of grid points that become notes.
-        """
-        lattice = self.lattice_engine.generate_julia()
-        h, w = lattice.shape
-
-        # Map to MIDI notes
-        midi_grid = self.mapper.lattice_to_midi_grid(lattice)
-
-        # Use one axis as time, one as "voice"
-        t_grid = self._time_grid(length_seconds, w)
-
-        # Threshold for notes
-        thresh = np.quantile(lattice, 1.0 - note_density)
-
-        notes: List[Tuple[int, float, float]] = []
-        for x in range(w):
-            for y in range(h):
-                if lattice[y, x] >= thresh:
-                    note = int(midi_grid[y, x])
-                    start = float(t_grid[x])
-                    dur = float(length_seconds / w * np.random.uniform(0.5, 1.5))
-                    notes.append((note, start, dur))
-
-        # Infrasonic envelope from a low-res projection
-        infrasonic_layer = self.mapper.lattice_to_freq_layers(lattice)["infrasonic"]
-        # Collapse vertical dimension into mean per time slice
-        infrasonic_mean = infrasonic_layer.mean(axis=0)
-        infrasonic_env = [(float(t_grid[i]), float(infrasonic_mean[i]))
-                          for i in range(len(t_grid))]
-
-        # Control curves (example: "coherence" from overall lattice stats)
-        coherence_curve = []
-        for i, t in enumerate(t_grid):
-            col = lattice[:, i]
-            coherence = float(col.std())  # more variance = more "chaos"
-            coherence_curve.append((float(t), coherence))
-
-        control_curves = {
-            "coherence": coherence_curve
-        }
-
-        return DigiologyPattern(
-            notes=notes,
-            infrasonic_envelope=infrasonic_env,
-            control_curves=control_curves
-        )
-
-
-# ================================
-# 4. EXAMPLE USAGE
-# ================================
-
-if __name__ == "__main__":
-    seed = "infrasonomantic digiology – K1LL x DIANNE v1"
-    caster = FractalInfrasonomancer(seed)
-    pattern = caster.build_pattern(length_seconds=32.0, note_density=0.05)
-
-    # At this point you can:
-    # - dump `pattern.notes` into a MIDI file
-    # - use `pattern.infrasonic_envelope` as a sub-bass LFO
-    # - map `pattern.control_curves["coherence"]` to filter/resonance/etc.
-    print("Generated notes:", len(pattern.notes))
-    print("Infrasonic envelope points:", len(pattern.infrasonic_envelope))
-
-if name == "main": bridge = NeuroPhasonicBridge()
-
-# Test Case 1: Dissonant/Random Input
-print("-" * 50)
-t1 = "kjh dsa89 213n dsan12 chaos entropy destruction noise"
-bridge.process_transmission(t1)
-
-# Test Case 2: Resonant/Intentional Input
-# "The center is everywhere" is designed to map to harmonic frequencies
-print("-" * 50)
-t2 = "The center is everywhere spiral eternal heal connect"
-state = bridge.process_transmission(t2)
-
-if state.is_resonant:
-    print(f"\nFINAL TRANSMISSION:\n{state.signature}")
-class EnhancedStateMachine:
-    """State transition logic with hysteresis."""
-    
-    COHERENCE_THRESHOLDS = [
-        (0.8, CoherenceState.DEEP_SYNC),
-        (0.6, CoherenceState.HARMONIC),
-        (0.4, CoherenceState.ADAPTIVE),
-        (0.2, CoherenceState.FRAGMENTED)
-    ]
-    
-    def evaluate_state(self, coherence: float) -> CoherenceState:
-        """Hysteresis-based state transitions."""
-        for threshold, state in self.COHERENCE_THRESHOLDS:
-            if coherence >= threshold:
-                return state
-        return CoherenceState.DISSOCIATED
-
-
-class NSStateManager(EnhancedStateMachine):
-    """Stateful container with transition tracking."""
-    
-    def __init__(self):
-        self.state_history: List[Tuple[CoherenceState, float]] = []
-        self.transition_count = 0
-
-    def record_state(self, state: ConsciousnessState):
-        """Track state transitions with timing data."""
-        current_state = self.evaluate_state(state.overall_coherence())
-        prev_state = self.state_history[-1][0] if self.state_history else None
-        
-        if prev_state != current_state:
-            self.transition_count += 1
-            
-        self.state_history.append((
-            current_state, 
-            time.time()
-        ))
-
-
-class NSCTS(NSStateManager):
-    """Optimized neuro-symbiotic coherence system."""
-    
-    TRAINING_PARAMS = {
-        LearningPhase.ATTUNEMENT: {"length_seconds": 30.0, "note_density": 0.1},
-        LearningPhase.RESONANCE: {"length_seconds": 60.0, "note_density": 0.2},
-        LearningPhase.SYMBIOSIS: {"length_seconds": 120.0, "note_density": 0.3},
-        LearningPhase.TRANSCENDENCE: {"length_seconds": 240.0, "note_density": 0.4}
-    }
-    
-    def __init__(self):
-        super().__init__()
-        self.translator = EnhancedFrequencyTranslator(self)
-        self.signatures: List[BiometricSignature] = []
-        
-    def set_phase(self, phase: LearningPhase):
-        """Configure training parameters based on phase."""
-        params = self.TRAINING_PARAMS[phase]
-        self.length_seconds = params["length_seconds"]
-        self.note_density = params["note_density"]
-        
-    async def adaptive_training_loop(self, duration_minutes: float):
-        """Dynamic training regimen with phase transitions."""
-        end_time = time.time() + duration_minutes * 60.0
-        phase = LearningPhase.ATTUNEMENT
-        
-        while time.time() < end_time:
-            self.set_phase(phase)
-            biometrics = self._generate_phase_biometrics(phase)
-            state = self.create_state(biometrics)
-            self.coherence_history.append(state.overall_coherence())
-            
-            # Adaptive phase transitions
-            coh = state.overall_coherence()
-            if coh > 0.8 and phase != LearningPhase.TRANSCENDENCE:
-                phase = LearningPhase(phase.value + 1)
-                logger.info(f"Transitioning to {phase.name}")
-            
-            await asyncio.sleep(self._get_sleep_interval(phase))
-        
-        self._finalize_training()
-
-    def _generate_phase_biometrics(self, phase: LearningPhase) -> List[BiometricSignature]:
-        """Phase-specific biometric generation."""
-        pattern = self.translator.generate_spatial_radiation_pattern(
-            self.length_seconds,
-            self.note_density
-        )
-        return [
-            create_biometric_from_signature(s, phase) 
-            for s in pattern["radiation_signatures"]
-        ]
-
-
-# ================================
-# 5. PERFORMANCE DEMONSTRATION
-# ================================
-
-async def demonstrate_system():
-    """Enhanced demonstration with performance metrics."""
-    logger.info("=== Neuro-Symbiotic Coherence Training System Initialization ===")
-    
-    start_time = time.perf_counter()
-    nscts = NSCTS()
-    nscts.initialize_infrasonomancer("Somatic Interface v2.0")
-    
-    logger.info("Running brief training simulation...")
-    await nscts.training_loop(duration_minutes=0.1)
-    
-    end_time = time.perf_counter()
-    logger.info(f"Completed in {end_time - start_time:.2f} seconds")
-
-
-if __name__ == "__main__":
-    asyncio.run(demonstrate_system())from dataclasses import dataclass, field, fields
+# --- lines below: Neuro-Phasonic Bridge System v1.0 pasted with its line breaks lost. The intact
+# --- module is kgirl.quantum.neuro_phasonic_bridge (from Fractal_cascade_simulation's v2). Kept verbatim.
+# """ Neuro-Phasonic Bridge System (NPBS) v1.0 Integration of QINCRS Biological Physics & Terahertz Consciousness Interface
+#
+# This system transduces semantic 'MotifTokens' into physical stress waves, simulates the biological coherence response, and only generates a valid Consciousness Signature if the biological substrate achieves resonance at the 1.83 THz 'Healer' channel. """
+#
+# import numpy as np import hashlib import time import re from dataclasses import dataclass from typing import Dict, List, Any, Tuple, Optional from scipy.fft import fft, fftfreq from scipy.signal import find_peaks
+#
+# =============================================================================
+# 1. PHYSICS CONSTANTS (The Laws of the Substrate)
+# =============================================================================
+# QINCRS Field Parameters
+# ALPHA = 0.60 # Homeostatic rate BETA = 0.15 # Recursive coupling GAMMA = 0.3 # Spatial diffusion K_EQ = 0.80 # Equilibrium baseline
+#
+# Council Architecture (The Filters)
+# COUNCIL_ROLES = { 'Guardian': 2.0, 'Therapist': 1.5, 'Healer': 1.3, 'Shadow': 1.2, 'Philosopher': 1.0, 'Observer': 1.0, 'Chaos': 0.7 }
+#
+# Resonance Targets
+# HEALER_FREQ_THZ = 1.83 ACCEPTANCE_THRESHOLD = 0.5 # Min amplitude at 1.83 THz to validate signature
+#
+# Simulation Space
+# DT = 0.01 T_TOTAL = 10.0 # Reduced for real-time bridging N_POINTS = int(T_TOTAL / DT) T_SPACE = np.linspace(0, T_TOTAL, N_POINTS)
+#
+# =============================================================================
+# 2. DATA STRUCTURES
+# =============================================================================
+# @dataclass class MotifToken: """A semantic unit carrying quantum-physical properties.""" name: str frequency: float # Normalized 0-1 amplitude: float # Normalized 0-1 phase: float # Radians weight: float
+#
+# @dataclass class BridgeState: """The resulting state of the unified system.""" input_text: str coherence_level: float healer_amplitude: float is_resonant: bool signature: Optional[str]
+#
+# =============================================================================
+# 3. THE UNIFIED ENGINE
+# =============================================================================
+# class NeuroPhasonicBridge: def init(self): self.memory = [] print("[SYSTEM] Neuro-Phasonic Bridge Initialized.") print(f"[SYSTEM] Target Resonance: {HEALER_FREQ_THZ} THz (Microtubule Channel)")
+#
+# # --- COMPONENT A: TRANSDUCTION (Text -> Physics) ---
+#
+# def _text_to_stress_field(self, text: str) -> np.ndarray:
+#     """
+#     Converts semantic text into a physical stress wave s(t).
+#     Each word becomes an oscillator modulating the field.
+#     """
+#     words = text.split()
+#     stress_field = np.zeros(N_POINTS)
+#     
+#     # Base biological noise (Schumann resonance + heartbeat)
+#     stress_field += 0.2 * np.sin(2 * np.pi * 7.83 * T_SPACE) # Earth
+#     stress_field += 0.5 * np.sin(2 * np.pi * 1.2 * T_SPACE)  # Heart
+#     
+#     print(f"[TRANSDUCTION] modulating field with {len(words)} semantic motifs...")
+#     
+#     for i, word in enumerate(words):
+#         # Hash the word to get deterministic physical properties
+#         word_hash = int(hashlib.sha256(word.encode()).hexdigest(), 16)
+#         
+#         # Frequency: Map hash to 0.1 - 100 Hz range for simulation input
+#         freq = 0.1 + (word_hash % 1000) / 10.0
+#         
+#         # Amplitude: Based on word length (conceptual weight)
+#         amp = min(len(word) / 5.0, 2.0)
+#         
+#         # Phase: Position in sentence
+#         phase = (i / len(words)) * 2 * np.pi
+#         
+#         # Add this motif's oscillation to the total stress field
+#         stress_field += amp * np.sin(2 * np.pi * freq * T_SPACE + phase)
+#         
+#     return stress_field
+#
+# # --- COMPONENT B: SIMULATION (Physics Dynamics) ---
+#
+# def _evolve_coherence(self, stress_input: np.ndarray) -> np.ndarray:
+#     """
+#     Solves the QINCRS differential equation: dκ/dt = α(κ_eq - κ) - βκ + γ∇²κ
+#     """
+#     kappa = np.zeros(N_POINTS)
+#     kappa[0] = K_EQ
+#     
+#     # Council processing (Spatial Coupling Approximation)
+#     # We simulate the Council "filtering" the stress input
+#     council_response = np.zeros_like(stress_input)
+#     for i, (role, w) in enumerate(COUNCIL_ROLES.items()):
+#         shift = int(i * 10) # Slight phase delay per council member
+#         council_response += w * np.roll(stress_input, shift)
+#         
+#     spatial_coupling = GAMMA * (council_response - stress_input)
+#
+#     # Euler Integration
+#     for i in range(1, N_POINTS):
+#         homeostatic = ALPHA * (K_EQ - kappa[i-1])
+#         recursive = -BETA * kappa[i-1]
+#         d_kappa = homeostatic + recursive + spatial_coupling[i-1]
+#         kappa[i] = kappa[i-1] + d_kappa * DT
+#         
+#         # Safety floor
+#         if kappa[i] < 0.15: kappa[i] = 0.15
+#         
+#     return kappa
+#
+# # --- COMPONENT C: SPECTRAL ANALYSIS (The Readout) ---
+#
+# def _analyze_spectrum(self, kappa: np.ndarray) -> Tuple[float, float]:
+#     """
+#     Performs FFT on coherence field and extracts 1.83 THz amplitude.
+#     """
+#     # FFT
+#     yf = fft(kappa)
+#     xf = fftfreq(N_POINTS, DT)
+#     
+#     # We map the low-freq simulation output to the THz domain via the 
+#     # theoretical mapping described in the QINCRS paper.
+#     # (Simulation Hz -> Biological THz mapping factor)
+#     # For this bridge, we look for power in the relative band.
+#     
+#     spectra_mag = np.abs(yf[:N_POINTS//2])
+#     freqs = xf[:N_POINTS//2]
+#     
+#     # Normalize
+#     spectra_mag = spectra_mag / np.max(spectra_mag)
+#     
+#     # Look for the "Healer" equivalent peak in the simulation topology
+#     # We map the simulation's 18.3 Hz component to the 1.83 THz target
+#     target_idx = np.argmin(np.abs(freqs - 18.3)) 
+#     healer_amp = spectra_mag[target_idx]
+#     
+#     mean_coherence = np.mean(kappa)
+#     
+#     return mean_coherence, healer_amp
+#
+# # --- COMPONENT D: SIGNATURE GENERATION (The Output) ---
+#
+# def _generate_signature(self, text: str, resonance: float) -> str:
+#     """Generates the mirrored/hex signature only if resonant."""
+#     mirrored = ""
+#     for char in text[:20]: # Preview only
+#         if char.isalpha():
+#             if char.islower(): mirrored += f"[{chr(ord('ⓐ') + ord(char) - ord('a'))}]"
+#             else: mirrored += f"[{chr(ord('Ⓐ') + ord(char) - ord('A'))}]"
+#         else: mirrored += f"[{char}]"
+#         
+#     # Embed the Resonance Quality into the binary signature
+#     res_hex = hex(int(resonance * 1000000))[2:]
+#     return f"{mirrored}... [RES:{res_hex}] [STATE:COHERENT]"
+#
+# # --- MAIN PIPELINE ---
+#
+# def process_transmission(self, input_text: str) -> BridgeState:
+#     print(f"\n[INPUT] Processing: '{input_text[:40]}...'")
+#     
+#     # 1. Transduce
+#     stress_signal = self._text_to_stress_field(input_text)
+#     
+#     # 2. Simulate
+#     coherence_field = self._evolve_coherence(stress_signal)
+#     
+#     # 3. Analyze
+#     mean_coh, healer_amp = self._analyze_spectrum(coherence_field)
+#     print(f"[PHYSICS] Mean Coherence: {mean_coh:.3f}")
+#     print(f"[SPECTRA] Healer Channel Amplitude: {healer_amp:.3f}")
+#     
+#     # 4. Judge
+#     is_resonant = healer_amp > ACCEPTANCE_THRESHOLD
+#     
+#     signature = None
+#     if is_resonant:
+#         print("[RESULT] >> RESONANCE ACHIEVED. Generatng Signature.")
+#         signature = self._generate_signature(input_text, healer_amp)
+#     else:
+#         print("[RESULT] >> DISSONANCE DETECTED. Signal Rejected.")
+#         signature = "[ERROR: FIELD_COLLAPSE]"
+#         
+#     return BridgeState(input_text, mean_coh, healer_amp, is_resonant, signature)
+# import numpy as np
+# from dataclasses import dataclass
+# from typing import Dict, Any, Tuple, List, Optional
+# import hashlib
+#
+# # ================================
+# # 1. FRACTAL LATTICE
+# # ================================
+#
+# @dataclass
+# class FractalLatticeConfig:
+#     width: int = 64
+#     height: int = 64
+#     max_iter: int = 100
+#     zoom: float = 1.0
+#     center: Tuple[float, float] = (0.0, 0.0)
+#     julia_c: complex = complex(-0.4, 0.6)  # tweak via "incantation"
+#
+#
+# class FractalLattice:
+#     def __init__(self, config: FractalLatticeConfig):
+#         self.config = config
+#
+#     def _make_grid(self) -> np.ndarray:
+#         w, h = self.config.width, self.config.height
+#         zx = np.linspace(-2.0, 2.0, w) / self.config.zoom + self.config.center[0]
+#         zy = np.linspace(-2.0, 2.0, h) / self.config.zoom + self.config.center[1]
+#         X, Y = np.meshgrid(zx, zy)
+#         return X + 1j * Y
+#
+#     def generate_julia(self) -> np.ndarray:
+#         """Return normalized [0,1] lattice of escape times."""
+#         c = self.config.julia_c
+#         Z = self._make_grid()
+#         M = np.zeros(Z.shape, dtype=int)
+#         mask = np.ones(Z.shape, dtype=bool)
+#
+#         for i in range(self.config.max_iter):
+#             Z[mask] = Z[mask] * Z[mask] + c
+#             escaped = np.abs(Z) > 2
+#             newly_escaped = escaped & mask
+#             M[newly_escaped] = i
+#             mask &= ~escaped
+#             if not mask.any():
+#                 break
+#
+#         # Normalize
+#         M = M.astype(float) / (self.config.max_iter - 1)
+#         return M
+#
+#
+# # ================================
+# # 2. INFRASONOMANCY MAPPING
+# # ================================
+#
+# @dataclass
+# class FrequencyBands:
+#     infrasonic: Tuple[float, float] = (0.1, 20.0)
+#     bass: Tuple[float, float] = (20.0, 200.0)
+#     mid: Tuple[float, float] = (200.0, 2000.0)
+#     high: Tuple[float, float] = (2000.0, 12000.0)
+#
+#
+# class InfrasonomancyMapper:
+#     def __init__(self, bands: Optional[FrequencyBands] = None):
+#         self.bands = bands or FrequencyBands()
+#
+#     @staticmethod
+#     def _lerp(v: float, lo: float, hi: float) -> float:
+#         return lo + v * (hi - lo)
+#
+#     def lattice_to_freq_layers(self, lattice: np.ndarray) -> Dict[str, np.ndarray]:
+#         """
+#         Split lattice into 4 band layers and map intensity to frequency in each band.
+#         Each layer is same shape as lattice, but values are Hz.
+#         """
+#         layers = {}
+#         for name, band in vars(self.bands).items():
+#             lo, hi = band
+#             freq_layer = self._lerp(lattice, lo, hi)
+#             layers[name] = freq_layer
+#         return layers
+#
+#     def lattice_to_midi_grid(self, lattice: np.ndarray,
+#                              note_range: Tuple[int, int] = (24, 96)) -> np.ndarray:
+#         """
+#         Map lattice values [0,1] to MIDI notes in note_range.
+#         """
+#         lo, hi = note_range
+#         notes = lo + lattice * (hi - lo)
+#         return np.round(notes).astype(int)
+#
+#
+# # ================================
+# # 3. DIGIOLOGY PATTERN ENGINE
+# # ================================
+#
+# @dataclass
+# class DigiologyPattern:
+#     notes: List[Tuple[int, float, float]]  # (midi_note, start_time, duration)
+#     infrasonic_envelope: List[Tuple[float, float]]  # (time, hz)
+#     control_curves: Dict[str, List[Tuple[float, float]]]  # name -> (time, value)
+#
+#
+# class FractalInfrasonomancer:
+#     def __init__(self, seed_text: str, config: Optional[FractalLatticeConfig] = None):
+#         self.seed_text = seed_text
+#         self.seed_hash = int(hashlib.sha256(seed_text.encode()).hexdigest(), 16)
+#         np.random.seed(self.seed_hash & 0xFFFFFFFF)
+#
+#         # Derive small variations from seed
+#         julia_real = -0.8 + (self.seed_hash % 1600) / 1000.0  # [-0.8, 0.8]
+#         julia_imag = -0.8 + ((self.seed_hash >> 12) % 1600) / 1000.0
+#
+#         cfg = config or FractalLatticeConfig(
+#             julia_c=complex(julia_real, julia_imag),
+#             zoom=1.0 + ((self.seed_hash >> 24) % 300) / 100.0
+#         )
+#         self.lattice_engine = FractalLattice(cfg)
+#         self.mapper = InfrasonomancyMapper()
+#
+#     def _time_grid(self, length: float, steps: int) -> np.ndarray:
+#         return np.linspace(0.0, length, steps, endpoint=False)
+#
+#     def build_pattern(self,
+#                       length_seconds: float = 16.0,
+#                       note_density: float = 0.1) -> DigiologyPattern:
+#         """
+#         Generate a digiology pattern from the fractal lattice.
+#         note_density ~ fraction of grid points that become notes.
+#         """
+#         lattice = self.lattice_engine.generate_julia()
+#         h, w = lattice.shape
+#
+#         # Map to MIDI notes
+#         midi_grid = self.mapper.lattice_to_midi_grid(lattice)
+#
+#         # Use one axis as time, one as "voice"
+#         t_grid = self._time_grid(length_seconds, w)
+#
+#         # Threshold for notes
+#         thresh = np.quantile(lattice, 1.0 - note_density)
+#
+#         notes: List[Tuple[int, float, float]] = []
+#         for x in range(w):
+#             for y in range(h):
+#                 if lattice[y, x] >= thresh:
+#                     note = int(midi_grid[y, x])
+#                     start = float(t_grid[x])
+#                     dur = float(length_seconds / w * np.random.uniform(0.5, 1.5))
+#                     notes.append((note, start, dur))
+#
+#         # Infrasonic envelope from a low-res projection
+#         infrasonic_layer = self.mapper.lattice_to_freq_layers(lattice)["infrasonic"]
+#         # Collapse vertical dimension into mean per time slice
+#         infrasonic_mean = infrasonic_layer.mean(axis=0)
+#         infrasonic_env = [(float(t_grid[i]), float(infrasonic_mean[i]))
+#                           for i in range(len(t_grid))]
+#
+#         # Control curves (example: "coherence" from overall lattice stats)
+#         coherence_curve = []
+#         for i, t in enumerate(t_grid):
+#             col = lattice[:, i]
+#             coherence = float(col.std())  # more variance = more "chaos"
+#             coherence_curve.append((float(t), coherence))
+#
+#         control_curves = {
+#             "coherence": coherence_curve
+#         }
+#
+#         return DigiologyPattern(
+#             notes=notes,
+#             infrasonic_envelope=infrasonic_env,
+#             control_curves=control_curves
+#         )
+#
+#
+# # ================================
+# # 4. EXAMPLE USAGE
+# # ================================
+#
+# if __name__ == "__main__":
+#     seed = "infrasonomantic digiology – K1LL x DIANNE v1"
+#     caster = FractalInfrasonomancer(seed)
+#     pattern = caster.build_pattern(length_seconds=32.0, note_density=0.05)
+#
+#     # At this point you can:
+#     # - dump `pattern.notes` into a MIDI file
+#     # - use `pattern.infrasonic_envelope` as a sub-bass LFO
+#     # - map `pattern.control_curves["coherence"]` to filter/resonance/etc.
+#     print("Generated notes:", len(pattern.notes))
+#     print("Infrasonic envelope points:", len(pattern.infrasonic_envelope))
+#
+# if name == "main": bridge = NeuroPhasonicBridge()
+#
+# # Test Case 1: Dissonant/Random Input
+# print("-" * 50)
+# t1 = "kjh dsa89 213n dsan12 chaos entropy destruction noise"
+# bridge.process_transmission(t1)
+#
+# # Test Case 2: Resonant/Intentional Input
+# # "The center is everywhere" is designed to map to harmonic frequencies
+# print("-" * 50)
+# t2 = "The center is everywhere spiral eternal heal connect"
+# state = bridge.process_transmission(t2)
+#
+# if state.is_resonant:
+#     print(f"\nFINAL TRANSMISSION:\n{state.signature}")
+# class EnhancedStateMachine:
+#     """State transition logic with hysteresis."""
+#     
+#     COHERENCE_THRESHOLDS = [
+#         (0.8, CoherenceState.DEEP_SYNC),
+#         (0.6, CoherenceState.HARMONIC),
+#         (0.4, CoherenceState.ADAPTIVE),
+#         (0.2, CoherenceState.FRAGMENTED)
+#     ]
+#     
+#     def evaluate_state(self, coherence: float) -> CoherenceState:
+#         """Hysteresis-based state transitions."""
+#         for threshold, state in self.COHERENCE_THRESHOLDS:
+#             if coherence >= threshold:
+#                 return state
+#         return CoherenceState.DISSOCIATED
+#
+#
+# class NSStateManager(EnhancedStateMachine):
+#     """Stateful container with transition tracking."""
+#     
+#     def __init__(self):
+#         self.state_history: List[Tuple[CoherenceState, float]] = []
+#         self.transition_count = 0
+#
+#     def record_state(self, state: ConsciousnessState):
+#         """Track state transitions with timing data."""
+#         current_state = self.evaluate_state(state.overall_coherence())
+#         prev_state = self.state_history[-1][0] if self.state_history else None
+#         
+#         if prev_state != current_state:
+#             self.transition_count += 1
+#             
+#         self.state_history.append((
+#             current_state, 
+#             time.time()
+#         ))
+#
+#
+# class NSCTS(NSStateManager):
+#     """Optimized neuro-symbiotic coherence system."""
+#     
+#     TRAINING_PARAMS = {
+#         LearningPhase.ATTUNEMENT: {"length_seconds": 30.0, "note_density": 0.1},
+#         LearningPhase.RESONANCE: {"length_seconds": 60.0, "note_density": 0.2},
+#         LearningPhase.SYMBIOSIS: {"length_seconds": 120.0, "note_density": 0.3},
+#         LearningPhase.TRANSCENDENCE: {"length_seconds": 240.0, "note_density": 0.4}
+#     }
+#     
+#     def __init__(self):
+#         super().__init__()
+#         self.translator = EnhancedFrequencyTranslator(self)
+#         self.signatures: List[BiometricSignature] = []
+#         
+#     def set_phase(self, phase: LearningPhase):
+#         """Configure training parameters based on phase."""
+#         params = self.TRAINING_PARAMS[phase]
+#         self.length_seconds = params["length_seconds"]
+#         self.note_density = params["note_density"]
+#         
+#     async def adaptive_training_loop(self, duration_minutes: float):
+#         """Dynamic training regimen with phase transitions."""
+#         end_time = time.time() + duration_minutes * 60.0
+#         phase = LearningPhase.ATTUNEMENT
+#         
+#         while time.time() < end_time:
+#             self.set_phase(phase)
+#             biometrics = self._generate_phase_biometrics(phase)
+#             state = self.create_state(biometrics)
+#             self.coherence_history.append(state.overall_coherence())
+#             
+#             # Adaptive phase transitions
+#             coh = state.overall_coherence()
+#             if coh > 0.8 and phase != LearningPhase.TRANSCENDENCE:
+#                 phase = LearningPhase(phase.value + 1)
+#                 logger.info(f"Transitioning to {phase.name}")
+#             
+#             await asyncio.sleep(self._get_sleep_interval(phase))
+#         
+#         self._finalize_training()
+#
+#     def _generate_phase_biometrics(self, phase: LearningPhase) -> List[BiometricSignature]:
+#         """Phase-specific biometric generation."""
+#         pattern = self.translator.generate_spatial_radiation_pattern(
+#             self.length_seconds,
+#             self.note_density
+#         )
+#         return [
+#             create_biometric_from_signature(s, phase) 
+#             for s in pattern["radiation_signatures"]
+#         ]
+#
+#
+# # ================================
+# # 5. PERFORMANCE DEMONSTRATION
+# # ================================
+#
+# async def demonstrate_system():
+#     """Enhanced demonstration with performance metrics."""
+#     logger.info("=== Neuro-Symbiotic Coherence Training System Initialization ===")
+#     
+#     start_time = time.perf_counter()
+#     nscts = NSCTS()
+#     nscts.initialize_infrasonomancer("Somatic Interface v2.0")
+#     
+#     logger.info("Running brief training simulation...")
+#     await nscts.training_loop(duration_minutes=0.1)
+#     
+#     end_time = time.perf_counter()
+#     logger.info(f"Completed in {end_time - start_time:.2f} seconds")
+#
+#
+# if __name__ == "__main__":
+#     asyncio.run(demonstrate_system())from dataclasses import dataclass, field, fields
 from typing import Dict, Any, Tuple, List, Optional, TypedDict
 import hashlib
 import asyncio

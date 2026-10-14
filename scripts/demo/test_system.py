@@ -19,23 +19,23 @@ import numpy as np
 import torch
 
 # Import our modules
-from tauls_transformer import (
+from kgirl.llm.tauls_transformer import (
     KFPLayer, TAULSControlUnit, EntropyRegulationModule, 
     TAULSTransformerBlock, TAULSLanguageModel
 )
-from dual_llm_orchestrator import (
+from kgirl.llm.dual_llm_orchestrator import (
     LocalSummarizer, HTTPConfig, OrchestratorSettings
 )
-from neuro_symbolic_engine import (
+from kgirl.cognitive.neuro_symbolic_engine import (
     EntropyAnalyzer, DianneReflector, MatrixTransformer,
     MirrorCastEngine, AdaptiveLinkPlanner
 )
-from signal_processing import (
+from kgirl.core.signal_processing import (
     ModulationScheme, FEC, ModConfig, FrameConfig, SecurityConfig,
     hamming74_encode, hamming74_decode, to_bits, from_bits,
     Modulators, encode_text, decode_bits
 )
-from enhanced_wavecaster import EnhancedWaveCaster, create_default_config
+from kgirl.neural.enhanced_wavecaster import EnhancedWaveCaster, create_default_config
 
 class TestTAULSTransformer(unittest.TestCase):
     """Test TA ULS Transformer components"""

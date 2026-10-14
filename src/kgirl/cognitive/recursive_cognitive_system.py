@@ -20,8 +20,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 # Local stubs
-from stub_modules import HybridEmbeddingPipeline, HybridConfig, EnhancedVectorIndex, EnhancedGraphStore
-from holographic_memory_system import HolographicMemorySystem
+from kgirl.utils.stub_modules import HybridEmbeddingPipeline, HybridConfig, EnhancedVectorIndex, EnhancedGraphStore
+from kgirl.quantum.holographic_memory_system import HolographicMemorySystem
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

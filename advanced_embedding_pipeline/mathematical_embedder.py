@@ -377,6 +377,12 @@ class MathematicalEmbedder:
         await self.client.aclose()
     
     def __del__(self):
-        """Cleanup on deletion"""
+        """Cleanup on deletion: schedule close() only if an event loop is running.
+        __del__ usually runs with no loop; create_task then raised and leaked an unawaited coroutine.
+        Call `await obj.close()` yourself for a deterministic shutdown."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
         if hasattr(self, 'client'):
-            asyncio.create_task(self.close())
+            loop.create_task(self.close())

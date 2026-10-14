@@ -907,98 +907,101 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-#!/usr/bin/env python3
-
-mirror_cast_enhanced.py — Neuro-Symbolic Adaptive Reflective Engine + Digital Link
-
-SPDX-License-Identifier: MIT
-
-import argparse import json import math import time import uuid import hashlib import zlib import os from dataclasses import dataclass from typing import Any,Dict, List, Optional, Tuple
-
-import numpy as np
-
-Optional plotting
-
-try: import matplotlib.pyplot as plt HAVE_MPL = True except Exception: HAVE_MPL = False
-
-========================= Core Analytics Modules ============================
-
-class EntropyAnalyzer: def measure(self, data: Any) -> float: s = str(data) if not s: return 0.0 counts: Dict[str, int] = {} for c in s: counts[c] = counts.get(c, 0) + 1 n = len(s) ent = 0.0 for cnt in counts.values(): p = cnt / n if p > 0: ent -= p * math.log2(p) return ent
-
-class DianneReflector: def reflect(self, data: Any) -> Dict[str, Any]: patterns = self._detect_patterns(data) head = str(data)[:40].replace("\n", " ") if "high_repetition" in patterns: insight = f"Cyclical resonance detected in Reflecting essence of: {head}..." elif "hierarchical_structure" in patterns: insight = f"Nested reality layers within Reflecting essence of: {head}..." else: insight = f"Linear transformation potential in Reflecting essence of: {head}..." return {"insight": insight, "patterns": patterns, "symbolic_depth": self._depth(data)}
-
-class MatrixTransformer: def project(self, data: Any) -> Dict[str, Any]: dims = self._analyze(data) h = hash(str(data)) & 0xFFFFFFFF rank = int(dims["rank"]) eivals = [math.sin(h * 0.001 * i) for i in range(max(1, min(3, rank)))] return { "projected_rank": dims["rank"], "structure": dims["structure"], "eigenvalues": eivals, "determinant": math.cos(h * 0.0001), "trace": (math.tan(h * 0.00001) if (h % 100) else 0.0), }
-
-class JuliaSymbolEngine: def analyze(self, data: Any) -> Dict[str, Any]: coeffs = self._coeffs(data) return { "chebyshev_polynomial": self._poly(coeffs), "coefficients": coeffs, "derivatives": self._derivs(coeffs), "critical_points": self._crit(coeffs), }
-
-class ChoppyProcessor: def chunk(self, data: Any, chunk_size: int = 64, overlap: int = 16) -> Dict[str, Any]: s = str(data) step = max(1, chunk_size - overlap) std = [s[i:i + chunk_size] for i in range(0, len(s), step)] words = s.split(); wsize = max(1, chunk_size // 5) wchunks = [" ".join(words[i:i + wsize]) for i in range(0, len(words), wsize)] return { "standard": std, "semantic": wchunks, "fibonacci": self._fib(s), "statistics": {"total_length": len(s), "chunk_count": len(std), "average_chunk_size": len(s) / max(1, len(std))}, }
-
-class EndpointCaster: def generate(self, data: Any) -> Dict[str, Any]: sig = hashlib.sha256(json.dumps(data, default=str, sort_keys=True).encode()).hexdigest()[:12] base = uuid.uuid4().hex[:6] return { "primary_endpoint": f"/api/v1/cast/{base}", "versioned_endpoints": [
-                f"/api/v1/cast/{base}/reflect",
-                f"/api/v1/cast/{base}/transform",
-                f"/api/v1/cast/{base}/metadata",
-                f"/api/v2/mirror/{sig}",
-            ], "artifact_id": f"art-{uuid.uuid4().hex[:8]}", "metadata": {"content_type": self._ctype(data), "estimated_size": len(str(data)), "complexity": self._cpx(data)}, }
-
-class CarryOnManager: def init(self, max_history: int = 200): self.memory: Dict[str, Any] = {} self.history: List[Dict[str, Any]] = [] self.max_history = max_history self.access: Dict[str, int] = {}
-
-class SemanticMapper: def init(self): self.semantic_networks = { "reflection": ["mirror", "echo", "reverberation", "contemplation", "introspection"], "transformation": ["metamorphosis", "mutation", "evolution", "adaptation", "transmutation"], "analysis": ["examination", "scrutiny", "dissection", "investigation", "exploration"], "synthesis": ["combination", "fusion", "amalgamation", "integration", "unification"], }
-
-class LoveReflector: def infuse(self, data: Any) -> Dict[str, Any]: text = str(data) return {"poetic": self._poem(text), "emotional_resonance": self._emo(text), "love_quotient": self._lq(text), "harmony_index": self._hi(text)}
-
-class FractalResonator: def init(self, max_depth: int = 8): self.max_depth = max_depth
-
-===================== Neuro-Symbolic Control & Memory =======================
-
-class FeatureExtractor: """ Lightweight local features + optional imported embedding. - text n-gram hashing → fixed-width vector - optional external embedding (pass via CLI JSON file or string) """ def init(self, dim: int = 64, ngram: int = 3): self.dim = dim self.ngram = ngram
-
-class NeuroSymbolicFusion: """ Fuse neural features + symbolic metrics (fractal, entropy, reflector tags) Produce a decision suggestion and scores. """ def init(self): # Learned (static) weights for demo; could be trained via RL self.w_neuro = 0.55 self.w_symbol = 0.45
-
-class DecisionLogger: def init(self): self.events: List[Dict[str, Any]] = []
-
-class ReflectiveDB: """JSON file for self-tuning memory of configs & outcomes.""" def init(self, path: str = "reflective_db.json"): self.path = path self._data: List[Dict[str, Any]] = [] self._load()
-
-class RLAgent: """ Tiny contextual bandit: state = bins(peak_entropy_depth, ssi, snr) actions = {'bpsk', 'qpsk', 'ofdm'} update via incremental mean reward. """ def init(self, actions: List[str] = None, eps: float = 0.1): self.actions = actions or ["bpsk", "qpsk", "ofdm"] self.eps = eps self.q: Dict[Tuple[int, int, int], Dict[str, Dict[str, float]]] = {}  # state -> action -> {q, n}
-
-=========================== Digital Link (SC + OFDM) ========================
-
-@dataclass class LinkConfig: mod: str = "qpsk"          # 'bpsk' | 'qpsk' | 'ofdm' sps: int = 8               # samples per symbol (SC) symbol_rate: int = 2000 snr_db: float = 30.0 rrc_alpha: float = 0.35 rrc_taps: int = 121 # OFDM params nfft: int = 256 cp_len: int = 32 subcarrier_mask: Optional[List[int]] = None  # indices to use (None -> all data carriers)
-
-class Modem: """SC BPSK/QPSK + minimal OFDM with QPSK mapping."""
-
-======================= Mirror Cast + Adaptive Planner =======================
-
-class MirrorCastEngine: def init(self): self.entropy = EntropyAnalyzer() self.reflector = DianneReflector() self.matrix = MatrixTransformer() self.symbols = JuliaSymbolEngine() self.choppy = ChoppyProcessor() self.endpoints = EndpointCaster() self.memory = CarryOnManager() self.semantic = SemanticMapper() self.love = LoveReflector() self.fractal = FractalResonator()
-
-class AdaptiveLinkPlanner: """ Neuro-Symbolic + RL planner: 1) Extract features, fuse with symbolic metrics 2) RL agent selects action (mod) 3) Map ssi -> rolloff, peak -> sps, action->mod/OFDM mask 4) Produce decision log & explanation """ def init(self, db_path: str = "reflective_db.json"): self.extractor = FeatureExtractor() self.fusion = NeuroSymbolicFusion() self.agent = RLAgent(actions=["bpsk", "qpsk", "ofdm"], eps=0.1) self.db = ReflectiveDB(db_path) self.log = DecisionLogger()
-
-=============================== Visualization ===============================
-
-def maybe_plot_constellation(syms: np.ndarray, title: str = "Constellation"): if not HAVE_MPL: return plt.figure() plt.scatter(np.real(syms), np.imag(syms), s=8) plt.title(title); plt.xlabel("I"); plt.ylabel("Q"); plt.grid(True)
-
-def maybe_plot_fractal_layers(fractal: Dict[str, Any]): if not HAVE_MPL: return xs = [L["depth"] for L in fractal["layers"]] ys = [L["entropy"] for L in fractal["layers"]] plt.figure(); plt.plot(xs, ys, marker="o") plt.title("Fractal Entropy vs Depth"); plt.xlabel("Depth"); plt.ylabel("Entropy"); plt.grid(True)
-
-def maybe_plot_decisions(decisions: List[Dict[str, Any]]): if not HAVE_MPL: return # simple timeline of events plt.figure() ys = list(range(len(decisions))) labels = [f"{d['step']}:{d['reason']}" for d in decisions] plt.plot(ys, ys, marker="o") for i, txt in enumerate(labels): plt.text(i, i, txt, fontsize=8) plt.title("Decision Pathway"); plt.xlabel("event idx"); plt.ylabel("event idx"); plt.grid(True)
-
-================================== CLI ======================================
-
-def cmd_report(args: argparse.Namespace) -> None: eng = MirrorCastEngine() data = json.loads(args.input) if args.json else args.input report = eng.cast(data) print(json.dumps(report, indent=2)) if args.plot and HAVE_MPL: maybe_plot_fractal_layers(report["fractal"]) plt.show()
-
-def cmd_txrx(args: argparse.Namespace) -> None: cfg = LinkConfig( mod=args.mod.lower(), sps=args.sps, symbol_rate=args.symbol_rate, snr_db=args.snr, rrc_alpha=args.alpha, rrc_taps=args.taps, nfft=args.nfft, cp_len=args.cp, ) modem = Modem(cfg) payload = args.input.encode("utf-8") tx = modem.transmit(payload) ch = modem.channel_awgn(tx) rx_bytes, info = modem.receive(ch) out = {"config": cfg.dict, "status": info, "transmitted_len": len(payload), "received_len": len(rx_bytes), "received_text": (rx_bytes.decode("utf-8", errors="replace") if info.get("ok") else "")} print(json.dumps(out, indent=2)) if args.plot and HAVE_MPL and cfg.mod in ("qpsk", "bpsk"): # reconstruct baseband symbols for visualization (approx using downsampled MF output if SC) pass
-
-def cmd_fractal(args: argparse.Namespace) -> None: fr = FractalResonator(max_depth=args.max_depth) result = fr.cascade(args.input) print(json.dumps(result, indent=2)) if args.plot and HAVE_MPL: maybe_plot_fractal_layers(result); plt.show()
-
-def cmd_txrx_adapt(args: argparse.Namespace) -> None: engine = MirrorCastEngine() analysis = engine.cast(args.input)  # includes fractal, entropy, reflection planner = AdaptiveLinkPlanner(db_path=args.db) cfg, explanation = planner.plan(args.input, LinkConfig( mod="qpsk", sps=args.sps, symbol_rate=args.symbol_rate, snr_db=args.snr, rrc_alpha=args.alpha, rrc_taps=args.taps, nfft=args.nfft, cp_len=args.cp ), analysis, snr_db=args.snr)
-
-def cmd_learn(args: argparse.Namespace) -> None: """ Run multiple episodes on the same input (or a seed list) to let the RL agent adapt. """ engine = MirrorCastEngine() planner = AdaptiveLinkPlanner(db_path=args.db) texts = [args.input] if args.input else [
-        "industrial IoT telemetry window 42 pressure spike",
-        "AR/VR immersive stream scene: waterfall shimmer",
-        "assistive comms: phrasebook quick intent",
-        "healthcare vitals batch 28dB link margin"
-    ] for ep in range(args.episodes): t = texts[ep % len(texts)] analysis = engine.cast(t) cfg, explanation = planner.plan(t, LinkConfig(snr_db=args.snr, nfft=args.nfft, cp_len=args.cp), analysis, snr_db=args.snr) modem = Modem(cfg) payload = t.encode("utf-8") tx = modem.transmit(payload) ch = modem.channel_awgn(tx) rx_bytes, info = modem.receive(ch) decode_ok = bool(info.get("ok")) harmony = engine.love.infuse(t)["harmony_index"] planner.reward_and_record(t, cfg, explanation, decode_ok, args.snr, harmony, len(payload), len(rx_bytes)) print(json.dumps({ "episode": ep+1, "text_sig": hashlib.sha256(t.encode()).hexdigest()[:12], "config": cfg.dict, "decode_ok": decode_ok }, indent=2)) print(f"Learning complete. DB at {args.db}")
-
-def build_parser() -> argparse.ArgumentParser: p = argparse.ArgumentParser(description="Mirror Cast Enhanced — Neuro-Symbolic Adaptive Link") sub = p.add_subparsers(dest="cmd", required=True)
-
-def main(): parser = build_parser() args = parser.parse_args() args.func(args)
-
-if name == "main": main()
+# --- appended copy of mirror_cast_enhanced.py (line breaks lost when pasted); the intact module is
+# --- kgirl.cognitive.neuro_symbolic_engine. Kept here verbatim as a comment so this file imports.
+# #!/usr/bin/env python3
+#
+# mirror_cast_enhanced.py — Neuro-Symbolic Adaptive Reflective Engine + Digital Link
+#
+# SPDX-License-Identifier: MIT
+#
+# import argparse import json import math import time import uuid import hashlib import zlib import os from dataclasses import dataclass from typing import Any,Dict, List, Optional, Tuple
+#
+# import numpy as np
+#
+# Optional plotting
+#
+# try: import matplotlib.pyplot as plt HAVE_MPL = True except Exception: HAVE_MPL = False
+#
+# ========================= Core Analytics Modules ============================
+#
+# class EntropyAnalyzer: def measure(self, data: Any) -> float: s = str(data) if not s: return 0.0 counts: Dict[str, int] = {} for c in s: counts[c] = counts.get(c, 0) + 1 n = len(s) ent = 0.0 for cnt in counts.values(): p = cnt / n if p > 0: ent -= p * math.log2(p) return ent
+#
+# class DianneReflector: def reflect(self, data: Any) -> Dict[str, Any]: patterns = self._detect_patterns(data) head = str(data)[:40].replace("\n", " ") if "high_repetition" in patterns: insight = f"Cyclical resonance detected in Reflecting essence of: {head}..." elif "hierarchical_structure" in patterns: insight = f"Nested reality layers within Reflecting essence of: {head}..." else: insight = f"Linear transformation potential in Reflecting essence of: {head}..." return {"insight": insight, "patterns": patterns, "symbolic_depth": self._depth(data)}
+#
+# class MatrixTransformer: def project(self, data: Any) -> Dict[str, Any]: dims = self._analyze(data) h = hash(str(data)) & 0xFFFFFFFF rank = int(dims["rank"]) eivals = [math.sin(h * 0.001 * i) for i in range(max(1, min(3, rank)))] return { "projected_rank": dims["rank"], "structure": dims["structure"], "eigenvalues": eivals, "determinant": math.cos(h * 0.0001), "trace": (math.tan(h * 0.00001) if (h % 100) else 0.0), }
+#
+# class JuliaSymbolEngine: def analyze(self, data: Any) -> Dict[str, Any]: coeffs = self._coeffs(data) return { "chebyshev_polynomial": self._poly(coeffs), "coefficients": coeffs, "derivatives": self._derivs(coeffs), "critical_points": self._crit(coeffs), }
+#
+# class ChoppyProcessor: def chunk(self, data: Any, chunk_size: int = 64, overlap: int = 16) -> Dict[str, Any]: s = str(data) step = max(1, chunk_size - overlap) std = [s[i:i + chunk_size] for i in range(0, len(s), step)] words = s.split(); wsize = max(1, chunk_size // 5) wchunks = [" ".join(words[i:i + wsize]) for i in range(0, len(words), wsize)] return { "standard": std, "semantic": wchunks, "fibonacci": self._fib(s), "statistics": {"total_length": len(s), "chunk_count": len(std), "average_chunk_size": len(s) / max(1, len(std))}, }
+#
+# class EndpointCaster: def generate(self, data: Any) -> Dict[str, Any]: sig = hashlib.sha256(json.dumps(data, default=str, sort_keys=True).encode()).hexdigest()[:12] base = uuid.uuid4().hex[:6] return { "primary_endpoint": f"/api/v1/cast/{base}", "versioned_endpoints": [
+#                 f"/api/v1/cast/{base}/reflect",
+#                 f"/api/v1/cast/{base}/transform",
+#                 f"/api/v1/cast/{base}/metadata",
+#                 f"/api/v2/mirror/{sig}",
+#             ], "artifact_id": f"art-{uuid.uuid4().hex[:8]}", "metadata": {"content_type": self._ctype(data), "estimated_size": len(str(data)), "complexity": self._cpx(data)}, }
+#
+# class CarryOnManager: def init(self, max_history: int = 200): self.memory: Dict[str, Any] = {} self.history: List[Dict[str, Any]] = [] self.max_history = max_history self.access: Dict[str, int] = {}
+#
+# class SemanticMapper: def init(self): self.semantic_networks = { "reflection": ["mirror", "echo", "reverberation", "contemplation", "introspection"], "transformation": ["metamorphosis", "mutation", "evolution", "adaptation", "transmutation"], "analysis": ["examination", "scrutiny", "dissection", "investigation", "exploration"], "synthesis": ["combination", "fusion", "amalgamation", "integration", "unification"], }
+#
+# class LoveReflector: def infuse(self, data: Any) -> Dict[str, Any]: text = str(data) return {"poetic": self._poem(text), "emotional_resonance": self._emo(text), "love_quotient": self._lq(text), "harmony_index": self._hi(text)}
+#
+# class FractalResonator: def init(self, max_depth: int = 8): self.max_depth = max_depth
+#
+# ===================== Neuro-Symbolic Control & Memory =======================
+#
+# class FeatureExtractor: """ Lightweight local features + optional imported embedding. - text n-gram hashing → fixed-width vector - optional external embedding (pass via CLI JSON file or string) """ def init(self, dim: int = 64, ngram: int = 3): self.dim = dim self.ngram = ngram
+#
+# class NeuroSymbolicFusion: """ Fuse neural features + symbolic metrics (fractal, entropy, reflector tags) Produce a decision suggestion and scores. """ def init(self): # Learned (static) weights for demo; could be trained via RL self.w_neuro = 0.55 self.w_symbol = 0.45
+#
+# class DecisionLogger: def init(self): self.events: List[Dict[str, Any]] = []
+#
+# class ReflectiveDB: """JSON file for self-tuning memory of configs & outcomes.""" def init(self, path: str = "reflective_db.json"): self.path = path self._data: List[Dict[str, Any]] = [] self._load()
+#
+# class RLAgent: """ Tiny contextual bandit: state = bins(peak_entropy_depth, ssi, snr) actions = {'bpsk', 'qpsk', 'ofdm'} update via incremental mean reward. """ def init(self, actions: List[str] = None, eps: float = 0.1): self.actions = actions or ["bpsk", "qpsk", "ofdm"] self.eps = eps self.q: Dict[Tuple[int, int, int], Dict[str, Dict[str, float]]] = {}  # state -> action -> {q, n}
+#
+# =========================== Digital Link (SC + OFDM) ========================
+#
+# @dataclass class LinkConfig: mod: str = "qpsk"          # 'bpsk' | 'qpsk' | 'ofdm' sps: int = 8               # samples per symbol (SC) symbol_rate: int = 2000 snr_db: float = 30.0 rrc_alpha: float = 0.35 rrc_taps: int = 121 # OFDM params nfft: int = 256 cp_len: int = 32 subcarrier_mask: Optional[List[int]] = None  # indices to use (None -> all data carriers)
+#
+# class Modem: """SC BPSK/QPSK + minimal OFDM with QPSK mapping."""
+#
+# ======================= Mirror Cast + Adaptive Planner =======================
+#
+# class MirrorCastEngine: def init(self): self.entropy = EntropyAnalyzer() self.reflector = DianneReflector() self.matrix = MatrixTransformer() self.symbols = JuliaSymbolEngine() self.choppy = ChoppyProcessor() self.endpoints = EndpointCaster() self.memory = CarryOnManager() self.semantic = SemanticMapper() self.love = LoveReflector() self.fractal = FractalResonator()
+#
+# class AdaptiveLinkPlanner: """ Neuro-Symbolic + RL planner: 1) Extract features, fuse with symbolic metrics 2) RL agent selects action (mod) 3) Map ssi -> rolloff, peak -> sps, action->mod/OFDM mask 4) Produce decision log & explanation """ def init(self, db_path: str = "reflective_db.json"): self.extractor = FeatureExtractor() self.fusion = NeuroSymbolicFusion() self.agent = RLAgent(actions=["bpsk", "qpsk", "ofdm"], eps=0.1) self.db = ReflectiveDB(db_path) self.log = DecisionLogger()
+#
+# =============================== Visualization ===============================
+#
+# def maybe_plot_constellation(syms: np.ndarray, title: str = "Constellation"): if not HAVE_MPL: return plt.figure() plt.scatter(np.real(syms), np.imag(syms), s=8) plt.title(title); plt.xlabel("I"); plt.ylabel("Q"); plt.grid(True)
+#
+# def maybe_plot_fractal_layers(fractal: Dict[str, Any]): if not HAVE_MPL: return xs = [L["depth"] for L in fractal["layers"]] ys = [L["entropy"] for L in fractal["layers"]] plt.figure(); plt.plot(xs, ys, marker="o") plt.title("Fractal Entropy vs Depth"); plt.xlabel("Depth"); plt.ylabel("Entropy"); plt.grid(True)
+#
+# def maybe_plot_decisions(decisions: List[Dict[str, Any]]): if not HAVE_MPL: return # simple timeline of events plt.figure() ys = list(range(len(decisions))) labels = [f"{d['step']}:{d['reason']}" for d in decisions] plt.plot(ys, ys, marker="o") for i, txt in enumerate(labels): plt.text(i, i, txt, fontsize=8) plt.title("Decision Pathway"); plt.xlabel("event idx"); plt.ylabel("event idx"); plt.grid(True)
+#
+# ================================== CLI ======================================
+#
+# def cmd_report(args: argparse.Namespace) -> None: eng = MirrorCastEngine() data = json.loads(args.input) if args.json else args.input report = eng.cast(data) print(json.dumps(report, indent=2)) if args.plot and HAVE_MPL: maybe_plot_fractal_layers(report["fractal"]) plt.show()
+#
+# def cmd_txrx(args: argparse.Namespace) -> None: cfg = LinkConfig( mod=args.mod.lower(), sps=args.sps, symbol_rate=args.symbol_rate, snr_db=args.snr, rrc_alpha=args.alpha, rrc_taps=args.taps, nfft=args.nfft, cp_len=args.cp, ) modem = Modem(cfg) payload = args.input.encode("utf-8") tx = modem.transmit(payload) ch = modem.channel_awgn(tx) rx_bytes, info = modem.receive(ch) out = {"config": cfg.dict, "status": info, "transmitted_len": len(payload), "received_len": len(rx_bytes), "received_text": (rx_bytes.decode("utf-8", errors="replace") if info.get("ok") else "")} print(json.dumps(out, indent=2)) if args.plot and HAVE_MPL and cfg.mod in ("qpsk", "bpsk"): # reconstruct baseband symbols for visualization (approx using downsampled MF output if SC) pass
+#
+# def cmd_fractal(args: argparse.Namespace) -> None: fr = FractalResonator(max_depth=args.max_depth) result = fr.cascade(args.input) print(json.dumps(result, indent=2)) if args.plot and HAVE_MPL: maybe_plot_fractal_layers(result); plt.show()
+#
+# def cmd_txrx_adapt(args: argparse.Namespace) -> None: engine = MirrorCastEngine() analysis = engine.cast(args.input)  # includes fractal, entropy, reflection planner = AdaptiveLinkPlanner(db_path=args.db) cfg, explanation = planner.plan(args.input, LinkConfig( mod="qpsk", sps=args.sps, symbol_rate=args.symbol_rate, snr_db=args.snr, rrc_alpha=args.alpha, rrc_taps=args.taps, nfft=args.nfft, cp_len=args.cp ), analysis, snr_db=args.snr)
+#
+# def cmd_learn(args: argparse.Namespace) -> None: """ Run multiple episodes on the same input (or a seed list) to let the RL agent adapt. """ engine = MirrorCastEngine() planner = AdaptiveLinkPlanner(db_path=args.db) texts = [args.input] if args.input else [
+#         "industrial IoT telemetry window 42 pressure spike",
+#         "AR/VR immersive stream scene: waterfall shimmer",
+#         "assistive comms: phrasebook quick intent",
+#         "healthcare vitals batch 28dB link margin"
+#     ] for ep in range(args.episodes): t = texts[ep % len(texts)] analysis = engine.cast(t) cfg, explanation = planner.plan(t, LinkConfig(snr_db=args.snr, nfft=args.nfft, cp_len=args.cp), analysis, snr_db=args.snr) modem = Modem(cfg) payload = t.encode("utf-8") tx = modem.transmit(payload) ch = modem.channel_awgn(tx) rx_bytes, info = modem.receive(ch) decode_ok = bool(info.get("ok")) harmony = engine.love.infuse(t)["harmony_index"] planner.reward_and_record(t, cfg, explanation, decode_ok, args.snr, harmony, len(payload), len(rx_bytes)) print(json.dumps({ "episode": ep+1, "text_sig": hashlib.sha256(t.encode()).hexdigest()[:12], "config": cfg.dict, "decode_ok": decode_ok }, indent=2)) print(f"Learning complete. DB at {args.db}")
+#
+# def build_parser() -> argparse.ArgumentParser: p = argparse.ArgumentParser(description="Mirror Cast Enhanced — Neuro-Symbolic Adaptive Link") sub = p.add_subparsers(dest="cmd", required=True)
+#
+# def main(): parser = build_parser() args = parser.parse_args() args.func(args)
+#
+# if name == "main": main()
+#

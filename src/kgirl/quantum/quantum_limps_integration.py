@@ -25,15 +25,16 @@ LIMPS_PATH = Path(__file__).parent / "9xdSq-LIMPS-FemTO-R1C"
 sys.path.insert(0, str(LIMPS_PATH))
 
 # Import Quantum Knowledge System components
-from quantum_holographic_knowledge_synthesis import (
+from kgirl.quantum.quantum_holographic_knowledge_synthesis import (
     KnowledgeQuantum, DataSourceType, QuantumDimension,
     HolographicEncoding, EmergentPattern
 )
-from quantum_knowledge_processing import (
-    ChaosRaggedLearningModule, OrwellsEggedStructuringModule,
-    HolographicQualiaEncoder, CoherenceResonanceCompleter
+from kgirl.quantum.quantum_knowledge_processing import (
+    ChaosRaggedLearningModule, OrwellsEggedStructure, HolographicQualiaEncoder,
 )
-from quantum_knowledge_database import QuantumHolographicKnowledgeDatabase
+from kgirl.quantum.quantum_knowledge_database import CoherenceResonanceCompleter
+OrwellsEggedStructuringModule = OrwellsEggedStructure   # former name, kept for importers
+from kgirl.quantum.quantum_knowledge_database import QuantumHolographicKnowledgeDatabase
 
 # Import LIMPS components
 try:
