@@ -35,7 +35,7 @@ class HoloMemoryTests(unittest.TestCase):
         s = m.summary()
         self.assertEqual(s["leaves"], 6)                     # one leaf per true cluster
         self.assertGreater(s["splits_rejected_by_mdl"], 0)   # uniform tokens inside a cluster: no further split
-        p, _ = m.distribution(m.project(h[5000:]))
+        p, _ = m.distribution(m.project(h[5000:]), beta=4.0)      # query β is fitted in real runs
         self.assertTrue(np.allclose(p.sum(1), 1.0, atol=1e-5))
         nll = -np.log(p[np.arange(1000), y[5000:]]).mean()
         self.assertLess(nll, math.log(5) + 0.05)
@@ -65,6 +65,10 @@ class HoloMemoryTests(unittest.TestCase):
         nll1 = -np.log(p1[rows, y[2500:]]).mean()
         self.assertAlmostEqual(nll0, math.log(8), delta=0.05)
         self.assertLess(nll1, nll0 - 0.2)
+        p2, _ = m.distribution(m.project(h[2500:]), knn_eta=0.9, tau=0.05)      # exact neighbours
+        nll2 = -np.log(p2[rows, y[2500:]]).mean()
+        self.assertLess(nll2, nll1)                                             # kNN beats its HRR approximation
+        self.assertTrue(np.allclose(p2.sum(1), 1.0, atol=1e-5))
 
     def test_deterministic_save_load_and_fractal_telemetry(self):
         from kgirl.tauls.holo import HoloMemory, MemoryConfig

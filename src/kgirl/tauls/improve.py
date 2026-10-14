@@ -32,7 +32,7 @@ import torch.nn.functional as F
 
 from . import chaos
 from .data import TokenData
-from .holo import ETAS, HoloMemory, MemoryConfig, entropy, fit_gate, gate, mixed_nll
+from .holo import SETTINGS, HoloMemory, MemoryConfig, entropy, fit_gate, gate, mixed_nll
 from .model import TAULS
 
 
@@ -71,12 +71,14 @@ def collect(model: TAULS, mem: HoloMemory, data: TokenData, split: str, max_toke
 
 @torch.no_grad()
 def token_stats(model: TAULS, mem: HoloMemory, data: TokenData, split: str, max_tokens: int, batch: int,
-                device: torch.device, etas=ETAS) -> dict[float, dict[str, np.ndarray]]:
-    """Per validation token: p_LM(y), H_LM and, for each η, p_mem(y), H_mem."""
+                device: torch.device, settings=SETTINGS) -> dict[tuple, dict[str, np.ndarray]]:
+    """Per validation token: p_LM(y), H_LM and, for each memory setting (β, η, κ, τ), p_mem(y), H_mem."""
     model.eval()
+    betas = tuple(sorted({s[0] for s in settings}))
+    taus = tuple(sorted({s[3] for s in settings if s[2] > 0}))
     lm_t, lm_h = [], []
-    mem_t = {e: [] for e in etas}
-    mem_h = {e: [] for e in etas}
+    mem_t = {s: [] for s in settings}
+    mem_h = {s: [] for s in settings}
     for x, y in data.sequential(split, batch, model.cfg.ctx, max_tokens):
         h = model.features(torch.from_numpy(x).to(device))
         p = torch.softmax(model.logits_of(h).float(), -1).reshape(-1, mem.vocab).cpu().numpy()
@@ -84,13 +86,18 @@ def token_stats(model: TAULS, mem: HoloMemory, data: TokenData, split: str, max_
         rows = np.arange(len(yy))
         lm_t.append(p[rows, yy])
         lm_h.append(entropy(p))
-        z = mem.project(h.float().cpu().numpy())
-        for e in etas:
-            pm, _ = mem.distribution(z, eta=e)
-            mem_t[e].append(pm[rows, yy])
-            mem_h[e].append(entropy(pm))
+        comp = mem.components(mem.project(h.float().cpu().numpy()), betas=betas, taus=taus)
+        for st in settings:
+            pm = mem.mix(comp, *st)
+            mem_t[st].append(pm[rows, yy])
+            mem_h[st].append(entropy(pm))
     base = {"p_lm_t": np.concatenate(lm_t), "h_lm": np.concatenate(lm_h)}
-    return {e: {**base, "p_mem_t": np.concatenate(mem_t[e]), "h_mem": np.concatenate(mem_h[e])} for e in etas}
+    return {st: {**base, "p_mem_t": np.concatenate(mem_t[st]), "h_mem": np.concatenate(mem_h[st])} for st in settings}
+
+
+def memory_kwargs(g: dict) -> dict:
+    """The fitted memory setting as HoloMemory.distribution keyword arguments."""
+    return {"beta": g.get("beta"), "eta": g.get("eta", 0.0), "knn_eta": g.get("knn_eta", 0.0), "tau": g.get("tau", 0.05)}
 
 
 def score(stats: dict[float, dict[str, np.ndarray]]) -> dict[str, Any]:
@@ -98,12 +105,17 @@ def score(stats: dict[float, dict[str, np.ndarray]]) -> dict[str, Any]:
     n = len(next(iter(stats.values()))["p_lm_t"])
     a, b = np.arange(n) < n // 2, np.arange(n) >= n // 2
     g = fit_gate(stats, a)
-    s = stats[g["eta"]]
+    s = stats[(g["beta"], g["eta"], g["knn_eta"], g["tau"])]
     w = gate(s["h_lm"][b], s["h_mem"][b], g["prior"], g["temp"])
     lm = float(-np.log(np.clip(s["p_lm_t"][b], 1e-30, None)).mean())
     mem_only = float(-np.log(np.clip(s["p_mem_t"][b], 1e-30, None)).mean())
     mix = float(mixed_nll(s["p_lm_t"][b], s["p_mem_t"][b], w).mean())
-    return {"tokens_fit": int(a.sum()), "tokens_report": int(b.sum()), "gate": {k: g[k] for k in ("eta", "prior", "temp")},
+    # memory-only NLL of every setting on half B: which ingredients carry information
+    per_setting = {f"beta={st[0]:g} eta={st[1]:g} knn={st[2]:g} tau={st[3]:g}":
+                   float(-np.log(np.clip(v["p_mem_t"][b], 1e-30, None)).mean()) for st, v in stats.items()}
+    return {"tokens_fit": int(a.sum()), "tokens_report": int(b.sum()),
+            "gate": {k: g[k] for k in ("beta", "eta", "knn_eta", "tau", "prior", "temp")},
+            "memory_only_by_setting": per_setting,
             "nll_lm": lm, "nll_memory_only": mem_only, "nll_mixed": mix,
             "bits_per_token_gain": (lm - mix) / math.log(2), "mean_memory_weight": float(w.mean())}
 
@@ -154,7 +166,7 @@ def distil(model: TAULS, mem: HoloMemory, g: dict, data: TokenData, ic: ImproveC
         with torch.no_grad():
             lp = logits.reshape(-1, logits.shape[-1])[pos_t]
             p_lm = torch.softmax(lp, -1).cpu().numpy()
-            p_mem, _ = mem.distribution(mem.project(flat_h[pos_t].float().cpu().numpy()), eta=g["eta"])
+            p_mem, _ = mem.distribution(mem.project(flat_h[pos_t].float().cpu().numpy()), **memory_kwargs(g))
             w = gate(entropy(p_lm), entropy(p_mem), g["prior"], g["temp"])[:, None]
             teacher = torch.from_numpy(((1 - w) * p_lm + w * p_mem).astype(np.float32)).to(device)
         logq = torch.log_softmax(logits.reshape(-1, logits.shape[-1])[pos_t], -1)
@@ -245,7 +257,7 @@ def generate_with_memory(model: TAULS, mem: HoloMemory, g: dict, prompt: list[in
         if cache.pos >= model.cfg.ctx:
             break
         p_lm = torch.softmax(model.logits_of(h).float(), -1).cpu().numpy()[None]
-        p_mem, _ = mem.distribution(mem.project(h.float().cpu().numpy()[None]), eta=g.get("eta", 0.0))
+        p_mem, _ = mem.distribution(mem.project(h.float().cpu().numpy()[None]), **memory_kwargs(g))
         w = gate(entropy(p_lm), entropy(p_mem), g.get("prior", 0.1), g.get("temp", 1.0))[:, None]
         p = (1 - w) * p_lm + w * p_mem
         logits = torch.from_numpy(np.log(np.clip(p[0], 1e-30, None)).astype(np.float32))

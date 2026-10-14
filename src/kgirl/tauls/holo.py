@@ -58,7 +58,9 @@ class MemoryConfig:
     branching: int = 8          # children per split b
     max_depth: int = 4          # deepest level L (root = 0)
     min_leaf: int = 32          # a split needs ≥ branching · min_leaf states
-    beta: float = 4.0           # Dirichlet back-off strength
+    beta: float = 4.0           # Dirichlet strength used by the MDL split test at build time
+    query_beta: float = 256.0   # Dirichlet back-off strength at query time (fitted by `improve`/`memory`)
+    store_keys: bool = True     # keep float16 keys in DFS leaf order for exact kNN (N·r·2 bytes)
     kmeans_iters: int = 10
     mdl: bool = True            # information-gated splitting (False: split whenever size allows)
     seed: float = 0.6180
@@ -105,6 +107,7 @@ class HoloMemory:
         self.centroid, self.depth, self.parent, self.children = [], [], [], []
         self.count, self.radius, self.tok, self.cnt, self.trace = [], [], [], [], []
         self.splits_rejected = 0
+        leaf_idx: dict[int, np.ndarray] = {}
         stack = [(np.arange(len(nxt)), 0, -1, self.unigram)]
         while stack:
             idx, d, par, p_par = stack.pop()
@@ -126,14 +129,23 @@ class HoloMemory:
             p_node = p_par * (c.beta / (n + c.beta))
             p_node[toks] += cnts / (n + c.beta)
             if d >= c.max_depth or n < c.branching * c.min_leaf:
+                leaf_idx[node] = idx
                 continue
             labels = self._kmeans(k[idx], c.branching)
             parts = [idx[labels == j] for j in range(c.branching)]
+            small = [q for q in parts if len(q) < c.min_leaf]
             parts = [q for q in parts if len(q) >= c.min_leaf]
+            if small and parts:                          # fold tiny clusters into the nearest kept part
+                cen_k = np.stack([k[q].mean(0) for q in parts])
+                for q in small:
+                    j = int(np.argmin(((cen_k - k[q].mean(0)) ** 2).sum(1)))
+                    parts[j] = np.concatenate([parts[j], q])
             if len(parts) < 2:
+                leaf_idx[node] = idx
                 continue
             if c.mdl and not self._split_pays(parts, nxt, p_node, n):
                 self.splits_rejected += 1
+                leaf_idx[node] = idx
                 continue
             for q in reversed(parts):
                 stack.append((q, d + 1, node, p_node))
@@ -142,8 +154,35 @@ class HoloMemory:
         self.depth = np.asarray(self.depth)
         self.radius = np.asarray(self.radius)
         self.trace = np.stack(self.trace)
+        self._layout(leaf_idx, k, nxt)
         self.built = True
         return self
+
+    def _layout(self, leaf_idx: dict, k: np.ndarray, nxt: np.ndarray) -> None:
+        """States in DFS leaf order, so every node's descendants are the slice span[node] of key16/ytok."""
+        n_nodes = len(self.children)
+        self.span = np.zeros((n_nodes, 2), np.int64)
+        order, pos = [], 0
+        stack = [(0, False)]
+        while stack:
+            node, done = stack.pop()
+            if done:
+                self.span[node, 1] = pos
+                continue
+            self.span[node, 0] = pos
+            stack.append((node, True))
+            if self.children[node]:
+                stack.extend((ch, False) for ch in reversed(self.children[node]))
+            else:
+                order.append(leaf_idx[node])
+                pos += len(leaf_idx[node])
+        perm = np.concatenate(order)
+        if self.cfg.store_keys:
+            self.key16 = k[perm].astype(np.float16)
+            self.ytok = nxt[perm].astype(np.int32)
+        else:
+            self.key16 = np.zeros((0, self.cfg.rank), np.float16)
+            self.ytok = np.zeros(0, np.int32)
 
     def _kmeans(self, x: np.ndarray, b: int) -> np.ndarray:
         """Deterministic k-means: farthest-point init from the point nearest the mean, then Lloyd."""
@@ -203,36 +242,78 @@ class HoloMemory:
         last = (path >= 0).sum(axis=1) - 1
         return path[np.arange(len(path)), last]
 
-    def distribution(self, z: np.ndarray, eta: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
-        """p_mem (M, V) float32 for raw projections z, and the leaf of each query."""
+    def components(self, z: np.ndarray, betas=(None,), taus=(0.05,), knn_k: int = 32) -> dict[str, Any]:
+        """The mixture's ingredients for raw projections z (each row a distribution over the vocabulary):
+
+            hier[β]  hierarchical Dirichlet back-off along the routed path
+            holo     holographic leaf vote normalise(max(⟨F⁻¹(conj F(q) ⊙ T̂_leaf), v_y⟩, 0)); leaf counts where
+                     the vote has no positive mass
+            knn[τ]   exact kNN over the leaf's parent subtree: top-k cosine neighbours, weights softmax(sim/τ)
+        """
         k = self.keys(z)
         path = self.route(k)
         M = len(k)
-        beta = self.cfg.beta
-        p = np.tile(self.unigram.astype(np.float32), (M, 1))
-        for d in range(path.shape[1]):
-            col = path[:, d]
-            for node in np.unique(col[col >= 0]):
-                rows = np.nonzero(col == node)[0]
-                n = self.count[node]
-                p[rows] *= beta / (n + beta)
-                p[np.ix_(rows, self.tok[node])] += (self.cnt[node] / (n + beta)).astype(np.float32)
         leaf = self.leaves(path)
-        if eta > 0:
-            qf = np.fft.rfft(k, axis=1)
-            for node in np.unique(leaf):
-                rows = np.nonzero(leaf == node)[0]
-                r = np.fft.irfft(np.conj(qf[rows]) * self.trace[node], n=self.cfg.rank, axis=1)
-                toks = self.tok[node]
-                s = np.maximum(r @ self.codes[toks].T, 0.0)
-                tot = s.sum(axis=1, keepdims=True)
-                ok = tot[:, 0] > 0
-                if not ok.any():
-                    continue
-                rr = rows[ok]
-                p[rr] *= (1.0 - eta)
-                p[np.ix_(rr, toks)] += (eta * s[ok] / tot[ok]).astype(np.float32)
-        return p, leaf
+        out: dict[str, Any] = {"leaf": leaf, "hier": {}, "knn": {}}
+        for beta in betas:
+            beta = self.cfg.query_beta if beta is None else float(beta)
+            p = np.tile(self.unigram.astype(np.float32), (M, 1))
+            for d in range(path.shape[1]):
+                col = path[:, d]
+                for node in np.unique(col[col >= 0]):
+                    rows = np.nonzero(col == node)[0]
+                    n = self.count[node]
+                    p[rows] *= beta / (n + beta)
+                    p[np.ix_(rows, self.tok[node])] += (self.cnt[node] / (n + beta)).astype(np.float32)
+            out["hier"][beta] = p
+        holo = np.zeros((M, self.vocab), np.float32)
+        qf = np.fft.rfft(k, axis=1)
+        for node in np.unique(leaf):
+            rows = np.nonzero(leaf == node)[0]
+            toks = self.tok[node]
+            r = np.fft.irfft(np.conj(qf[rows]) * self.trace[node], n=self.cfg.rank, axis=1)
+            s = np.maximum(r @ self.codes[toks].T, 0.0)
+            tot = s.sum(axis=1, keepdims=True)
+            counts = (self.cnt[node] / self.cnt[node].sum()).astype(np.float32)
+            vote = np.where(tot > 0, s / np.maximum(tot, 1e-30), counts[None, :])
+            holo[np.ix_(rows, toks)] = vote
+        out["holo"] = holo
+        if len(self.ytok):
+            scope = np.array([self.parent[n] if self.parent[n] >= 0 else n for n in leaf])
+            for tau in taus:
+                out["knn"][float(tau)] = np.zeros((M, self.vocab), np.float32)
+            for node in np.unique(scope):
+                rows = np.nonzero(scope == node)[0]
+                a, b = self.span[node]
+                keys = self.key16[a:b].astype(np.float32)
+                sims = k[rows] @ keys.T
+                kk = min(knn_k, b - a)
+                top = np.argpartition(-sims, kk - 1, axis=1)[:, :kk]
+                ts = np.take_along_axis(sims, top, axis=1)
+                toks = self.ytok[a:b][top]
+                for tau in taus:
+                    w = np.exp((ts - ts.max(axis=1, keepdims=True)) / tau)
+                    w /= w.sum(axis=1, keepdims=True)
+                    pk = out["knn"][float(tau)]
+                    np.add.at(pk, (np.repeat(rows, kk), toks.ravel()), w.ravel().astype(np.float32))
+        return out
+
+    @staticmethod
+    def mix(comp: dict[str, Any], beta: float | None, eta: float = 0.0, knn_eta: float = 0.0,
+            tau: float = 0.05) -> np.ndarray:
+        """p_mem = (1 − κ)·[(1 − η)·hier[β] + η·holo] + κ·knn[τ]."""
+        hier = comp["hier"][beta] if beta in comp["hier"] else next(iter(comp["hier"].values()))
+        p = hier if eta == 0 else (1 - eta) * hier + eta * comp["holo"]
+        if knn_eta > 0 and comp["knn"]:
+            p = (1 - knn_eta) * p + knn_eta * comp["knn"][float(tau)]
+        return p
+
+    def distribution(self, z: np.ndarray, eta: float = 0.0, beta: float | None = None, knn_eta: float = 0.0,
+                     tau: float = 0.05, knn_k: int = 32) -> tuple[np.ndarray, np.ndarray]:
+        """p_mem (M, V) float32 for raw projections z under one setting, and the leaf of each query."""
+        comp = self.components(z, betas=(beta,), taus=(tau,) if knn_eta > 0 else (), knn_k=knn_k)
+        b = self.cfg.query_beta if beta is None else float(beta)
+        return self.mix(comp, b, eta, knn_eta, tau), comp["leaf"]
 
     # ------------------------------------------------------------------ telemetry
 
@@ -272,6 +353,7 @@ class HoloMemory:
         np.savez_compressed(path, centroid=self.centroid, depth=self.depth, parent=np.asarray(self.parent),
                             count=self.count, radius=self.radius, trace=self.trace, mu=self.mu,
                             unigram=self.unigram, tok=np.concatenate(self.tok), cnt=np.concatenate(self.cnt),
+                            span=self.span, key16=self.key16, ytok=self.ytok,
                             offs=offs, meta=np.frombuffer(json.dumps(
                                 {"dim": self.dim, "vocab": self.vocab, "cfg": self.cfg.to_dict(),
                                  "splits_rejected": self.splits_rejected}).encode(), np.uint8))
@@ -284,6 +366,7 @@ class HoloMemory:
         m.centroid, m.depth, m.count, m.radius = a["centroid"], a["depth"], a["count"], a["radius"]
         m.trace, m.mu, m.unigram = a["trace"], a["mu"], a["unigram"]
         m.parent = a["parent"].tolist()
+        m.span, m.key16, m.ytok = a["span"], a["key16"], a["ytok"]
         offs = a["offs"]
         m.tok = [a["tok"][offs[i]:offs[i + 1]] for i in range(len(offs) - 1)]
         m.cnt = [a["cnt"][offs[i]:offs[i + 1]] for i in range(len(offs) - 1)]
@@ -311,25 +394,29 @@ def gate(h_lm: np.ndarray, h_mem: np.ndarray, prior: float, temp: float) -> np.n
     return 1.0 / (1.0 + np.exp(-z))
 
 
-PRIORS = (0.02, 0.05, 0.1, 0.2, 0.3, 0.5)
+PRIORS = (0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7)
 TEMPS = (0.25, 0.5, 1.0, 2.0, math.inf)
-ETAS = (0.0, 0.25, 0.5)
+BETAS = (16.0, 256.0, 4096.0)
+ETAS = (0.0, 0.25)
+KNN = ((0.0, 0.05), (0.5, 0.03), (0.5, 0.1), (0.8, 0.03), (0.8, 0.1))   # (κ, τ)
+SETTINGS = tuple((b, e, kn, t) for b in BETAS for e in ETAS for kn, t in KNN)
 
 
 def mixed_nll(p_lm_t: np.ndarray, p_mem_t: np.ndarray, w: np.ndarray) -> np.ndarray:
     return -np.log(np.clip((1 - w) * p_lm_t + w * p_mem_t, 1e-30, None))
 
 
-def fit_gate(stats: dict[float, dict[str, np.ndarray]], fit: np.ndarray) -> dict[str, float]:
-    """Grid search of (η, π, T) minimising mean NLL on the `fit` rows.
+def fit_gate(stats: dict[tuple, dict[str, np.ndarray]], fit: np.ndarray) -> dict[str, float]:
+    """Grid search of the memory setting (β, η, κ, τ) and the gate (π, T) minimising mean NLL on `fit` rows.
 
-    stats[η] holds per-token arrays: p_lm_t, p_mem_t (target probabilities), h_lm, h_mem (entropies, nats)."""
+    stats[setting] holds per-token arrays: p_lm_t, p_mem_t (target probabilities), h_lm, h_mem (nats)."""
     best = None
-    for eta, s in stats.items():
+    for (beta, eta, knn_eta, tau), s in stats.items():
         for prior in PRIORS:
             for temp in TEMPS:
                 w = gate(s["h_lm"][fit], s["h_mem"][fit], prior, temp)
                 nll = float(mixed_nll(s["p_lm_t"][fit], s["p_mem_t"][fit], w).mean())
                 if best is None or nll < best["nll"]:
-                    best = {"eta": eta, "prior": prior, "temp": temp, "nll": nll}
+                    best = {"beta": beta, "eta": eta, "knn_eta": knn_eta, "tau": tau,
+                            "prior": prior, "temp": temp, "nll": nll}
     return best
