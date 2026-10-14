@@ -201,6 +201,46 @@ python -m kgirl.tauls improve --ckpt runs/tauls/small/best.pt --data runs/tauls/
 - `improved.pt` reloads.
 - Memory-augmented generation is reproducible.
 
+**L0, first real run** (CPU, this container):
+
+- **Model:** a 2.5M-parameter TA-ULS (d = 192, 4 layers, ctx 256), trained 25 minutes on this repo's code and docs. The corpus has 1.36M train and 128k validation tokens with a 2,048-token BPE vocabulary. Validation loss was 2.036, or 1.055 bits/byte.
+- **Memory:** 1,048,576 hidden states with key rank 64 and branching 8.
+- **Gate:** fitted on validation half A. All results below are on half B: 32,768 tokens, of which 3,455 are *novel* (no 16-gram match in train).
+- **Near-duplicates:** exact-file dedupe leaves vendored copies on both sides of the split, so 89.5 % of half B continues a 16-gram seen verbatim in train. Every result is therefore split into seen and novel positions.
+
+| Memory at inference | Depth | Cells | Fractal D | All of half B, NLL | Novel positions, NLL |
+|---|---|---|---|---|---|
+| LM alone | – | – | – | 1.610 | 2.833 |
+| LM + memory (kNN over the depth-1 cell, ~131k states) | 2 | 73 | 27.9 | 0.886 (+1.04 bits/token) | 2.451 (+0.55 bits/token) |
+| LM + memory (kNN over a 4,096-state scope) | 2 | 73 | – | 1.152 (+0.66) | 2.570 (+0.38) |
+| Tree counts alone, best β (no kNN) | 4 | 2,746 | 24.5 | memory-only 5.13 vs unigram 6.49 | – |
+
+- **Holographic vote:** with exact kNN in the mix, it made the memory-only score slightly worse (2.52 vs 2.49 nats).
+- **Gate setting:** the fitted gate always chose β = 4096, κ = 0.8 and τ = 0.03.
+- **Intrinsic dimension:** the hidden states measure D ≈ 24–28, so tree cells alone are broad regions, not neighbourhoods. The value is in the exact neighbours: a larger search scope helps, and a deeper tree does not.
+
+| Distillation into the plain model (150 steps per round) | All of half B | Novel positions |
+|---|---|---|
+| Baseline | 1.610 | 2.833 |
+| **Control:** the same 150 steps, α = 0 (plain extra training) | 1.515 | 2.771 |
+| **KGIRL round 1:** α = 0.5, depth 2 | 1.508 | **2.720** |
+| KGIRL round 2: depth 3, continuing from round 1 | 1.481 | 2.739 (worse) |
+| KGIRL round 3: depth 4 | 1.473 | 2.760 (worse) |
+
+**What the distillation results show:**
+
+- **Round 1:** distilling the memory roughly doubles the improvement on novel text compared with plain extra training. The memory adds −0.051 nats on top of the control's −0.062. This is a single run, not yet replicated across seeds.
+- **Rounds 2–3:** the gains came only from copied text. The rounds were accepted under the original rule, which only required half B to improve.
+- **Default rule now:** `accept_on` defaults to `both`, which would have rejected rounds 2 and 3.
+
+**Next measurement:** seed replication of round 1 at `small` scale on the desktop. Then rounds that keep depth 2, since a deeper tree did not help the kNN.
+
+**EFL reading (L2):**
+
+- The hidden-state geometry measures a high, stable fractal dimension (≈ 24–28; R² 0.995 across levels).
+- Coarse-to-fine partitioning alone cannot localise neighbours in a space like that. Exact neighbour retrieval can, and it carries real information even on novel text.
+- Read this way, the coarse cells are the right unit for *counts* and *routing*, and the fine structure lives in the exact geometry.
+
 ## 9. Next
 
 1. Run §6 on the desktop. Keep whichever architecture wins on bits/byte.

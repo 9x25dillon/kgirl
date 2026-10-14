@@ -61,7 +61,8 @@ class MemoryConfig:
     beta: float = 4.0           # Dirichlet strength used by the MDL split test at build time
     query_beta: float = 256.0   # Dirichlet back-off strength at query time (fitted by `improve`/`memory`)
     store_keys: bool = True     # keep float16 keys in DFS leaf order for exact kNN (N·r·2 bytes)
-    knn_scope_states: int = 4096  # kNN searches the smallest ancestor of the leaf holding at least this many
+    knn_scope_states: int = 131072  # kNN searches the smallest ancestor of the leaf holding at least this many
+                                    # (measured on 1M states: ~131k → +0.55 bits/token on novel text, 4096 → +0.38)
     kmeans_iters: int = 10
     mdl: bool = True            # information-gated splitting (False: split whenever size allows)
     seed: float = 0.6180
@@ -303,9 +304,10 @@ class HoloMemory:
         """Smallest ancestor (or the leaf itself) whose subtree holds ≥ knn_scope_states states.
 
         Searching only the leaf's parent made neighbour quality fall as the tree deepened (measured: depth 2
-        +1.04 bits/token, depth 3 +0.65); a fixed-size scope decouples kNN from the tree's depth.
+        +1.04 bits/token, depth 3 +0.65); a fixed-size scope decouples kNN from the tree's depth. Bigger scopes
+        find better neighbours, so the default is large; on a GPU or with patience, use the whole database.
         """
-        need = getattr(self.cfg, "knn_scope_states", 4096)
+        need = getattr(self.cfg, "knn_scope_states", 131072)
         while self.parent[node] >= 0 and self.span[node, 1] - self.span[node, 0] < need:
             node = self.parent[node]
         return node
