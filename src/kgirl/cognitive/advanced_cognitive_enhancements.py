@@ -410,6 +410,10 @@ class AdvancedQuantumClassicalBridge:
         
         return features
     
+    def quantum_guided_attention(self, classical_data: torch.Tensor, quantum_features: torch.Tensor) -> torch.Tensor:
+        """Public entry point (callers in UnifiedEmergentOrchestrator use this name)."""
+        return self._quantum_guided_attention(classical_data, quantum_features)
+
     def _quantum_guided_attention(self, 
                                  classical_data: torch.Tensor,
                                  quantum_features: torch.Tensor) -> torch.Tensor:
@@ -428,9 +432,14 @@ class AdvancedQuantumClassicalBridge:
         
         # Project quantum features to match classical data dimension
         if feat_dim != data_dim:
-            # Simple linear projection
-            projection_matrix = torch.randn(feat_dim, data_dim) * 0.1
-            quantum_projected = torch.matmul(quantum_features, projection_matrix)
+            # Fixed linear projection per (feat_dim, data_dim): chaos-seeded once, so repeated calls agree
+            cache = self.__dict__.setdefault("_projection_cache", {})
+            key = (feat_dim, data_dim)
+            if key not in cache:
+                from kgirl.evolve.chaos import ChaosGenerator
+                cache[key] = torch.tensor(ChaosGenerator(seed=0.577).normal(0.0, 0.1, (feat_dim, data_dim)),
+                                          dtype=quantum_features.dtype)
+            quantum_projected = torch.matmul(quantum_features, cache[key])
         else:
             quantum_projected = quantum_features
         

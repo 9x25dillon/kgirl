@@ -17,11 +17,24 @@ from __future__ import annotations
 
 import heapq
 import math
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import networkx as nx
 import numpy as np
+from scipy import fft
 from scipy import signal as sp_signal
+
+from kgirl.evolve.chaos import ChaosGenerator
+
+# All stochastic choices come from deterministic logistic-map chaos (reproducible runs, no PRNG).
+_rng = ChaosGenerator(seed=0.4123)
+
+
+def reseed(seed: float) -> None:
+    """Restart the module's chaos stream; same seed, same run."""
+    global _rng
+    _rng = ChaosGenerator(seed=seed)
 
 
 class QuantumInspiredOptimizer:
@@ -44,18 +57,18 @@ class QuantumInspiredOptimizer:
             xm = x.copy(); xm[i] -= eps
             grad[i] = (float(cost_function(xp)) - float(cost_function(xm))) / (2 * eps)
         # Add small noise to simulate quantum fluctuation in estimation
-        grad += np.random.normal(0.0, 1e-4, size=grad.shape)
+        grad += _rng.normal(0.0, 1e-4, size=grad.shape)
         return grad
 
     def quantum_annealing_optimization(self, cost_function, max_iter: int = 200) -> Dict[str, Any]:
         """Quantum annealing style search with stochastic tunneling."""
         best_solution: Optional[np.ndarray] = None
         best_cost = float("inf")
-        current = np.random.normal(0, 1, self.num_qubits)
+        current = _rng.normal(0, 1, self.num_qubits)
 
         for iteration in range(max_iter):
             tunneling_prob = math.exp(-iteration / max(1, max_iter))
-            if np.random.random() < tunneling_prob:
+            if _rng.random() < tunneling_prob:
                 candidate = self._quantum_tunneling()
             else:
                 candidate = self._quantum_gradient_step(cost_function)
@@ -67,7 +80,7 @@ class QuantumInspiredOptimizer:
                 current = candidate
             else:
                 # Metropolis-like accept with small probability
-                if np.random.random() < math.exp(-(c - best_cost)):
+                if _rng.random() < math.exp(-(c - best_cost)):
                     current = candidate
 
         return {
@@ -78,7 +91,7 @@ class QuantumInspiredOptimizer:
 
     def _quantum_tunneling(self) -> np.ndarray:
         """Quantum tunneling to escape local minima"""
-        return np.random.normal(0, 1, self.num_qubits)
+        return _rng.normal(0, 1, self.num_qubits)
 
 import numpy as np
 import torch
@@ -110,7 +123,7 @@ class QuantumInspiredOptimizer:
             # Quantum tunneling probability
             tunneling_prob = np.exp(-iteration / max_iter)
             
-            if np.random.random() < tunneling_prob:
+            if _rng.random() < tunneling_prob:
                 # Quantum tunneling - explore new regions
                 candidate = self._quantum_tunneling()
             else:
@@ -131,13 +144,13 @@ class QuantumInspiredOptimizer:
     
     def _quantum_tunneling(self) -> np.ndarray:
         """Quantum tunneling to escape local minima"""
-        return np.random.normal(0, 1, self.num_qubits)
+        return _rng.normal(0, 1, self.num_qubits)
     
     def _quantum_gradient_step(self, cost_function) -> np.ndarray:
         """Gradient step with quantum fluctuations"""
-        current = np.random.normal(0, 1, self.num_qubits)
+        current = _rng.normal(0, 1, self.num_qubits)
         gradient = self._estimate_gradient(cost_function, current)
-        quantum_noise = np.random.normal(0, 0.05, self.num_qubits)
+        quantum_noise = _rng.normal(0, 0.05, self.num_qubits)
         return current - 0.01 * gradient + quantum_noise
 
     def _estimate_gradient(self, cost_function, point: np.ndarray, epsilon: float = 1e-6) -> np.ndarray:
@@ -179,8 +192,8 @@ class SwarmCognitiveNetwork:
         agents: List[Dict[str, Any]] = []
         low, high = self.search_space
         for i in range(self.num_agents):
-            position = np.random.uniform(low, high, self.dim)
-            velocity = np.random.uniform(-1, 1, self.dim)
+            position = _rng.uniform(low, high, self.dim)
+            velocity = _rng.uniform(-1, 1, self.dim)
             agents.append({
                 "id": i,
                 "position": position,
@@ -239,8 +252,8 @@ class SwarmCognitiveNetwork:
             return
         gbest = self.global_best["position"]
         for agent in self.agents:
-            r1 = np.random.random(self.dim)
-            r2 = np.random.random(self.dim)
+            r1 = _rng.random(self.dim)
+            r2 = _rng.random(self.dim)
             cognitive = self.c_cog * r1 * (agent["personal_best"] - agent["position"])
             social = self.c_soc * r2 * (gbest - agent["position"])
             agent["velocity"] = self.w_inertia * agent["velocity"] + cognitive + social
@@ -331,8 +344,8 @@ class SwarmCognitiveNetwork:
         """Initialize swarm agents with random positions and velocities"""
         agents = []
         for i in range(self.num_agents):
-            position = np.random.uniform(*self.search_space, 10)  # 10-dimensional space
-            velocity = np.random.uniform(-1, 1, 10)
+            position = _rng.uniform(*self.search_space, 10)  # 10-dimensional space
+            velocity = _rng.uniform(-1, 1, 10)
             agents.append({
                 'id': i,
                 'position': position,
@@ -469,7 +482,7 @@ class SwarmCognitiveNetwork:
         
         for agent in self.agents:
             # Update velocity
-            r1, r2 = np.random.random(2)
+            r1, r2 = _rng.random(2)
             
             cognitive_component = c1 * r1 * (agent['personal_best'] - agent['position'])
             social_component = c2 * r2 * (self.global_best['position'] - agent['position'])
@@ -503,25 +516,27 @@ class NeuromorphicProcessor:
     def __init__(self, num_neurons: int = 1000):
         self.num_neurons = num_neurons
         self.neuron_states = self._initialize_neurons()
+        # Izhikevich initial condition u₀ = b·v₀ (b = 0.2); u₀ = 0 drives every neuron into hyperpolarisation
+        self.neuron_states["recovery_variables"] = 0.2 * self.neuron_states["membrane_potentials"]
         self.synaptic_weights = self._initialize_synapses()
         self.spike_history: List[np.ndarray] = []
 
     def _initialize_neurons(self) -> Dict[str, np.ndarray]:
         return {
-            "membrane_potentials": np.random.uniform(-70, -50, self.num_neurons),
+            "membrane_potentials": _rng.uniform(-70, -50, self.num_neurons),
             "recovery_variables": np.zeros(self.num_neurons),
             "firing_rates": np.zeros(self.num_neurons),
             "adaptation_currents": np.zeros(self.num_neurons),
         }
 
     def _initialize_synapses(self) -> np.ndarray:
-        weights = np.random.normal(0, 0.1, (self.num_neurons, self.num_neurons))
+        weights = _rng.normal(0, 0.1, (self.num_neurons, self.num_neurons))
         self.spike_history = []
         
     def _initialize_neurons(self) -> Dict:
         """Initialize spiking neuron states"""
         return {
-            'membrane_potentials': np.random.uniform(-70, -50, self.num_neurons),
+            'membrane_potentials': _rng.uniform(-70, -50, self.num_neurons),
             'recovery_variables': np.zeros(self.num_neurons),
             'firing_rates': np.zeros(self.num_neurons),
             'adaptation_currents': np.zeros(self.num_neurons)
@@ -529,16 +544,21 @@ class NeuromorphicProcessor:
     
     def _initialize_synapses(self) -> np.ndarray:
         """Initialize synaptic weight matrix with small-world topology"""
-        weights = np.random.normal(0, 0.1, (self.num_neurons, self.num_neurons))
+        weights = _rng.normal(0, 0.1, (self.num_neurons, self.num_neurons))
         
         # Create small-world connectivity
         for i in range(self.num_neurons):
             neighbors = [(i + j) % self.num_neurons for j in range(-5, 6) if j != 0]
             for neighbor in neighbors:
-                weights[i, neighbor] = np.random.normal(0.5, 0.1)
+                weights[i, neighbor] = _rng.normal(0.5, 0.1)
         return weights
 
     def process_spiking_input(self, input_spikes: np.ndarray, timesteps: int = 100) -> Dict[str, Any]:
+        x = np.asarray(input_spikes, dtype=float).ravel()
+        if x.size != self.num_neurons:                  # shorter inputs drive the first neurons; rest get 0
+            fitted = np.zeros(self.num_neurons)
+            fitted[: min(x.size, self.num_neurons)] = x[: self.num_neurons]
+            input_spikes = fitted
         outputs: List[float] = []
         spike_trains: List[np.ndarray] = []
         for _ in range(timesteps):
@@ -556,9 +576,12 @@ class NeuromorphicProcessor:
         }
 
     def _update_neuron_dynamics(self, input_currents: np.ndarray) -> None:
+        """Izhikevich regular-spiking step (dt = 0.5 ms) driven by input plus recurrent current Wᵀs."""
         v = self.neuron_states["membrane_potentials"]
         u = self.neuron_states["recovery_variables"]
-        dv = 0.04 * v**2 + 5 * v + 140 - u + input_currents
+        last = self.neuron_states.get("last_spikes")
+        recurrent = self.synaptic_weights.T @ last.astype(float) if last is not None and last.any() else 0.0
+        dv = 0.04 * v**2 + 5 * v + 140 - u + input_currents + recurrent
         v_new = v + dv * 0.5
         du = 0.02 * (0.2 * v - u)
         u_new = u + du * 0.5
@@ -568,9 +591,12 @@ class NeuromorphicProcessor:
         self.neuron_states["membrane_potentials"] = v_new
         self.neuron_states["recovery_variables"] = u_new
         self.neuron_states["firing_rates"][spiked] += 1
+        self.neuron_states["last_spikes"] = spiked
 
     def _detect_spikes(self) -> np.ndarray:
-        return self.neuron_states["membrane_potentials"] >= 30
+        # v is reset to −65 inside the step, so the spikes of the last step are recorded there
+        last = self.neuron_states.get("last_spikes")
+        return last.copy() if last is not None else np.zeros(self.num_neurons, dtype=bool)
 
     def _update_synaptic_plasticity(self, spikes: np.ndarray) -> None:
         # Simple STDP-like rule on a subset for stability
@@ -603,7 +629,7 @@ class HolographicDataEngine:
     def encode_holographic(self, data: np.ndarray) -> np.ndarray:
         data2d = data.reshape(self.data_dim, self.data_dim)
         data_freq = np.fft.fft2(data2d)
-        random_phase = np.exp(1j * 2 * np.pi * np.random.random((self.data_dim, self.data_dim)))
+        random_phase = np.exp(1j * 2 * np.pi * _rng.random((self.data_dim, self.data_dim)))
         hologram = data_freq * random_phase
         self.holographic_memory += hologram
         return hologram
@@ -757,228 +783,191 @@ class HolographicDataEngine:
 #         return abs(slope)  # Closer to -1.5 indicates criticality
 #
 class HolographicDataEngine:
-    """Holographic data representation and processing"""
-    
-    def __init__(self, data_dim: int = 256):
+    """Holographic data representation and processing.
+
+    encode:  H = F₂(x) ⊙ R with one fixed unit-modulus reference wave R; M ← M + H.
+             Since |R| = 1, |M| = |F₂(Σ x_k)|: the memory keeps the Fourier magnitude of the superposition.
+    recall:  completes NaN entries by alternating projections (Gerchberg–Saxton / error reduction)
+             between "Fourier magnitude = target" and "known entries = input". The target magnitude is
+             that of the stored pattern that best matches the known entries (or |M| if none is kept).
+    associative_recall: normalised cross-correlation template matching of a query against stored patterns.
+    """
+
+    def __init__(self, data_dim: int = 256, max_patterns: int = 64):
         self.data_dim = data_dim
+        self.max_patterns = max_patterns
         self.holographic_memory = np.zeros((data_dim, data_dim), dtype=complex)
-        
+        self.reference_wave = np.exp(2j * np.pi * ChaosGenerator(seed=0.1618, lanes=256).random((data_dim, data_dim)))
+        self._patterns: List[np.ndarray] = []
+
+    def _to_grid(self, data: np.ndarray, fill: float = 0.0) -> np.ndarray:
+        flat = np.full(self.data_dim * self.data_dim, fill, dtype=float)
+        x = np.asarray(data, dtype=float).ravel()
+        flat[: min(flat.size, x.size)] = x[: flat.size]
+        return flat.reshape(self.data_dim, self.data_dim)
+
     def encode_holographic(self, data: np.ndarray) -> np.ndarray:
-        """Encode data into holographic representation"""
-        # Ensure data is the right size
-        if data.size != self.data_dim * self.data_dim:
-            data = np.resize(data, (self.data_dim, self.data_dim))
-        
-        # Convert to frequency domain
-        data_freq = np.fft.fft2(data.reshape(self.data_dim, self.data_dim))
-        
-        # Add random phase for holographic properties
-        random_phase = np.exp(1j * 2 * np.pi * np.random.random((self.data_dim, self.data_dim)))
-        hologram = data_freq * random_phase
-        
-        # Store in memory with interference pattern
+        """Encode data (zero-padded or truncated to data_dim²) and superpose it into memory."""
+        grid = self._to_grid(data)
+        hologram = np.fft.fft2(grid) * self.reference_wave
         self.holographic_memory += hologram
-        
+        self._patterns.append(grid)
+        if len(self._patterns) > self.max_patterns:
+            self._patterns.pop(0)
         return hologram
-    
+
+    def readout(self) -> np.ndarray:
+        """F₂⁻¹(M ⊙ R̄) = Σ x_k: the superposition of everything encoded."""
+        return np.fft.ifft2(self.holographic_memory * np.conj(self.reference_wave)).real
+
     def recall_holographic(self, partial_input: np.ndarray, iterations: int = 10) -> np.ndarray:
-        """Recall complete data from partial input using holographic properties"""
-        
-        # Ensure input is the right size
-        if partial_input.size != self.data_dim * self.data_dim:
-            partial_input = np.resize(partial_input, (self.data_dim, self.data_dim))
-        
-        current_estimate = partial_input.copy()
-        
-        for i in range(iterations):
-            # Transform to holographic space
-            estimate_freq = np.fft.fft2(current_estimate)
-            
-            # Apply memory constraints
-            memory_match = np.abs(estimate_freq - self.holographic_memory)
-            correction = np.exp(1j * np.angle(self.holographic_memory))
-            
-            # Update estimate
-            updated_freq = np.abs(estimate_freq) * correction
-            current_estimate = np.fft.ifft2(updated_freq).real
-            
-            # Enforce known constraints from partial input
-            known_mask = ~np.isnan(partial_input)
-            current_estimate[known_mask] = partial_input[known_mask]
-        
-        return current_estimate
-    
+        """Fill the NaN entries of partial_input; returns an array of the input's shape."""
+        x = np.asarray(partial_input, dtype=float)
+        grid = self._to_grid(x, fill=np.nan)
+        known = ~np.isnan(grid)
+        fill = float(np.nanmean(grid)) if known.any() else 0.0
+        est = np.where(known, grid, fill)
+        if self._patterns:
+            def score(p: np.ndarray) -> float:
+                a, b = p[known], grid[known]
+                if a.size < 2 or a.std() == 0 or b.std() == 0:
+                    return -np.inf
+                return float(np.corrcoef(a, b)[0, 1])
+            best = max(self._patterns, key=score)
+            est[~known] = best[~known]
+            target = np.abs(np.fft.fft2(best))
+        else:
+            target = np.abs(self.holographic_memory)
+        for _ in range(iterations):
+            f = np.fft.fft2(est)
+            est = np.fft.ifft2(target * np.exp(1j * np.angle(f))).real   # magnitude projection
+            est[known] = grid[known]                                    # data projection
+        out = est.ravel()[: x.size] if x.size <= est.size else np.concatenate([est.ravel(), np.zeros(x.size - est.size)])
+        return out.reshape(x.shape)
+
     def associative_recall(self, query: np.ndarray, similarity_threshold: float = 0.8) -> List:
-        """Associative recall based on content similarity"""
-        
-        similarities = []
-        query_flat = query.flatten()
-        
-        # Calculate similarity with stored patterns
-        for i in range(self.data_dim):
-            pattern = self.holographic_memory[i, :].real
-            if len(pattern) == len(query_flat):
-                similarity = np.corrcoef(query_flat, pattern.flatten())[0, 1]
-                
-                if not np.isnan(similarity) and similarity > similarity_threshold:
-                    similarities.append({
-                        'pattern_index': i,
-                        'similarity': similarity,
-                        'content': pattern
-                    })
-        
-        return sorted(similarities, key=lambda x: x['similarity'], reverse=True)
+        """Best normalised cross-correlation (Pearson over each window) of the query in each stored pattern."""
+        from numpy.lib.stride_tricks import sliding_window_view
+        q = np.asarray(query, dtype=float)
+        q = q.reshape(1, -1) if q.ndim == 1 else q
+        qz = q - q.mean()
+        qn = float(np.linalg.norm(qz))
+        results = []
+        for i, p in enumerate(self._patterns):
+            if qn == 0 or q.shape[0] > p.shape[0] or q.shape[1] > p.shape[1]:
+                continue
+            win = sliding_window_view(p, q.shape)
+            wz = win - win.mean(axis=(-2, -1), keepdims=True)
+            den = np.linalg.norm(wz, axis=(-2, -1)) * qn
+            ncc = np.where(den > 0, np.einsum("ijkl,kl->ij", wz, qz) / np.maximum(den, 1e-12), 0.0)
+            k = int(np.argmax(ncc))
+            sim = float(ncc.flat[k])
+            if sim > similarity_threshold:
+                results.append({"pattern_index": i, "similarity": sim,
+                                "location": tuple(int(v) for v in np.unravel_index(k, ncc.shape)), "content": p})
+        return sorted(results, key=lambda r: r["similarity"], reverse=True)
 
 class HolographicAssociativeMemory:
-    """Holographic associative memory with content-addressable storage"""
-    
+    """Holographic associative memory with content-addressable storage.
+
+    Encoding: x ↦ H = F₂(pad(x)) ⊙ R, with one fixed unit-modulus reference wave R (chaos phases),
+    superposed into M = Σ_k H_k. Because |R| = 1, ⟨H_q, H_k⟩ = ⟨F(q), F(x_k)⟩ (Parseval), so the
+    reference scrambles the stored field without changing inner products.
+
+    Recall ranks each trace by its shift-invariant normalised cross-correlation peak with the query,
+    max_τ |(q̃ ⋆ x̃_k)(τ)| / (‖q̃‖ ‖x̃_k‖) ∈ [0, 1] (q̃, x̃ zero-mean), and returns the stored content.
+    """
+
     def __init__(self, memory_size: int = 1024, hologram_dim: int = 256):
         self.memory_size = memory_size
         self.hologram_dim = hologram_dim
         self.holographic_memory = np.zeros((hologram_dim, hologram_dim), dtype=complex)
+        self.reference_wave = np.exp(2j * np.pi * ChaosGenerator(seed=0.2718, lanes=256).random((hologram_dim, hologram_dim)))
         self.associative_links = {}
         self.memory_traces = []
-        
+        self._signatures: Dict[str, np.ndarray] = {}
+
     def store_holographic(self, data: np.ndarray, metadata: Dict = None) -> str:
         """Store data in holographic memory with associative links"""
-        
-        # Generate unique memory key
+        data = np.asarray(data, dtype=float).ravel()[: self.hologram_dim ** 2]
         memory_key = self._generate_memory_key(data)
-        
-        # Encode data into holographic representation
-        hologram = self._encode_data_holographic(data)
-        
-        # Store in holographic memory with interference pattern
-        self.holographic_memory += hologram
-        
-        # Create associative links
+        self.holographic_memory += self._encode_data_holographic(data)
         if metadata:
             self._create_associative_links(memory_key, metadata)
-        
-        # Store memory trace
+        self._signatures[memory_key] = data.copy()
         self.memory_traces.append({
             'key': memory_key,
             'timestamp': np.datetime64('now'),
             'access_pattern': self._analyze_access_pattern(data),
             'emotional_valence': metadata.get('emotional_valence', 0.5) if metadata else 0.5
         })
-        
+        if len(self.memory_traces) > self.memory_size:             # bounded capacity: drop the oldest trace
+            self.forget_memory(self.memory_traces[0]['key'])
         return memory_key
-    
+
     def recall_associative(self, query: np.ndarray, similarity_threshold: float = 0.7) -> List[Dict]:
-        """Recall memories associatively based on content similarity"""
-        
+        """Recall memories whose correlation peak with the query exceeds the threshold."""
+        query = np.asarray(query, dtype=float).ravel()[: self.hologram_dim ** 2]
         recalled_memories = []
-        
-        # Calculate similarity with all memory traces
         for trace in self.memory_traces:
-            # Holographic pattern matching
             similarity = self._holographic_similarity(query, trace)
-            
             if similarity > similarity_threshold:
-                # Reconstruct memory from holographic storage
-                reconstructed = self._reconstruct_memory(trace['key'])
-                
                 recalled_memories.append({
                     'memory_key': trace['key'],
                     'similarity': similarity,
-                    'reconstructed_data': reconstructed,
+                    'reconstructed_data': self._reconstruct_memory(trace['key']),
                     'emotional_context': trace['emotional_valence'],
                     'temporal_context': trace['timestamp']
                 })
-        
-        # Sort by similarity and emotional relevance
         recalled_memories.sort(key=lambda x: x['similarity'] * (1 + x['emotional_context']), reverse=True)
-        
         return recalled_memories
-    
+
+    def _pad2d(self, data: np.ndarray) -> np.ndarray:
+        flat = np.zeros(self.hologram_dim ** 2)
+        flat[: data.size] = data[: flat.size]
+        return flat.reshape(self.hologram_dim, self.hologram_dim)
+
     def _encode_data_holographic(self, data: np.ndarray) -> np.ndarray:
-        """Encode data into holographic representation using Fourier transforms"""
-        
-        # Ensure data fits hologram dimensions
-        if data.size > self.hologram_dim ** 2:
-            data = data[:self.hologram_dim ** 2]
-        
-        # Reshape to 2D
-        data_2d = data.reshape(self.hologram_dim, self.hologram_dim)
-        
-        # Fourier transform for holographic encoding
-        data_freq = fft.fft2(data_2d)
-        
-        # Add random reference wave for holographic properties
-        reference_wave = np.exp(1j * 2 * np.pi * np.random.random((self.hologram_dim, self.hologram_dim)))
-        hologram = data_freq * reference_wave
-        
-        return hologram
-    
+        """F₂(pad(x)) ⊙ R with the memory's fixed reference wave."""
+        return fft.fft2(self._pad2d(np.asarray(data, dtype=float).ravel())) * self.reference_wave
+
     def _holographic_similarity(self, query: np.ndarray, memory_trace: Dict) -> float:
-        """Calculate holographic similarity between query and memory trace"""
-        
-        # Encode query in same way as stored memories
-        query_hologram = self._encode_data_holographic(query)
-        
-        # Calculate cross-correlation in frequency domain
-        query_freq = fft.fft2(query_hologram)
-        memory_freq = fft.fft2(self.holographic_memory)
-        
-        # Cross-correlation
-        correlation = fft.ifft2(query_freq * np.conj(memory_freq))
-        
-        # Peak correlation value as similarity measure
-        similarity = np.max(np.abs(correlation))
-        
-        # Normalize by query energy
-        query_energy = np.sum(np.abs(query_freq) ** 2)
-        if query_energy > 0:
-            similarity = similarity / np.sqrt(query_energy)
-        
-        return float(similarity)
-    
+        """Shift-invariant normalised cross-correlation peak between the query and one trace."""
+        x = self._signatures.get(memory_trace['key'])
+        if x is None or x.size == 0 or query.size == 0:
+            return 0.0
+        q, x = query - query.mean(), x - x.mean()
+        nq, nx_ = np.linalg.norm(q), np.linalg.norm(x)
+        if nq == 0 or nx_ == 0:
+            return 0.0
+        n = 1 << int(np.ceil(np.log2(q.size + x.size)))            # linear (not circular) correlation
+        corr = np.fft.irfft(np.fft.rfft(q, n) * np.conj(np.fft.rfft(x, n)), n)
+        return float(np.clip(np.abs(corr).max() / (nq * nx_), 0.0, 1.0))
+
     def _reconstruct_memory(self, memory_key: str) -> np.ndarray:
-        """Reconstruct memory data from holographic storage"""
-        
-        # Find memory trace
-        trace = next((t for t in self.memory_traces if t['key'] == memory_key), None)
-        if not trace:
-            return np.array([])
-        
-        # Use iterative reconstruction algorithm
-        reconstructed = self._iterative_reconstruction(memory_key, iterations=20)
-        
-        return reconstructed
-    
+        """Content-addressable readout: the stored content of the matched trace."""
+        x = self._signatures.get(memory_key)
+        return np.array([]) if x is None else x.copy()
+
     def _iterative_reconstruction(self, memory_key: str, iterations: int = 20) -> np.ndarray:
-        """Iterative reconstruction using holographic constraints"""
-        
-        # Initialize with random pattern
-        current_estimate = np.random.random((self.hologram_dim, self.hologram_dim))
-        
-        for i in range(iterations):
-            # Transform to frequency domain
-            estimate_freq = fft.fft2(current_estimate)
-            
-            # Apply holographic memory constraints
-            memory_phase = np.angle(self.holographic_memory)
-            updated_freq = np.abs(estimate_freq) * np.exp(1j * memory_phase)
-            
-            # Transform back to spatial domain
-            current_estimate = fft.ifft2(updated_freq).real
-            
-            # Apply known constraints (if any)
-            # This would be based on the specific memory trace
-            current_estimate = np.clip(current_estimate, 0, 1)
-        
-        return current_estimate.flatten()
-    
+        """Gerchberg–Saxton style phase retrieval of the superposed field (all traces together).
+
+        Starts from the matched trace's content, imposes the memory's Fourier phase (after removing the
+        reference wave) and the [0, 1] amplitude constraint. Deterministic.
+        """
+        estimate = self._pad2d(self._reconstruct_memory(memory_key))
+        phase = np.angle(self.holographic_memory * np.conj(self.reference_wave))
+        for _ in range(iterations):
+            freq = fft.fft2(estimate)
+            estimate = np.clip(fft.ifft2(np.abs(freq) * np.exp(1j * phase)).real, 0, 1)
+        return estimate.flatten()
+
     def _generate_memory_key(self, data: np.ndarray) -> str:
-        """Generate unique memory key based on data content"""
-        
-        # Create hash from data content
-        data_hash = hash(data.tobytes())
-        timestamp = int(np.datetime64('now').astype('datetime64[ns]').astype('int64'))
-        
-        return f"mem_{data_hash}_{timestamp}"
-    
+        """Content hash (stable across processes) plus a store counter for uniqueness."""
+        import hashlib
+        digest = hashlib.blake2b(np.ascontiguousarray(data).tobytes(), digest_size=8).hexdigest()
+        return f"mem_{digest}_{len(self.memory_traces)}"
+
     def _create_associative_links(self, memory_key: str, metadata: Dict):
         """Create associative links between memories"""
         
@@ -986,7 +975,7 @@ class HolographicAssociativeMemory:
         semantic_features = self._extract_semantic_features(metadata)
         
         # Create bidirectional links with similar memories
-        for existing_key, existing_metadata in self.associative_links.items():
+        for existing_key, existing_metadata in list(self.associative_links.items()):
             similarity = self._semantic_similarity(semantic_features, existing_metadata)
             
             if similarity > 0.5:  # Threshold for creating links
@@ -1105,6 +1094,7 @@ class HolographicAssociativeMemory:
         
         if trace_to_remove is not None:
             del self.memory_traces[trace_to_remove]
+            self._signatures.pop(memory_key, None)
             
             # Remove associative links
             if memory_key in self.associative_links:
@@ -1188,13 +1178,13 @@ class MorphogeneticSystem:
 
     def _initialize_morphogen_fields(self) -> Dict[str, np.ndarray]:
         return {
-            "activator": np.random.random((self.grid_size, self.grid_size)),
-            "inhibitor": np.random.random((self.grid_size, self.grid_size)),
+            "activator": _rng.random((self.grid_size, self.grid_size)),
+            "inhibitor": _rng.random((self.grid_size, self.grid_size)),
             "growth_factor": np.zeros((self.grid_size, self.grid_size)),
         }
 
     def _initialize_cell_states(self) -> np.ndarray:
-        return np.random.choice([0, 1], (self.grid_size, self.grid_size))
+        return _rng.choice([0, 1], (self.grid_size, self.grid_size))
 
     def grow_structure(self, pattern_template: np.ndarray, iterations: int = 200) -> Dict[str, Any]:
         pattern_evolution: List[Dict[str, Any]] = []
@@ -1241,7 +1231,11 @@ class MorphogeneticSystem:
         tpl = pattern_template.astype(float)
         overlap = float((current * tpl).mean())
         energy = float((current**2).mean())
-        return {"overlap": overlap, "energy": energy}
+        if current.std() > 0 and tpl.std() > 0:
+            similarity = float(np.corrcoef(current.ravel(), tpl.ravel())[0, 1])
+        else:
+            similarity = 0.0
+        return {"overlap": overlap, "energy": energy, "pattern_similarity": similarity}
 
     def _pattern_converged(self, pattern_template: np.ndarray) -> bool:
         metrics = self._analyze_pattern_formation(pattern_template)
@@ -1255,14 +1249,14 @@ class EmergentTechnologyOrchestrator:
     def _initialize_morphogen_fields(self) -> Dict:
         """Initialize morphogen concentration fields"""
         return {
-            'activator': np.random.random((self.grid_size, self.grid_size)),
-            'inhibitor': np.random.random((self.grid_size, self.grid_size)),
+            'activator': _rng.random((self.grid_size, self.grid_size)),
+            'inhibitor': _rng.random((self.grid_size, self.grid_size)),
             'growth_factor': np.zeros((self.grid_size, self.grid_size))
         }
     
     def _initialize_cell_states(self) -> np.ndarray:
         """Initialize cellular automata states"""
-        return np.random.choice([0, 1], (self.grid_size, self.grid_size))
+        return _rng.choice([0, 1], (self.grid_size, self.grid_size))
     
     def grow_structure(self, pattern_template: np.ndarray, iterations: int = 1000) -> Dict:
         """Grow self-organizing structure using reaction-diffusion"""
@@ -1328,7 +1322,7 @@ class EmergentTechnologyOrchestrator:
         new_states = (activator > inhibitor) & (activator > activation_threshold)
         
         # Apply some stochasticity
-        noise = np.random.random(self.cell_states.shape) < 0.1
+        noise = _rng.random(self.cell_states.shape) < 0.1
         self.cell_states = new_states.astype(int) | noise.astype(int)
     
     def _analyze_pattern_formation(self, pattern_template: np.ndarray) -> Dict:
@@ -1364,8 +1358,11 @@ class EmergentTechnologyOrchestrator:
         self.neuromorphic_processor = NeuromorphicProcessor()
         self.holographic_engine = HolographicDataEngine()
         self.morphogenetic_system = MorphogeneticSystem()
+        self.holographic_memory = HolographicAssociativeMemory()
         self.emergent_behaviors: List[Dict[str, Any]] = []
         self.cognitive_evolution: List[Dict[str, Any]] = []
+        self._generation = 0
+        self._last_reward = 0.0
 
     def orchestrate_emergent_communication(self, message: str, context: Dict[str, Any]) -> Dict[str, Any]:
         quantum_optimized = self._quantum_optimize_content(message)
@@ -1416,33 +1413,57 @@ class EmergentTechnologyOrchestrator:
         currents = np.tanh(np.pad(vec, (0, max(0, self.neuromorphic_processor.num_neurons - vec.size)))[: self.neuromorphic_processor.num_neurons])
         currents = 5 * currents  # scale into excitatory current range
         out = self.neuromorphic_processor.process_spiking_input(currents, timesteps=50)
+        out["neural_entropy"] = out["network_entropy"]
         return out
 
     def _holographic_encode(self, adaptive_signals: Dict[str, Any]) -> Dict[str, Any]:
-        # Use last spike train to form an image-like vector
+        # Spike counts over the whole run form the image-like vector (the last step alone is usually silent)
         spikes = adaptive_signals.get("spike_trains", [])
         if spikes:
-            sig = spikes[-1].astype(float)
+            sig = np.sum(spikes, axis=0).astype(float)
         else:
             sig = np.zeros(self.holographic_engine.data_dim * self.holographic_engine.data_dim)
         sig = np.pad(sig, (0, max(0, self.holographic_engine.data_dim**2 - sig.size)))[: self.holographic_engine.data_dim**2]
         hologram = self.holographic_engine.encode_holographic(sig)
-        return {"mean_phase": float(np.angle(hologram).mean()), "energy": float(np.abs(hologram).mean())}
+        power = np.abs(hologram).ravel() ** 2
+        total = power.sum()
+        if total > 0:                               # spectral entropy of the hologram, normalised to [0, 1]
+            p = power[power > 0] / total
+            encoding_entropy = float(-(p * np.log(p)).sum() / math.log(power.size))
+        else:
+            encoding_entropy = 0.0
+        return {"mean_phase": float(np.angle(hologram).mean()), "energy": float(np.abs(hologram).mean()),
+                "encoding_entropy": encoding_entropy}
 
     def _grow_emergent_protocol(self, holographic_encoding: Dict[str, Any]) -> Dict[str, Any]:
-        template = (np.random.random((self.morphogenetic_system.grid_size, self.morphogenetic_system.grid_size)) > 0.5).astype(int)
+        # The target pattern is derived from the encoding: a logistic orbit seeded by its phase and energy.
+        g = self.morphogenetic_system.grid_size
+        seed = (abs(holographic_encoding.get("mean_phase", 0.0)) * 0.6180339887
+                + holographic_encoding.get("energy", 0.0)) % 1.0
+        template = (ChaosGenerator(seed=0.05 + 0.9 * seed, lanes=64).random((g, g)) > 0.5).astype(int)
         growth = self.morphogenetic_system.grow_structure(template, iterations=150)
-        return {"overlap": growth["pattern_evolution"][-1]["overlap"] if growth["pattern_evolution"] else 0.0}
+        evo = growth["pattern_evolution"]
+        return {"emergent_protocol": growth["final_pattern"],
+                "overlap": float(evo[-1]["overlap"]) if evo else 0.0,
+                "convergence_iteration": int(growth.get("convergence_iteration", 0)),
+                "template_density": float(template.mean())}
 
     def _track_emergence(self, emergent_protocol: Dict[str, Any]) -> None:
         self.emergent_behaviors.append({"protocol": emergent_protocol})
 
     def _calculate_emergence_metrics(self) -> Dict[str, float]:
-        return {"events": float(len(self.emergent_behaviors))}
+        """Measured over every orchestrated message so far: pattern overlap level and its trend."""
+        overlaps = [float(e["protocol"].get("overlap", 0.0)) for e in self.emergent_behaviors]
+        if not overlaps:
+            return {"events": 0.0, "emergence_level": 0.0, "complexity_trend": 0.0}
+        trend = float(np.polyfit(np.arange(len(overlaps)), overlaps, 1)[0]) if len(overlaps) > 1 else 0.0
+        return {"events": float(len(overlaps)), "emergence_level": float(np.mean(overlaps)),
+                "complexity_trend": trend}
 
     def evolve_cognitive_network(self, experiences: List[Dict[str, Any]], generations: int = 5) -> Dict[str, Any]:
         traj: List[Dict[str, Any]] = []
         for _ in range(generations):
+            self._generation += 1
             learning = self._learn_from_experiences(experiences)
             self._adapt_network_structures(learning)
             metrics = self._measure_cognitive_evolution()
@@ -1456,23 +1477,90 @@ class EmergentTechnologyOrchestrator:
         }
 
     def _learn_from_experiences(self, experiences: List[Dict[str, Any]]) -> Dict[str, float]:
-        return {"avg_reward": float(np.mean([e.get("reward", 0.0) for e in experiences])) if experiences else 0.0}
+        if not experiences:
+            return {"avg_reward": 0.0, "learning_rate": 0.0, "experience_count": 0}
+        rewards = np.array([float(e.get("reward", 0.0)) for e in experiences])
+        diversity = len({repr(sorted(e.items())) for e in experiences}) / len(experiences)
+        return {"avg_reward": float(rewards.mean()), "reward_std": float(rewards.std()),
+                "learning_rate": float(diversity), "experience_count": len(experiences)}
 
     def _adapt_network_structures(self, learning: Dict[str, float]) -> None:
-        # Placeholder for structural plasticity
-        _ = learning
+        """Reward-modulated plasticity: scale the recurrent weights by the reward improvement.
+
+        Δ = lr · tanh(r̄_t − r̄_{t−1}); W ← W · (1 + 0.05 Δ), clipped to keep the spectral scale bounded.
+        """
+        delta = learning.get("learning_rate", 0.0) * math.tanh(learning.get("avg_reward", 0.0) - self._last_reward)
+        self._last_reward = learning.get("avg_reward", 0.0)
+        w = self.neuromorphic_processor.synaptic_weights
+        np.clip(w * (1.0 + 0.05 * delta), -2.0, 2.0, out=w)
+
+    def _probe_currents(self, scale: float = 10.0) -> np.ndarray:
+        n = self.neuromorphic_processor.num_neurons
+        return scale * np.sin(2 * np.pi * np.arange(n) / 37.0) ** 2
+
+    def _run_probe(self, currents: np.ndarray, steps: int = 60) -> np.ndarray:
+        """Run the network on a copy of its state; returns per-neuron spike counts."""
+        proc = self.neuromorphic_processor
+        saved = {k: v.copy() for k, v in proc.neuron_states.items()}
+        saved_w, saved_hist = proc.synaptic_weights.copy(), len(proc.spike_history)
+        counts = np.zeros(proc.num_neurons)
+        for _ in range(steps):
+            proc._update_neuron_dynamics(currents)
+            counts += proc._detect_spikes()
+        proc.neuron_states, proc.synaptic_weights = saved, saved_w
+        del proc.spike_history[saved_hist:]
+        return counts
 
     def _measure_cognitive_evolution(self) -> Dict[str, float]:
-        return {"complexity": float(np.random.random()), "robustness": float(np.random.random())}
+        """Measured on a fixed probe input (no plasticity applied by the probe).
+
+        complexity: normalised Shannon entropy of the spike-count distribution, in [0, 1]
+        robustness: 1 − relative L1 change of the spike counts under a 1 % input perturbation
+        """
+        base = self._probe_currents()
+        c0 = self._run_probe(base)
+        c1 = self._run_probe(base * 1.01)
+        total = c0.sum()
+        if total > 0:
+            p = c0[c0 > 0] / total
+            complexity = float(-(p * np.log(p)).sum() / math.log(len(c0)))
+        else:
+            complexity = 0.0
+        robustness = float(1.0 - np.abs(c1 - c0).sum() / max(total, 1.0))
+        return {"generation": float(self._generation), "complexity": complexity,
+                "robustness": max(0.0, robustness), "mean_rate": float(c0.mean())}
 
     def _detect_cognitive_emergence(self, metrics: Dict[str, float]) -> bool:
         return metrics.get("complexity", 0.0) > 0.8 and metrics.get("robustness", 0.0) > 0.5
 
     def _capture_emergent_cognition(self) -> Dict[str, Any]:
-        return {"signature": np.random.rand(4).tolist(), "time": float(np.random.random())}
+        rates = self.neuromorphic_processor.neuron_states["firing_rates"]
+        return {"generation": self._generation, "time": time.time(),
+                "signature": [float(rates.mean()), float(rates.std()),
+                              float(self.neuromorphic_processor._calculate_network_entropy()),
+                              float(np.abs(self.neuromorphic_processor.synaptic_weights).mean())]}
 
     def _analyze_cognitive_state(self) -> Dict[str, Any]:
-        return {"emergent_events": len(self.cognitive_evolution)}
+        w = self.neuromorphic_processor.synaptic_weights
+        return {"emergent_events": len(self.cognitive_evolution), "generations": self._generation,
+                "mean_abs_weight": float(np.abs(w).mean()),
+                "network_entropy": float(self.neuromorphic_processor._calculate_network_entropy())}
+
+    def demonstrate_holographic_memory(self, test_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Store each item, recall associatively with the first as the query, then consolidate."""
+        stored_keys = []
+        for item in test_data:
+            meta = dict(item.get("metadata", {}))
+            meta["emotional_valence"] = item.get("emotional_valence", 0.5)
+            meta["category"] = item.get("category", "general")
+            stored_keys.append(self.holographic_memory.store_holographic(np.asarray(item["data"], dtype=float), meta))
+        recalled = (self.holographic_memory.recall_associative(np.asarray(test_data[0]["data"], dtype=float),
+                                                               similarity_threshold=0.3)
+                    if len(test_data) > 1 else [])
+        stats = self.holographic_memory.get_memory_statistics()
+        consolidation = self.holographic_memory.consolidate_memories(consolidation_threshold=0.7)
+        return {"stored_memories": stored_keys, "recall_results": recalled,
+                "memory_statistics": stats, "consolidation_result": consolidation}
 
 
 def demo_emergent_technologies() -> Dict[str, Any]:

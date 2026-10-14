@@ -170,10 +170,25 @@ def spectral_weights(embs: np.ndarray) -> np.ndarray:
     K = E @ E.T  # symmetric
     # Use eigh (for symmetric matrices) to get real eigenpairs
     vals, vecs = np.linalg.eigh(K + 1e-9 * np.eye(K.shape[0]))
-    w = np.real(vecs[:, -1])  # principal eigenvector
+    w = np.real(vecs[:, -1])  # principal eigenvector (eigh's sign is arbitrary)
+    if w.sum() < 0:
+        w = -w
     w = np.clip(w, 0, None)
     s = w.sum()
     return w / (s + 1e-12)
+
+
+def spectral_coherence(embs: np.ndarray) -> float:
+    """Agreement in [0, 1]: share of cosine-kernel energy on the principal mode, rescaled.
+
+    λ_max / n ranges from 1/n (mutually orthogonal answers) to 1 (identical answers); maps to 0 … 1.
+    """
+    E = _l2n(embs)
+    n = E.shape[0]
+    if n < 2:
+        return 1.0
+    lam = float(np.linalg.eigvalsh(E @ E.T)[-1])
+    return float(np.clip((lam / n - 1.0 / n) / (1.0 - 1.0 / n), 0.0, 1.0))
 
 
 class PhaseCoherence:
@@ -196,9 +211,17 @@ class PhaseCoherence:
         return spectral_weights(embeddings)
 
     def scalar(self, embeddings: np.ndarray) -> float:
-        w = self.weights(embeddings)
-        n = len(w)
-        return float((w.max() - 1.0 / n) / (1.0 - 1.0 / n + 1e-12))
+        if self.use_cth and hasattr(self.tc, "calculate_modular_invariance"):
+            try:
+                w = np.asarray(self.tc.calculate_modular_invariance(embeddings), dtype=np.float64)
+                w = w / (w.sum() + 1e-12)
+                n = len(w)
+                return float((w.max() - 1.0 / n) / (1.0 - 1.0 / n + 1e-12))
+            except Exception:
+                pass
+        # Fallback: the old max-weight formula scored unanimous answers (uniform weights) as 0;
+        # the spectral share scores agreement directly.
+        return spectral_coherence(embeddings)
 
 
 class CardyEnergy:

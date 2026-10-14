@@ -21,6 +21,7 @@ import sys
 import os
 import asyncio
 import numpy as np
+from kgirl import telemetry  # real NuRea_sim lattice data; chaos fallback
 import torch
 from typing import Dict, List
 import logging
@@ -163,7 +164,7 @@ class IntegratedSystemDemo:
         # Create test experiences
         experiences = [
             {
-                'data': np.random.random(256) * 2 - 1,
+                'data': telemetry.lattice_matrix(1, 256, offset=0).ravel() * 2 - 1,
                 'context': 'Emergency communication scenario',
                 'emotional_intensity': 0.9
             },
@@ -173,7 +174,7 @@ class IntegratedSystemDemo:
                 'emotional_intensity': 0.3
             },
             {
-                'data': np.cumsum(np.random.random(256) - 0.5),
+                'data': np.cumsum(telemetry.lattice_signal(256, offset=0)),
                 'context': 'Random walk temporal pattern',
                 'emotional_intensity': 0.5
             }
@@ -398,7 +399,7 @@ class IntegratedSystemDemo:
         
         # Test integrated cognitive processing
         experience = {
-            'data': np.random.random(256),
+            'data': telemetry.lattice_matrix(1, 256, offset=300).ravel(),
             'context': 'Multi-modal cognitive test'
         }
         
@@ -473,7 +474,7 @@ class IntegratedSystemDemo:
         # Step 2: Unified emergent processing
         print("\n→ Step 2: Emergent Orchestration")
         exp = {
-            'data': np.random.random(256),
+            'data': telemetry.lattice_matrix(1, 256, offset=300).ravel(),
             'context': pipeline_input['message']
         }
         emergent_result = self.unified_orchestrator.integrated_cognitive_processing(
