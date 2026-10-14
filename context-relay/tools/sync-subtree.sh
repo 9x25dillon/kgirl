@@ -47,7 +47,17 @@ if [ -z "$last" ]; then
   exit 0
 fi
 
-[ "$(git rev-parse --verify "$last^{tree}")" = "$tree" ] && { echo "$prefix/ is already at $src@$short"; exit 0; }
+# $last is either a squash commit (its tree is the subtree) or, when a sync was merged as a GitHub
+# squash, a whole-repository commit carrying the trailer. -Xsubtree shifts the merge base as well as
+# the incoming tree, so either works as a base; the latter means $prefix/ as it stood in that commit.
+# Nothing to do when the source matches the last squash or what this repository already holds.
+for have in "$last^{tree}" "$head:$prefix"; do
+  [ "$(git rev-parse --verify --quiet "$have")" = "$tree" ] && { echo "$prefix/ is already at $src@$short"; exit 0; }
+done
+case "$(git log -1 --format=%s "$last" --)" in
+  "Squashed '$prefix/' "*) ;;
+  *) echo "sync-subtree: warning: the base is $(git rev-parse --short "$last"), a sync merged as a squash; edits made to $prefix/ here before it will be replaced by the source" >&2 ;;
+esac
 squash=$(printf "Squashed '%s/' changes up to %s@%s\n\n%s\n" "$prefix" "$src" "$short" "$trailers" | git commit-tree "$tree" -p "$last")
 git merge --quiet --no-ff -Xsubtree="$prefix" -m "Merge '$prefix/' from $src@$short" "$squash"
 echo "updated $prefix/ to $src@$short"

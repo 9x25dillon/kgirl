@@ -71,6 +71,37 @@ test('add, pull with local edits, no-op, refusals', { skip: !hasGit && 'needs gi
   assert.match(r.stderr, /commit or stash/);
 });
 
+test('after a sync merged as a GitHub squash: no-op stays a no-op, the next pull is exact', { skip: !hasGit && 'needs git' }, () => {
+  const { src, host } = repos();
+  assert.equal(sync(host, src, 'main').status, 0);
+
+  // A sync merged as a GitHub squash: one whole-repository commit that carries the trailer.
+  put(src, 'context-relay/README.md', 'v2\n');
+  commit(src, 'source v2');
+  git(host, 'checkout', '-q', '-b', 'side');
+  assert.equal(sync(host, src, 'main').status, 0);
+  git(host, 'checkout', '-q', 'main');
+  git(host, 'merge', '-q', '--squash', 'side');
+  git(host, 'commit', '-q', '-m', 'chore: sync (#63)\n\ngit-subtree-dir: context-relay\ngit-subtree-split: abc1234');
+  assert.equal(readFileSync(join(host, 'context-relay/README.md'), 'utf8'), 'v2\n');
+
+  const before = git(host, 'rev-parse', '--verify', 'HEAD^{commit}');
+  let r = sync(host, src, 'main');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /already at/);
+  assert.equal(git(host, 'rev-parse', '--verify', 'HEAD^{commit}'), before, 'no commit when nothing changed');
+
+  put(src, 'context-relay/README.md', 'v3\n');
+  put(src, 'context-relay/docs/new.md', 'n\n');
+  commit(src, 'source v3');
+  r = sync(host, src, 'main');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /updated context-relay\//);
+  assert.match(r.stderr, /warning: the base is \w+, a sync merged as a squash/);
+  assert.equal(git(host, 'rev-parse', '--verify', 'HEAD:context-relay'), git(src, 'rev-parse', '--verify', 'HEAD:context-relay'));
+  assert.equal(readFileSync(join(host, 'app.py'), 'utf8'), 'print(1)\n', 'files outside the prefix are untouched');
+});
+
 test('refuses a directory it did not add', { skip: !hasGit && 'needs git' }, () => {
   const { src, host } = repos();
   put(host, 'context-relay/hand-made.md', 'x\n');
