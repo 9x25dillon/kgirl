@@ -56,6 +56,10 @@ Each sync is one squashed commit plus a merge, the same shape as `git subtree --
 survive and history is never rewritten. The script exists because `git subtree` fails in repositories that track a file named
 `HEAD` at their root, as kgirl does.
 
+Merge a sync PR with a merge commit to keep its squash commit in history. A sync merged as a GitHub squash still works as
+the base for the next sync, but edits made to `context-relay/` in the other repository before it are then replaced by the
+source; the script warns when that applies.
+
 ## Inputs
 
 - The Context Relay build prompt and the Phase 0 status summary (F1–F15, D-001–D-005). Those files are not in this repository.
