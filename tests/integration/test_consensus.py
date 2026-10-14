@@ -36,3 +36,25 @@ class ConsensusTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(spectral_coherence is None, "kgirl.main not importable")
+class AskEndpointTests(unittest.TestCase):
+    def test_ask_runs_with_demo_adapters(self):
+        import os
+        import sys
+        import warnings
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "demo"))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from fastapi.testclient import TestClient
+        import kgirl.main as M
+        from demo_adapter import get_demo_model_pool
+        saved = list(M.g_model_pool)
+        M.g_model_pool[:] = get_demo_model_pool()
+        try:
+            r = TestClient(M.app).post("/ask", json={"prompt": "Explain quantum entanglement"})
+        finally:
+            M.g_model_pool[:] = saved
+        self.assertEqual(r.status_code, 200)           # was a NameError on every call
+        self.assertTrue(0.0 <= r.json()["coherence"] <= 1.0)

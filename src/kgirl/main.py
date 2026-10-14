@@ -459,7 +459,7 @@ def ask(req: AskRequest) -> AskResponse:
     outputs: List[str] = [m.generate(req.prompt) for m in g_model_pool]
 
     # 2) embed outputs (consensus on semantics of answers)
-    embs = np.stack([m.embed(o) for o in outputs], axis=0)
+    embs = np.stack([m.embed(o) for m, o in zip(g_model_pool, outputs)], axis=0)   # m was undefined (NameError)
 
     # 3) phase coherence
     pc = PhaseCoherence(
