@@ -25,7 +25,7 @@ def test_consensus(
     prompt: str,
     model_pool: List[DemoAdapter],
     min_coherence: float = 0.80,
-    max_energy: float = 0.30,
+    max_energy: Optional[float] = None,
 ) -> dict:
     """Run topological consensus on a prompt."""
     print_separator()
@@ -58,6 +58,8 @@ def test_consensus(
     print("\n[4/5] Calculating Cardy boundary energy (hallucination detection)...")
     ce = CardyEnergy(n_anyons=27, central_charge=627)
     energy = ce.boundary(model_pool[0].get_hidden_states(prompt))
+    if max_energy is None:
+        max_energy = ce.default_max          # calibrated per energy source (kgirl.main.CardyEnergy)
     print(f"  • Energy: {energy:.4f} (0=confident, 1=uncertain)")
 
     # 5. Decision logic
@@ -135,7 +137,6 @@ def interactive_demo():
                 prompt="Explain quantum entanglement in simple terms",
                 model_pool=get_demo_model_pool(),
                 min_coherence=0.80,
-                max_energy=0.30,
             )
 
         elif choice == "2":
@@ -144,7 +145,6 @@ def interactive_demo():
                 prompt="What are the implications of AI?",
                 model_pool=get_divergent_pool(),
                 min_coherence=0.80,
-                max_energy=0.30,
             )
 
         elif choice == "3":

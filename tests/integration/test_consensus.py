@@ -58,3 +58,32 @@ class AskEndpointTests(unittest.TestCase):
             M.g_model_pool[:] = saved
         self.assertEqual(r.status_code, 200)           # was a NameError on every call
         self.assertTrue(0.0 <= r.json()["coherence"] <= 1.0)
+
+
+@unittest.skipIf(spectral_coherence is None, "kgirl.main not importable")
+class FallbackEnergyTests(unittest.TestCase):
+    def test_noise_scores_near_one_structure_near_zero_any_dimension(self):
+        from kgirl.evolve.chaos import ChaosGenerator
+        from kgirl.main import fallback_energy
+        g = ChaosGenerator(0.3)
+        for d in (256, 1536, 4096):
+            self.assertGreater(fallback_energy(g.normal(0, 1, d)), 0.85)
+            focused = np.zeros(d)
+            focused[:4] = 1.0
+            self.assertLess(fallback_energy(focused), 0.02)
+
+    def test_default_threshold_sits_above_the_text_average(self):
+        from kgirl.main import CardyEnergy, calibrate_energy
+        import os
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "demo"))
+        from demo_adapter import DemoAdapter
+        a = DemoAdapter("x", "factual")
+        texts = ["The surrogate predicts k_inf from 39 rod enrichments with ridge regression.",
+                 "Holographic recall ranks stored traces by their normalised overlap with the query.",
+                 "The bridge exposes stability, fluctuation and entropy profiles over HTTP.",
+                 "Each pull request needs green tests before it waits on review."]
+        cal = calibrate_energy([a.embed(t) for t in texts])
+        ce = CardyEnergy()
+        if not ce.use_cth:
+            self.assertGreater(ce.default_max, cal["mean"])
