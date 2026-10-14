@@ -1,4 +1,4 @@
-"""python -m kgirl.tauls — tokenizer, data, plan, train, eval, generate, stability, info.
+"""python -m kgirl.tauls — tokenizer, data, plan, train, eval, generate, memory, improve, stability, info.
 
 Typical desktop run (see docs/tauls/README.md):
 
@@ -7,6 +7,8 @@ Typical desktop run (see docs/tauls/README.md):
     python -m kgirl.tauls plan      --preset small --batch 16 --vram 8
     python -m kgirl.tauls train     --data runs/tauls/data --out runs/tauls/small --preset small --auto-batch
     python -m kgirl.tauls generate  --ckpt runs/tauls/small/best.pt --tokenizer runs/tauls/tokenizer.json --prompt "def "
+    python -m kgirl.tauls memory    --ckpt runs/tauls/small/best.pt --data runs/tauls/data --out runs/tauls/memory
+    python -m kgirl.tauls improve   --ckpt runs/tauls/small/best.pt --data runs/tauls/data --out runs/tauls/kgirl
 """
 
 from __future__ import annotations
@@ -83,6 +85,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--top-p", type=float, default=0.95)
     p.add_argument("--seed", type=float, default=0.4123)
     p.add_argument("--device", default="auto")
+    p.add_argument("--memory", help="KGIRL memory directory (memory.npz + memory.json from `memory --out`)")
+
+    p = sub.add_parser("memory", help="KGIRL: build a holographic fractal memory from a checkpoint and score it")
+    p.add_argument("--ckpt", required=True)
+    p.add_argument("--data", required=True)
+    p.add_argument("--tokens", type=int, default=262144, help="train tokens collected into the memory")
+    p.add_argument("--eval-tokens", type=int, default=65536)
+    p.add_argument("--batch", type=int, default=8)
+    p.add_argument("--set", nargs="*", default=[], help="MemoryConfig overrides, e.g. max_depth=3 branching=8")
+    p.add_argument("--out", help="write memory.npz and memory.json here")
+    p.add_argument("--device", default="auto")
+
+    p = sub.add_parser("improve", help="KGIRL: recursive self-improvement, memory distilled into the model")
+    p.add_argument("--ckpt", required=True)
+    p.add_argument("--data", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--set", nargs="*", default=[], help="ImproveConfig overrides, e.g. rounds=4 distil_steps=500")
+    p.add_argument("--memory-set", nargs="*", default=[], help="MemoryConfig overrides")
+    p.add_argument("--device", default="auto")
 
     p = sub.add_parser("stability", help="spectral / KFP / entropy report of a checkpoint's weight matrices")
     p.add_argument("--ckpt", required=True)
@@ -146,9 +167,44 @@ def main(argv: list[str] | None = None) -> int:
         if ck["tokenizer_sha"] != tok.sha:
             raise SystemExit("checkpoint and tokenizer differ")
         ids = tok.encode(args.prompt) or [tok.eot]
-        out = model.generate(ids, args.max_new, args.temperature, args.top_k, args.top_p, {tok.eot},
-                             chaos.Sampler(args.seed, chaos.stream_id("generate")))
+        sampler = chaos.Sampler(args.seed, chaos.stream_id("generate"))
+        if args.memory:
+            from .holo import HoloMemory
+            from .improve import generate_with_memory
+            mem = HoloMemory.load(Path(args.memory) / "memory.npz")
+            g = json.loads((Path(args.memory) / "memory.json").read_text())["score"]["gate"]
+            out = generate_with_memory(model, mem, g, ids, args.max_new, args.temperature, args.top_k,
+                                       args.top_p, {tok.eot}, sampler)
+        else:
+            out = model.generate(ids, args.max_new, args.temperature, args.top_k, args.top_p, {tok.eot}, sampler)
         print(args.prompt + tok.decode(t for t in out if t != tok.eot))
+    elif args.cmd in ("memory", "improve"):
+        from .data import TokenData
+        from .train import load_model, resolve_device
+        dev = resolve_device(args.device)
+        model, ck = load_model(args.ckpt, dev)
+        data = TokenData(args.data)
+        if ck.get("tokenizer_sha") != data.meta["tokenizer_sha"]:
+            raise SystemExit("checkpoint and data use different tokenizers")
+        if args.cmd == "memory":
+            from .holo import HoloMemory, MemoryConfig
+            from .improve import collect, score, token_stats
+            mem = HoloMemory(model.cfg.d_model, model.cfg.vocab_size, MemoryConfig(**_set_pairs(args.set)))
+            z, y = collect(model, mem, data, "train", args.tokens, args.batch, dev)
+            mem.build(z, y)
+            rep = {"memory": mem.summary(),
+                   "score": score(token_stats(model, mem, data, "val", args.eval_tokens, args.batch, dev))}
+            if args.out:
+                Path(args.out).mkdir(parents=True, exist_ok=True)
+                mem.save(Path(args.out) / "memory.npz")
+                (Path(args.out) / "memory.json").write_text(json.dumps(rep, indent=2, default=float))
+            print(json.dumps(rep, indent=2, default=float))
+        else:
+            from .improve import ImproveConfig, improve
+            ic = ImproveConfig(**_set_pairs(args.set))
+            ic.memory = {**ic.memory, **_set_pairs(args.memory_set)}
+            rec = improve(model, data, ic, args.out, dev, ckpt=ck)
+            print(json.dumps({k: rec[k] for k in ("baseline_val_B_nll", "final_val_B_nll", "total_gain_nats")}, indent=2))
     elif args.cmd == "stability":
         import torch
         from .julia_bridge import DEFAULT_URL, JuliaBridge, summarize, weight_report

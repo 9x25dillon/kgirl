@@ -158,7 +158,50 @@ python -m kgirl.tauls stability --ckpt runs/tauls/small/best.pt --julia http://l
 
 The original `julia_server_script.jl` is truncated (it ends mid-expression in `optimize_matrix`, and `start_http_server` is exported but never defined), so it cannot load. It is left as it is.
 
-## 8. Next
+## 8. KGIRL: memory and recursive self-improvement
+
+KGIRL stands for Kinetic Geometric Inverted Recursive Learning. It is a geometric holographic database built over the model's own hidden states. That database is then distilled back into the model, coarse to fine, and a round is kept only if held-out loss improves.
+
+- **Database:** `src/kgirl/tauls/holo.py`
+- **Loop:** `src/kgirl/tauls/improve.py`
+
+```
+hidden h_t ─chaos projection─▶ key k_t (centred, unit)        value: next token y_t
+fractal cell tree: deterministic k-means, branching b, depth ≤ L
+  a cell splits only if its children code their tokens in fewer bits than they cost (MDL/BIC)
+  cell c stores n_c, token counts, and a holographic trace T̂_c = Σ F(k_t) ⊙ F(v_{y_t})
+query: descend coarse → fine; p_c = (c_c + β p_parent)/(n_c + β) along the path (Dirichlet back-off)
+       leaf vote: ⟨F⁻¹(conj F(q) ⊙ T̂_leaf), v_y⟩ ≈ Σ_{t in leaf, y_t = y} ⟨q, k_t⟩   (holographic unbinding)
+mix:   w = σ(logit π + (H_LM − H_mem)/T)    the less uncertain source dominates (free-energy gate)
+loop:  per round, deeper memory → fit (η, π, T) on val half A → distil on train windows disjoint from the
+       database → keep the weights only if plain-model NLL on val half B drops
+```
+
+```bash
+python -m kgirl.tauls memory  --ckpt runs/tauls/small/best.pt --data runs/tauls/data --out runs/tauls/memory \
+                              --set max_depth=4 branching=8 rank=64
+python -m kgirl.tauls generate --ckpt runs/tauls/small/best.pt --tokenizer runs/tauls/tokenizer.json \
+                              --memory runs/tauls/memory --prompt "def "
+python -m kgirl.tauls improve --ckpt runs/tauls/small/best.pt --data runs/tauls/data --out runs/tauls/kgirl \
+                              --set rounds=4 distil_steps=1000 memory_tokens=4000000
+# runs/tauls/kgirl/telemetry.json: per round, memory size, fractal dimension, gate, bits/token gain,
+# accepted or not; improved.pt loads with eval / generate / info like any checkpoint
+```
+
+**L0, tests** (`tests/tauls/test_kgirl.py`):
+
+- On six clusters whose tokens are uniform within each cluster:
+  - MDL stops at exactly six leaves; without MDL the tree keeps splitting.
+  - NLL reaches ln 5, the ideal value, within 0.05.
+- When the token depends on a state's position on a circle inside a single cell:
+  - Counts alone are uniform (ln 8).
+  - The holographic vote lowers NLL by more than 0.2 nats.
+- The free-energy gate weights the lower-entropy source.
+- The loop never raises held-out loss: rejected rounds restore the weights.
+- `improved.pt` reloads.
+- Memory-augmented generation is reproducible.
+
+## 9. Next
 
 1. Run §6 on the desktop. Keep whichever architecture wins on bits/byte.
 2. Add per-token ACT halting for HRM mode (HRM's Q-head, with chaos-driven exploration instead of `torch.rand`).

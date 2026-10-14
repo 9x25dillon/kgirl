@@ -473,7 +473,18 @@ class TAULS(nn.Module):
                 collect: bool = False, logits: bool = True) -> Output:
         """logits=False with targets: the loss is computed in row chunks whose logits are recomputed in
         backward (activation checkpointing), so B·S·V logits never exist at once. Training uses it."""
-        B, S = idx.shape
+        x = self.features(idx, cache, collect)
+        if not logits and targets is not None:
+            return Output(None, self._chunked_loss(x, targets), self.metrics() if collect else None)
+        out = self._logits(x)
+        loss = None
+        if targets is not None:
+            loss = self._nll(out.reshape(-1, out.shape[-1]), targets.reshape(-1), "mean")
+        return Output(out, loss, self.metrics() if collect else None)
+
+    def features(self, idx: torch.Tensor, cache: Cache | None = None, collect: bool = False) -> torch.Tensor:
+        """Final hidden states (B, S, D): what the LM head reads. KGIRL memory keys on these."""
+        S = idx.shape[1]
         pos0 = cache.pos if cache is not None else 0
         x = self.embed(idx)
         if self.cfg.h_cycles:
@@ -485,13 +496,10 @@ class TAULS(nn.Module):
             x = self.final_kfp(x, cache.final if cache is not None else None, collect)
         if cache is not None:
             cache.pos += S
-        if not logits and targets is not None:
-            return Output(None, self._chunked_loss(x, targets), self.metrics() if collect else None)
-        out = self._logits(x)
-        loss = None
-        if targets is not None:
-            loss = self._nll(out.reshape(-1, out.shape[-1]), targets.reshape(-1), "mean")
-        return Output(out, loss, self.metrics() if collect else None)
+        return x
+
+    def logits_of(self, x: torch.Tensor) -> torch.Tensor:
+        return self._logits(x)
 
     def _nll(self, logits: torch.Tensor, t: torch.Tensor, reduction: str) -> torch.Tensor:
         if self.cfg.loss == "softmax":
