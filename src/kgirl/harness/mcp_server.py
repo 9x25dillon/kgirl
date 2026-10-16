@@ -120,6 +120,27 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
             rows.append(f"{e.fitness:.4f}  " + "  ".join(f"{k}={e.info[k]:.3g}" for k in keys))
         return "\n".join(rows)
 
+    def iwme_verify(p):
+        from ..iwme.verify import render, run_all
+        only = [c.strip() for c in str(p.get("only", "")).replace(",", " ").split() if c.strip()] or None
+        return render(run_all(fast=bool(p.get("fast", True)), only=only))
+
+    def iwme_irt_point(p):
+        import json as _json
+
+        from ..iwme.__main__ import irt_point
+        return _json.dumps(irt_point(float(p.get("phi", 2.5)), float(p.get("psi", 1.7)), str(p.get("kernel", "damped")),
+                                     k0=float(p.get("k0", 1.0))), indent=2, ensure_ascii=False)
+
+    def iwme_attention(p):
+        import json as _json
+
+        from ..iwme.__main__ import attention_summary
+        T, rho = float(p.get("T", 0.8)), float(p.get("rho", 0.5))
+        if not (T > 0 and 0 < rho <= 1):
+            raise ValueError("need T > 0 and 0 < rho <= 1")
+        return _json.dumps(attention_summary(T, rho), indent=2, ensure_ascii=False, default=str)
+
     def skills_forge(p):
         from .skills import MIN_SUPPORT, MIN_UTILITY, forge
         # floors: a caller may raise the bar, never lower it below the CLI defaults (KFM-11)
@@ -148,11 +169,26 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
                          ecl_protocol),
         "ecl_gap": (S({"marker": {"type": "string", "enum": ["CEA", "AFP"]}}, []), ecl_gap),
         "evolve_assay_design": (S({"generations": i, "batch": i, "seed": n, "top": i}, []), evolve_assay),
+        "iwme_verify": (S({"fast": {"type": "boolean"}, "only": s}, []), iwme_verify),
+        "iwme_irt_point": (S({"phi": n, "psi": n, "kernel": {"type": "string", "enum": ["damped", "constant"]}, "k0": n}, []),
+                           iwme_irt_point),
+        "iwme_attention": (S({"T": n, "rho": n}, []), iwme_attention),
         "skills_forge": (S({"min_support": i, "min_utility": n}, []), skills_forge),
     }
 
 
 _DESCRIPTIONS = {
+    "iwme_verify": "Run the IWME claim registry (47 checks behind research/iwme/IWME_Phase0-3.pdf: attention-memory "
+                   "retention and bifurcations, cascade spectra, the IRT metric and curvature, wake schemes, Source B/D "
+                   "checks, persistence after decoupling). fast=true skips the slow checks; only='V22 V26' selects ids. "
+                   "Needs numpy (sympy for two checks).",
+    "iwme_irt_point": "Inverse Resonant Toroid (Source C) at one chart point (phi, psi): corrected induced metric with its "
+                      "mixed component, the published Appendix A.1 metric, det g, Jacobian rank, scalar curvature, "
+                      "principal curvatures and Source C eq. 29 for comparison. kernel=damped (e^{-0.2ψ}cos 2ψ) or "
+                      "constant (κ=k0).",
+    "iwme_attention": "Softmax-EMA memory at temperature T and write rate rho: fixed points and their multipliers, "
+                      "closed-loop retention time at H=0 vs the open-loop value, adiabatic hysteresis area, and the flip "
+                      "threshold for anti-aligned values.",
     "evolve_assay_design": "Evolve c-BPE-ECL assay designs (TPA, Ru, probe, drive V, nihil fraction, pulse period) "
                            "inside the CN121933729A claim ranges with chaos-driven MAP-Elites; returns the top "
                            "elites, coverage and the patent-default baseline. Needs numpy.",

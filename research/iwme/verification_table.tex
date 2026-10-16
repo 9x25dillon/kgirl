@@ -1,0 +1,47 @@
+V01 & 0 & P2: with the attention sequence fixed, ∂H\_t/∂H\_\{t−k\} = (1−ρ)\textasciicircum{}k & 0.000976562 & PASS \\
+V02 & 0 & P2′: closed loop (scores read H), ∂H\_t/∂H\_0 is the product of (1−ρ)I + (ρ/T)Cov\_a(v,k) & 0.364759 (FD 0.364759), ratio to open loop 374 & PASS \\
+V03 & 0 & Closed-loop retention time at H=0 diverges at T→1⁺ and tends to τ\_mem as T→∞ & T=1.05: 41.498, T=1.5: 5.485, T=3: 2.466, T=1e+06: 1.443 & PASS \\
+V04 & 0 & Lemma: sup\_a ‖Cov\_a(v,k)‖ ≤ D\_v D\_k / 4 (contraction for T > D\_v D\_k / 4) & max ratio 0.9581 & PASS \\
+V05 & 0 & The D\_v D\_k/4 bound is attained (two-point example at H=0), so T\_contract = T\_c = 1 there & ‖Cov‖ = 1.000000000000, bound 1.000000000000 & PASS \\
+V06 & 0 & P3 at T=0.5, ρ=0.5: fixed points 0 (unstable) and ±H* (stable) & H* = 0.957504; μ = 0.5832, 1.5000 & PASS \\
+V07 & 0 & Near T\_c: H* ≈ T√(3(1−T)) (mean-field exponent ½) & T=0.99: 1.006054, T=0.999: 1.000601, T=0.9999: 1.000060 & PASS \\
+V08 & 0 & Critical slowing at T=1: H\_t √t → √(3/(2ρ)) (algebraic decay) & 1.731982 at t = 1e5 & PASS \\
+V09 & 0 & Log–log decay slope: −½ at T=1; 0 for T<1 (lock-in); steep for T>1 & T=0.8: 0.000, T=1.0: -0.490, T=1.2: -7.491 & PASS \\
+V10 & 0 & Static (adiabatic) hysteresis area > 0 iff T < 1 & T=0.6: 0.658, T=0.8: 0.173, T=0.95: 0.0111, T=1.01: 1.39e-20, T=1.3: -4.74e-18 & PASS \\
+V11 & 0 & Hysteresis area ∝ (1−T)² near T\_c (mean field) & 1.975 & PASS \\
+V12 & 0 & Anti-aligned values: flip (period-2) bifurcation at T\_f = ρ/(2−ρ) & 0.1265 / 3.52e-16 & PASS \\
+V13 & 0 & P3′: crossing type set by the spectrum of C₀ = Cov\_uniform(v,k) & aligned: pitchfork at 0.5; anti: flip at 0.1667; rotated: Neimark–Sacker at 0.2887 & PASS \\
+V14 & 1 & Gated forgetting makes open-loop retention attention-dependent & 0.599 vs 4.31e-06 & PASS \\
+V15 & 0 & Report table: D\_q at p = 0.7 (hand-computed values, 4 d.p.) & -1: 1.1258, 0: 1.0000, 0.5: 0.9385, 1: 0.8813, 2: 0.7859, 3: 0.7172, inf: 0.5146, -inf: 1.7370 & PASS \\
+V16 & 0 & Box counting on the exact level-16 measure reproduces the closed form & max 2.2e-16 & PASS \\
+V17 & 0 & H\_n = n h2(p) exactly (no limit needed) & max 1.8e-15 & PASS \\
+V18 & 0 & Markov cascade: Z\_n = π₀ᵀM\_qⁿ1 (enumeration) and i.i.d. limit = binomial & Z\_n rel err 7.0e-16; i.i.d. τ(2) err 0.0e+00; D\_2 = 0.8279 & PASS \\
+V19 & 1 & EMA-memory cascade: transfer operator gives τ(q); memory moves D₂ off the matched memoryless value & τ(2) transfer 0.49709, enumeration (n 16→22) 0.49815; D₂ memoryless 0.6940 vs 0.4971 & PASS \\
+V20 & 0 & EFL fixed point model: Hutchinson operator contracts W1 by exactly ½; binomial is its fixed point & max abs(ratio − ½) 2.3e-14; fixed-point err 1.7e-18 & PASS \\
+V21 & 0 & Source B: D\_eff = limsup log N(r)/log λ\textasciicircum{}r with N(r) \textasciitilde{} λ\textasciicircum{}r is identically 1 & 1.000000000000 … 1.000000000000 & PASS \\
+V22 & 0 & Closed-form induced metric = JᵀJ (numeric, 2 kernels × 5 points) & 1.8e-15 & PASS \\
+V23 & 0 & Symbolic proof: JᵀJ = closed form and det g = u²e\textasciicircum{}\{−2αψ\}[r²e\textasciicircum{}\{−2αψ\}D² + κ²g\_φφ] & g\_thetatheta: True, g\_thetaphi: True, g\_thetapsi: True, g\_phiphi: True, g\_phipsi: True, g\_psipsi: True, det: True & PASS \\
+V24 & 0 & Source C A.1 is wrong in g\_φφ, g\_ψψ and g\_φψ (g\_θθ and g\_θφ = g\_θψ = 0 are right) & theta-theta: 0, phi-phi: 0.0358, psi-psi: 0.0804, phi-psi true value: -0.563 & PASS \\
+V25 & 0 & Jacobian rank 3 off the predicted circles; rank 2 and det g = 0 exactly on them & 10 circles (2 at ψ=0, 2 per zero of κ: ψ\_k = [0.7854, 2.3562, 3.927, 5.4978]) & PASS \\
+V26 & 0 & Scalar curvature: Gauss equation = intrinsic Riemann = warped product 2K\_Σ − 2Δ\_Σρ/ρ & 3.2e-06 & PASS \\
+V27 & 0 & Curvature depends on κ only through κ and κ′: changing κ″(ψ₀) leaves Scal(ψ₀) unchanged & κ″ ∈ \{0, 1, −4, 14\}: spread 1.6e-08 & PASS \\
+V28 & 0 & Large constant κ: Scal → 2K of the ψ-slice torus, which changes sign at cos φ = 0 (Gauss–Bonnet) & κ₀=10: 1.6e-01, κ₀=100: 1.6e-03, κ₀=1000: 1.6e-05; sign rule True & PASS \\
+V29 & 0 & Source C: 'negative curvature' is false; Scal takes both signs over the chart & constant κ=1: 67\% neg / 33\% pos; e\textasciicircum{}\{-0.2ψ\} cos 2ψ: 56\% neg / 44\% pos & PASS \\
+V30 & 0 & Source C eq. 29 disagrees with the curvature in value and sign & sign differs at 2/5 points; e.g. true +2.736 vs eq. 29 -8.186 & PASS \\
+V31 & 0 & Source C eq. 28: Γ\textasciicircum{}ψ\_θθ has the wrong sign even for its own (diagonal) metric & Γ\textasciicircum{}ψ\_θθ printed -1.2778 vs own +1.2778; Γ\textasciicircum{}ψ\_φφ +0.3579 vs +0.0333 & PASS \\
+V32 & 0 & Source C eq. 16 is not an antiderivative of eq. 15 (and w(0) ≠ 0) & exact residual 1.0e-10; eq. 16 residual 2.921; eq. 16 w(0) = -5.0 & PASS \\
+V33 & 0 & CFL: centered limit 1/√d for every γΔt; Source B's scheme √((1−γΔt/2)/d) & max abs diff 5.8e-11 & PASS \\
+V34 & 0 & Temporal order: centered 2, Source B (4.13) 1 & 1.998 and 1.005 & PASS \\
+V35 & 0 & Discrete energy identity of the centered scheme (2D, damped, forced) & residual 9.3e-15 & PASS \\
+V36 & 0 & Source B Prop. 4.2 is false: curl ∇θ carries 2πm; the flux of ∇θ (∫Δθ) is 0 & circulation/2π = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]; max abs flux 0.0e+00 & PASS \\
+V37 & 0 & Source B (4.2c) does not preserve c ∈ [0,1] & c∞ = -0.5, crosses 0 at t = 1.0986 (= ln 3) & PASS \\
+V38 & 0 & Source B Prop. 4.1: energy need not decay with stationary S, c (static source, start at rest) & E: 5.62e-08 → max 3.57e-05 & PASS \\
+V39 & 0 & No localized steady wake without a restoring term; (4.9) holds only with mass γ\_m W & W(0) = [0.5, 1.0, 2.0]; (4.9) max err 7.3e-05 & PASS \\
+V40 & 0 & Decoherence pulse: uniform-mode displacement β/γ, independent of σ (Source B: βσ/γ) & σ=2: 2.000000; σ=0.5: 2.000000 & PASS \\
+V41 & 0 & Lagrangian (4.4) does not generate (4.2a) & EL − (4.2a) = (α − χv²)S\_xx + v²ω²W − v²ξ(1 − c) − β∂\_t c (restoring term, no ∂\_t c source) & PASS \\
+V42 & 0 & 2D point source: ∫∇W·∇W diverges as ln(1/h)/(2π), outside Theorem 4.1's H¹ & 0.7329 → 1.4659 & PASS \\
+V43 & 0 & Source D Tier 1: reported Walsh coefficients belong to a different input; Parseval passes for both & WHT[1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0, 1.0] = [6.0, 2.0, 2.0, -2.0, -2.0, 2.0, 2.0, -2.0]; reported = transform of [1.0, 1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0] & PASS \\
+V44 & 0 & Source D Tier 2: φ(a\textasciicircum{}k) = φ(a)\textasciicircum{}k for φ = mod 3 on Z9 cannot fail & 0 failures in 279; unital Z4→Z3 map exists: False & PASS \\
+V45 & 0 & Source D Prediction 5 metric is maximal for a constant signal & constant 1.000; chaotic noise 0.011 & PASS \\
+V46 & 0 & Source B eq. 4.10 inverts agreement; spectral share is sign-blind; the resultant separates the antipodal pair & identical: 7.4e-17/1/1; orthogonal: 1/0/0; antipodal\_pair: nan/1/0; two\_clusters: 0.33/0.33/0.33 & PASS \\
+V47 & 0 & R\_persist: 0 under H1; > 0 with actuation; 0 again given (X,H); EMA decays, accumulator saturates & H1 0.0e+00; X 1.366 bits; X,H 1.0e-14; lag 60: EMA 1.5e-10, accumulator 2.68 bits & PASS \\
