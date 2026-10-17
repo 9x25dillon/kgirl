@@ -72,6 +72,9 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("-n", type=int, default=30)
     q = ss.add_parser("export-sft", help="accepted trajectories as JSONL for local fine-tuning")
     q.add_argument("out")
+    q.add_argument("--role", choices=("diff", "jev", "smith"), default="diff",
+                   help="diff: goal -> winner diff (default; kgirl.tauls reads it); jev: prompt -> one-line "
+                        "decision; smith: EDIT prompt -> applied SEARCH/REPLACE")
     p = sub.add_parser("skills", help="forge skills from verified routines; export as Claude Code skills")
     sk = p.add_subparsers(dest="skills_cmd", required=True)
     q = sk.add_parser("forge")
@@ -186,19 +189,9 @@ def _soup(a: Assistant, args) -> int:
             print(f"{r['seq']:>6} {r['op']:<10} #{r['fragment_id'] or '-':<5} {r['before'] or ''}->{r['after'] or ''} "
                   f"{r['detail'] or ''}")
     elif c == "export-sft":
-        n = 0
-        with open(args.out, "w", encoding="utf-8") as fh:
-            for f in a.soup.all(status="active", kind="trajectory"):   # staged (e.g. MCP) runs never train
-                if not f.data:
-                    continue
-                rec = json.loads(f.data)
-                if not rec.get("diff"):
-                    continue
-                fh.write(json.dumps({"instruction": rec["goal"], "context": ", ".join(rec.get("files", [])),
-                                     "output": rec["diff"], "meta": {"ops": rec.get("ops"), "fragment": f.id}},
-                                    ensure_ascii=False) + "\n")
-                n += 1
-        print(f"wrote {n} examples to {args.out}")
+        from .sft import export
+        n = export(a.soup, args.out, args.role)                    # active trajectories only
+        print(f"wrote {n} {args.role} examples to {args.out}")
     return 0
 
 

@@ -41,6 +41,7 @@ python -m kgirl.harness task "make tests/test_x.py pass" --repo . \
 python -m kgirl.harness report -o docs/harness/ATLAS_REPORT.md
 python -m kgirl.harness route                                    # which backend serves which role
 python -m kgirl.harness soup stats | soup recall "…" | soup ledger | soup export-sft out.jsonl
+python -m kgirl.harness soup export-sft jev.jsonl --role jev     # or --role smith; see "Decision log" below
 ```
 
 State lives in `$KGIRL_HOME` (default `~/.kgirl`): `atlas.db`, `soup.db`, `trace.jsonl`, and
@@ -113,7 +114,33 @@ the cited context pack itself.
   winner's recalled fragments get +1 and the losers' recalled fragments get −½. This is the
   "inference-time training": memory adapts to outcomes without touching model weights.
   `soup export-sft` writes accepted trajectories as JSONL for when you do want LoRA fine-tuning
-  of the local coder.
+  of the local models. See the decision log below for which format trains which model.
+
+### Decision log and SFT export *(Level 0 mechanics)*
+
+Jev decides one line per step, each from a fresh prompt, and the smith model writes SEARCH/REPLACE blocks. A
+model fine-tuned on goal → whole-diff pairs learns neither format. So every trajectory now logs what each
+model actually saw and said (`log_version` 1 in the stored record):
+
+| Field | Content |
+|---|---|
+| `system`, `system_sha1` | the Jev system prompt the decisions were made under |
+| `decisions[]` | each model-made step: `n`, the exact `prompt`, the `raw` reply, the parsed `decision`, `op`, `valid`, `ok`, `truncated` |
+| `smith_system`, `smith[]` | each smith call: `prompt`, `reply`, `temperature`, `path`, the `step` it served, whether it `applied` |
+| `temperature` | the winner's sampling temperature |
+
+Intuition steps are not logged (no prompt was built), and prompts over 8000 characters are kept truncated and
+marked. `soup export-sft --role` then writes one format per model:
+
+| `--role` | Example | Kept |
+|---|---|---|
+| `diff` (default) | goal + files → diff, as before; `kgirl.tauls --sft` reads this | trajectories with a diff |
+| `jev` | system + exact step prompt → the one-line decision | steps that parsed and succeeded |
+| `smith` | smith system + EDIT prompt → the SEARCH/REPLACE reply | replies the environment applied |
+
+All roles export **active** trajectories only, so a run started over MCP trains nothing until a person promotes
+it. Truncated prompts or replies, and trajectories stored before the log existed, yield no `jev` or `smith`
+examples.
 
 ### Staged, regularized RSI (Soup curator) *(Level 0 mechanics)*
 The harness improves itself **only through memory**. It never rewrites its own code or weights.
