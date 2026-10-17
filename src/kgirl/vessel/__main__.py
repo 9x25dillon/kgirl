@@ -17,6 +17,11 @@ def default_db() -> str:
 
 
 def main(argv=None) -> int:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    from ._glyph import knocks, reveal
+    if knocks(argv):
+        print(reveal() + "hello, world.")
+        return 0
     ap = argparse.ArgumentParser(prog="python -m kgirl.vessel", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("demo", help="whole lifecycle on the reference substrate")

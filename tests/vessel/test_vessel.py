@@ -149,6 +149,21 @@ class LifecycleTests(unittest.TestCase):
 
 
 class InterfaceTests(unittest.TestCase):
+    def test_a_knock_is_answered(self):
+        import contextlib
+        import io
+
+        from kgirl.vessel.__main__ import main
+        from kgirl.vessel._glyph import knocks, reveal
+        for knock in (["hello", "world"], ["print('hello", "world')"], ['print("Hello, World!")'], ["hello"]):
+            self.assertTrue(knocks(knock), knock)
+        self.assertFalse(knocks(["status"]))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(main(["hello", "world"]), 0)
+        self.assertTrue(out.getvalue().startswith(reveal()))
+        self.assertEqual(len(reveal().splitlines()), 53)
+
     def test_cli_status_verify_and_mcp_tools(self):
         from kgirl.vessel.__main__ import main
         with tempfile.TemporaryDirectory() as tmp:
