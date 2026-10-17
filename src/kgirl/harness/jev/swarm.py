@@ -29,8 +29,8 @@ from typing import Callable
 
 from ..atlas.store import SKIP_DIRS
 from ..soup import Curator, Recall, Soup
-from ..util import clip
-from .agent import Jev, JevConfig, Step, Trajectory
+from ..util import clip, sha1
+from .agent import PROMPT_CAP, Jev, JevConfig, Step, Trajectory
 from .code_env import CodeEnvironment
 from .intuition import Intuition
 
@@ -46,6 +46,7 @@ Answer with one or more blocks in exactly this format and nothing else:
 <replacement lines>
 >>>>>>> REPLACE
 The SEARCH text must match the file exactly once. Do not include line numbers."""
+SMITH_REPLY_CAP = 8000                # chars kept of a logged smith reply (max_tokens 1500)
 
 DISTILL_SYSTEM = """You compress a successful coding-agent run into reusable lessons.
 Write 1 to 3 lines. Each line is one imperative rule of at most 30 words that would help a
@@ -149,14 +150,23 @@ class Swarm:
             frags = _slice(recall, i, cfg.size, cfg.memory_budget)
             memory_text = "\n".join(f"- {f.text}" for f in frags)
             seeds = [p for f in frags for p in _PATH.findall(f.text)]
+            smith_log: list[dict] = []
+            seen = [0]
+
+            def on_step(jid: str, s: Step) -> None:
+                for call in smith_log[seen[0]:]:          # an EDIT step makes at most one smith call
+                    call["step"], call["applied"] = s.n, s.ok
+                seen[0] = len(smith_log)
+                self._on_step(jid, s)
+
             env = CodeEnvironment(
-                ws, goal, smith=self._smith(temp), verify_cmd=verify_cmd, memory_text=memory_text,
+                ws, goal, smith=self._smith(temp, smith_log), verify_cmd=verify_cmd, memory_text=memory_text,
                 blast=(lambda p: self.blast(repo_name, p)) if self.blast else None, seed_paths=seeds)
-            jev = Jev(env, self._decider(temp), memory_text, cfg.jev,
-                      on_step=lambda jid, s: self._on_step(jid, s),
+            jev = Jev(env, self._decider(temp), memory_text, cfg.jev, on_step=on_step,
                       intuition=intuition if i < n_intuitive else None)
             self.emit("jev.spawn", {"jev": jev.id, "temperature": temp, "memory": [f.id for f in frags]})
             traj = jev.run(goal, cancel)
+            traj.smith_calls = smith_log
             traj.recalled = [f.id for f in frags]
             traj.workspace = str(ws)
             traj.variant = {"temperature": temp, "slice": i, "intuition": i < n_intuitive}
@@ -208,11 +218,19 @@ class Swarm:
         max_tokens = self.config.jev.decision_tokens
         return lambda system, prompt: self.llm("jev", system, prompt, max_tokens, temperature)
 
-    def _smith(self, temperature: float):
+    def _smith(self, temperature: float, log: list[dict] | None = None):
+        temp = min(0.4, temperature)
+
         def smith(goal: str, path: str, region: str, memory: str) -> str:
             prompt = (f"GOAL: {goal}\n\n" + (f"MEMORY:\n{memory}\n\n" if memory else "")
                       + f"FILE: {path}\nREGION:\n{region}\n")
-            return self.llm("smith", SMITH_SYSTEM, prompt, 1500, min(0.4, temperature))
+            reply = self.llm("smith", SMITH_SYSTEM, prompt, 1500, temp)
+            if log is not None:                           # the swarm's on_step marks step and applied
+                log.append({"prompt": prompt[:PROMPT_CAP], "truncated": len(prompt) > PROMPT_CAP,
+                            "reply": (reply or "")[:SMITH_REPLY_CAP],
+                            "reply_truncated": len(reply or "") > SMITH_REPLY_CAP,
+                            "temperature": temp, "path": path, "step": None, "applied": None})
+            return reply
         return smith
 
     def _on_step(self, jev_id: str, step: Step) -> None:
@@ -241,7 +259,11 @@ class Swarm:
         record = {"goal": w.goal, "ops": w.ops_signature(), "files": files, "summary": w.summary,
                   "verify": verify_cmd, "diff": w.diff[:20000], "memory": w.recalled, "steps": w.routine(),
                   "llm_calls": w.llm_calls, "intuition_steps": w.intuition_steps, "jev": w.jev_id,
-                  "origin": origin}
+                  "origin": origin,
+                  # decision log (log_version 1): what a fine-tuned Jev or smith model would learn from
+                  "log_version": 1, "temperature": w.variant.get("temperature"),
+                  "system": w.system, "system_sha1": sha1(w.system), "decisions": w.decisions,
+                  "smith_system": SMITH_SYSTEM, "smith_system_sha1": sha1(SMITH_SYSTEM), "smith": w.smith_calls}
         source = origin or w.jev_id
         tid = self.soup.add(
             f"Solved '{clip(w.goal, 120)}' in {len(w.steps)} steps by editing {', '.join(files) or '-'}: "

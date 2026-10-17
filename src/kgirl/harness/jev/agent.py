@@ -9,6 +9,10 @@ Context discipline (the whole point — cheap and fast):
 Lifecycle: spawn -> steps -> DONE | BLOCKED | exhausted | invalid | cancelled.
 Its only legacy is the Trajectory; the swarm decides whether that trajectory
 is worth distilling into Soup.
+
+Decision log: every model-made step keeps the exact prompt it was decided from, the raw reply, the parsed
+line, and whether it parsed and succeeded. These are the examples a fine-tuned Jev model has to learn
+(`soup export-sft --role jev`); the diff-level record alone is not in the format Jev is used in.
 """
 
 from __future__ import annotations
@@ -25,6 +29,8 @@ from .intuition import label_key
 from .ops import InvalidDecision, grammar, parse_decision
 
 Decide = Callable[[str, str], str]   # (system, prompt) -> one-line decision
+PROMPT_CAP = 8000                     # chars kept per logged prompt; longer ones are marked truncated
+RAW_CAP = 400                         # chars kept of a raw reply (a decision is ~24 tokens)
 
 SYSTEM = """You are Jev, a single-purpose agent. You exist only to finish the GOAL, then you stop.
 Each turn you see a numbered TABLE. Reply with exactly ONE line and nothing else:
@@ -78,6 +84,9 @@ class Trajectory:
     intuition_steps: int = 0
     surprised: bool = False
     routines_used: list[int] = field(default_factory=list)
+    system: str = field(default="", repr=False)                     # the system prompt every decision used
+    decisions: list[dict] = field(default_factory=list, repr=False)  # model-made steps (see log_decision)
+    smith_calls: list[dict] = field(default_factory=list, repr=False)  # filled in by the swarm
 
     @property
     def succeeded(self) -> bool:
@@ -125,6 +134,7 @@ class Jev:
         invalid = 0
         done: list[tuple[str, str]] = []
         needs_target = {name for name, spec in self.env.ops.items() if spec.needs_target}
+        traj.system = self._system
         try:
             for n in range(1, cfg.max_steps + 1):
                 if cancel is not None and cancel.is_set():
@@ -137,6 +147,7 @@ class Jev:
                     prop = self.intuition.propose(goal, done, obs.elements, needs_target)
                     if prop is not None and prop.confidence < self.intuition.threshold:
                         prop = None
+                prompt = ""
                 if prop is not None:
                     raw, source = prop.line, "intuition"
                     traj.routines_used.extend(r for r in prop.routines if r is not None and r >= 0)
@@ -156,6 +167,8 @@ class Jev:
                     step = Step(n, clip(raw or "", 120), "INVALID", None, "", False, str(exc),
                                 (time.perf_counter() - ts) * 1000)
                     traj.steps.append(step)
+                    if source == "llm":
+                        traj.decisions.append(self.log_decision(n, prompt, raw, "INVALID", False, False))
                     recent.append(f"your last reply was invalid: {exc}")
                     self._emit(step)
                     if invalid >= cfg.max_invalid:
@@ -173,6 +186,8 @@ class Jev:
                         traj.surprised = True       # System 1 was wrong: System 2 drives the rest of the run
                 if res.ok:
                     done.append((d.op, key))
+                if source == "llm":
+                    traj.decisions.append(self.log_decision(n, prompt, raw, d.op, True, res.ok, d.raw))
                 traj.steps.append(step)
                 self._emit(step)
                 recent.append(f"{d.raw} -> {clip(res.note, cfg.note_chars)}")
@@ -187,6 +202,12 @@ class Jev:
             traj.summary = f"{type(exc).__name__}: {exc}"[:300]
         traj.elapsed = time.perf_counter() - t0
         return traj
+
+    @staticmethod
+    def log_decision(n: int, prompt: str, raw: str, op: str, valid: bool, ok: bool, decision: str = "") -> dict:
+        """One model-made step: the exact prompt, the reply, the parsed line, and whether it parsed and worked."""
+        return {"n": n, "prompt": prompt[:PROMPT_CAP], "truncated": len(prompt) > PROMPT_CAP,
+                "raw": (raw or "")[:RAW_CAP], "decision": decision, "op": op, "valid": valid, "ok": ok}
 
     def _emit(self, step: Step) -> None:
         if self.on_step:
