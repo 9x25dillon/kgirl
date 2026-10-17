@@ -152,3 +152,18 @@ docs/harness/ docs/nihiline/ docs/evolve/   guides, figures, ATLAS_REPORT.md
 tests/harness/ tests/nihiline/ tests/evolve/
 .mcp.json               registers the kgirl MCP server for Claude Code
 ```
+
+## 8. Addendum (2026-10-17): `kgirl.vessel`
+
+Branch `claude/kgirl-consciousness-container-hqhwiv`. This adds `src/kgirl/vessel/` (identity container), `tests/vessel/` (37
+tests, about 25 s; the 4 AURIC tests skip without torch) and `docs/vessel/README.md` (theory, evidence table,
+negative results). It also adds three harness MCP tools: `vessel_status`, `vessel_verify` and `vessel_demo`.
+
+- It uses **patern-coding** (AURIC) through `vessel/torch_substrate.py` (`auric_substrate`, found via
+  `kgirl.paths`). It adapts substrate-comm's **group-sampling invariance check** in `vessel/invariance.py`.
+  Neither of those repos was modified.
+- Torch is not installed in kgirl's environment. The AURIC tests passed under torch 2.14 in a scratch venv.
+- Everything runs on numpy plus the standard library, and all randomness comes from ChaosRNG (preference 2).
+- Start with `PYTHONPATH=src python -m kgirl.vessel demo`, then read docs/vessel "Future evolution". The first
+  item is to measure sibling distances and steering cost on a *trained* AURIC checkpoint and recalibrate the
+  engage and release thresholds from them.

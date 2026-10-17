@@ -149,6 +149,33 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
         return "\n".join(f"{s.name} (support {s.support}, utility {s.utility:.2f}, {s.scope}): {s.shape()}"
                          for s in sk) or "no routine has enough verified support yet"
 
+    def _vessel_db():
+        from ..vessel.__main__ import default_db
+        from ..vessel.matrixdb import MatrixDB
+        path = default_db()                    # fixed location: callers never choose which file is opened
+        if not Path(path).exists():
+            raise FileNotFoundError(f"no vessel database at {path}; create one with python -m kgirl.vessel demo --db {path}")
+        return MatrixDB(path)
+
+    def vessel_status(p):
+        import json as _json
+
+        from ..vessel.demo import db_status
+        with _vessel_db() as db:
+            return _json.dumps(db_status(db, p.get("name") or None), indent=2, ensure_ascii=False, default=str)
+
+    def vessel_verify(p):
+        import json as _json
+        with _vessel_db() as db:
+            return _json.dumps(db.verify(str(p["name"])), indent=2)
+
+    def vessel_demo(p):
+        from ..vessel.demo import render, run
+        scale = str(p.get("scale", "quick"))
+        if scale not in ("quick", "full"):
+            raise ValueError("scale must be quick or full")
+        return render(run(scale))                 # in-memory database: the demo writes nothing to disk
+
     S = lambda props, req: {"type": "object", "properties": props, "required": req}  # noqa: E731
     s, i, n = {"type": "string"}, {"type": "integer"}, {"type": "number"}
     return {
@@ -174,10 +201,21 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
                            iwme_irt_point),
         "iwme_attention": (S({"T": n, "rho": n}, []), iwme_attention),
         "skills_forge": (S({"min_support": i, "min_utility": n}, []), skills_forge),
+        "vessel_status": (S({"name": s}, []), vessel_status),
+        "vessel_verify": (S({"name": s}, ["name"]), vessel_verify),
+        "vessel_demo": (S({"scale": {"type": "string", "enum": ["quick", "full"]}}, []), vessel_demo),
     }
 
 
 _DESCRIPTIONS = {
+    "vessel_status": "Vessel MatrixDB ($KGIRL_HOME/vessel/matrix.db): with no name, every vessel with its ledger state; "
+                     "with a name, event counts, the last reading of each kind (drift, coherence, steering outcome, "
+                     "migrations) and stored weight snapshots. Read-only. Needs numpy.",
+    "vessel_verify": "Recompute one vessel's hash-chained ledger; reports ok, length, head and the first broken sequence "
+                     "number. Read-only.",
+    "vessel_demo": "Run the vessel lifecycle on the reference substrate in memory (about 40 s quick, 1 min full): three "
+                   "sibling vessels, drift, steering back to coherence, self-recognition, consolidation, migration into "
+                   "other widths, invariance verification, ledger and soulpack checks. Writes nothing to disk.",
     "iwme_verify": "Run the IWME claim registry (47 checks behind research/iwme/IWME_Phase0-3.pdf: attention-memory "
                    "retention and bifurcations, cascade spectra, the IRT metric and curvature, wake schemes, Source B/D "
                    "checks, persistence after decoupling). fast=true skips the slow checks; only='V22 V26' selects ids. "
