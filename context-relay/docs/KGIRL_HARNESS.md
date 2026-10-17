@@ -73,7 +73,7 @@ The model is [`examples/kgirl-harness.model.json`](../plugins/porter-blast-radiu
 | KFM-12 | A `jev_swarm_task` goal persists in an `active` trajectory, outside the curator: recalled, replayed by intuition, and exported by the forge | `jev/swarm.py` `_learn` | 48 → 12 |
 | KFM-13 | The generic MCP server imports domain packages; a domain change or a missing numpy shows up as a harness tool failure | `mcp_server.py` `ecl_*`, `evolve_assay` | 18 → 12 |
 
-The model maps every one of the server's 15 tools to the component it reaches (`kgirl-mcp.tools`). With `KGIRL_SRC` set, a contract test compares that map with `mcp_server._tools()`, so the model can't drift from the code without a red test. **(L0)**
+The model maps every one of the server's 21 tools to the component it reaches (`kgirl-mcp.tools`). The six added after this review, `iwme_*` (kgirl#65) and `vessel_*` (kgirl#70), are pure in-memory compute (`domain-tools`) except `vessel_status` and `vessel_verify`, which read the vessel database at a fixed path (`vessel-db`); no MCP tool writes it, so they add no persistent loop. With `KGIRL_SRC` set, a contract test compares that map with `mcp_server._tools()`, so the model can't drift from the code without a red test. **(L0)**
 
 ### What the analysis shows
 

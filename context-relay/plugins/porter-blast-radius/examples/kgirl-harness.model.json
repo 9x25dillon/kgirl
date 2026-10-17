@@ -1,6 +1,6 @@
 {
   "modelVersion": 1,
-  "about": "Blast-radius model of the kgirl harness (src/kgirl/harness at main 93bfbfa: the 26748c4 core, 80f8b85 intuition, skill forge and the ecl_*/evolve_* tools, and the #55 and #59 fixes) from code inspection, plus the porter-blast-radius bridge that reads its Atlas. Controls marked implemented exist in the code; controls marked proposed are recommended fixes. Evaluate with as_built=true to see today's system.",
+  "about": "Blast-radius model of the kgirl harness (src/kgirl/harness at main 0e940c1: the 26748c4 core, 80f8b85 intuition, skill forge and the ecl_*/evolve_* tools, the #55, #59 and #60 fixes, and the iwme_* (#65) and vessel_* (#70) tools) from code inspection, plus the porter-blast-radius bridge that reads its Atlas. Controls marked implemented exist in the code; controls marked proposed are recommended fixes. Evaluate with as_built=true to see today's system.",
   "controls": {
     "C-CURATOR":         { "strength": "full",    "threats": ["integrity"], "status": "implemented", "mechanism": "curator.propose stores new fragments as staged; recall serves only active; promotion needs support >= k, LCB(utility) >= p and the validator. Covers the rules distilled from a winner, not the winner's trajectory record (see C-STAGE-TRAJECTORY).", "verify": "kgirl tests/harness soup promotion tests" },
     "C-VERIFIED-WIN":    { "strength": "partial", "threats": ["integrity"], "status": "implemented", "mechanism": "The swarm stores a trajectory only for a winner that passed the verifier. The record is stored active, outside the curator, and carries the caller's goal text.", "verify": "kgirl jev/swarm.py _learn(); tests/harness jev swarm tests", "theta": null },
@@ -31,12 +31,14 @@
     { "id": "anthropic-api", "layer": "external", "name": "scout model backend (Claude)", "egress": true },
     { "id": "ollama",        "layer": "external", "name": "local smith/jev model backend" },
     { "id": "mcp-protocol",  "layer": "external", "name": "MCP protocol revisions" },
-    { "id": "kgirl-mcp",     "layer": "surface",  "name": "kgirl-harness MCP server (15 tools)",
+    { "id": "kgirl-mcp",     "layer": "surface",  "name": "kgirl-harness MCP server (21 tools)",
       "tools": {
         "atlas_search": "atlas-db", "atlas_outline": "atlas-db", "atlas_source": "atlas-db", "atlas_blast_radius": "atlas-db",
         "atlas_coupling": "atlas-db", "atlas_card": "atlas-db", "soup_recall": "soup-db", "soup_remember": "soup",
         "kgirl_ask": "assistant", "jev_swarm_task": "jev-swarm", "skills_forge": "skill-forge",
-        "ecl_quantify": "domain-tools", "ecl_protocol": "domain-tools", "ecl_gap": "domain-tools", "evolve_assay_design": "domain-tools"
+        "ecl_quantify": "domain-tools", "ecl_protocol": "domain-tools", "ecl_gap": "domain-tools", "evolve_assay_design": "domain-tools",
+        "iwme_verify": "domain-tools", "iwme_irt_point": "domain-tools", "iwme_attention": "domain-tools",
+        "vessel_demo": "domain-tools", "vessel_status": "vessel-db", "vessel_verify": "vessel-db"
       } },
     { "id": "porter-bridge", "layer": "surface",  "name": "porter-blast-radius atlas_import" },
     { "id": "atlas",         "layer": "core",     "name": "Atlas indexer and graph" },
@@ -48,9 +50,10 @@
     { "id": "intuition",     "layer": "core",     "name": "Jev intuition (System 1): replays routines from stored trajectories without a model call" },
     { "id": "skill-forge",   "layer": "core",     "name": "skill forge: active trajectories to Soup skills (CLI and MCP skills_forge)" },
     { "id": "skill-export",  "layer": "core",     "name": "skills forge --export: the person-run CLI writes SKILL.md files" },
-    { "id": "domain-tools",  "layer": "core",     "name": "nihiline and evolve compute behind ecl_* and evolve_assay_design (pure, numpy)" },
+    { "id": "domain-tools",  "layer": "core",     "name": "nihiline, evolve, iwme and vessel compute behind ecl_*, evolve_assay_design, iwme_* and vessel_demo (pure, in memory, numpy)" },
     { "id": "atlas-db",      "layer": "data",     "name": "atlas.db (structure: signatures, docstrings, imports, hashes)" },
     { "id": "soup-db",       "layer": "data",     "name": "soup.db (memory fragments, ledger)" },
+    { "id": "vessel-db",     "layer": "data",     "name": "$KGIRL_HOME/vessel/matrix.db (vessels, hash-chained ledger, weight snapshots) at a fixed path; written only by the person-run python -m kgirl.vessel. vessel_status and vessel_verify only read it, but MatrixDB opens it read-write (schema ensure, WAL)" },
     { "id": "target-repo",   "layer": "data",     "name": "the repo a swarm's diff is applied to" },
     { "id": "trajectories",  "layer": "data",     "name": "soup.db trajectory rows (goal, steps, diff), written by the swarm; soup_remember notes carry no steps and never reach the forge" },
     { "id": "skills-dir",    "layer": "data",     "name": ".claude/skills/<name>/SKILL.md, loaded by Claude Code as instructions" },
@@ -105,6 +108,8 @@
     ["local-repos", "atlas", "runtime", "C-PARSE-REPORT"],
     ["atlas", "atlas-db", "runtime"],
     ["atlas-db", "kgirl-mcp", "runtime"],
+    ["vessel-db", "kgirl-mcp", "trust"],
+    ["vessel-db", "kgirl-mcp", "runtime"],
     ["atlas-db", "porter-bridge", "runtime", "C-READONLY"],
 
     ["atlas", "atlas-db", "change", "C-PARSER-VERSION"],
