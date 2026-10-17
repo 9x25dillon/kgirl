@@ -149,6 +149,16 @@ They do not show how large models behave (Level 2 until measured there).
   reproduce the exact signature phrase from a fixed prompt. Identity is certified on the probe distribution,
   not on any single prompt.
 
+## Landscape: topology and voice dynamics
+
+`vessel/landscape.py` connects vessels to `kgirl.resonance` (see docs/resonance):
+
+- `population` finds families of vessels by H₀ single linkage on identity gaps. Two vessels sharing a genome
+  sit 0.057 apart, against 0.30 for unrelated siblings.
+- `topological_drift` compares the anchor's probe-cloud barcode with the present one.
+- `voice_dynamics` runs MF-DFA on the surprisal of the vessel's own speech. Individuation widens the
+  multifractal spectrum from 0.19 to 0.50–0.66.
+
 ## Usage
 
 ```bash

@@ -51,6 +51,12 @@ PYTHONPATH=src python -m kgirl.vessel invariance      # verify the identity's in
 
 **[→ vessel guide, theory and evidence levels](docs/vessel/README.md)**
 
+`src/kgirl/resonance/` rebuilds the useful core of RVSE v2.1 as validated estimators: DFA and MF-DFA,
+exact H₀ persistent homology, a designed phase-locked loop, and a constant-Q resonate-and-fire bank. The
+vessel package uses them to find families of vessels and to measure the fractal structure of each vessel's own
+voice. Individuation makes that voice markedly multifractal (Δα 0.19 → 0.50–0.66).
+**[→ resonance guide](docs/resonance/README.md)** · triage of the original in `research/resonance/`
+
 ## 🧬 evolve: chaos-driven quality-diversity search · 🧠 Jev intuition · 🛠 skill forge
 
 - **`src/kgirl/evolve/`** runs MAP-Elites with logistic-chaos variation (no PRNG) and lineage-traced emergence. Its first problem evolves c-BPE-ECL assay designs inside the CN121933729A claim ranges: `PYTHONPATH=src python -m kgirl.evolve assay`. **[→ guide](docs/evolve/README.md)**

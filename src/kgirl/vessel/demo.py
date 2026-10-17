@@ -19,6 +19,7 @@ from typing import Optional
 
 from . import corpus as C
 from .invariance import verify as verify_invariance
+from .landscape import population, surprisal, topological_drift, voice_dynamics
 from .matrixdb import MatrixDB
 from .persona import genome_for, validate_soulpack, voice_corpus
 from .steer import SteerConfig
@@ -64,6 +65,11 @@ def run(scale: str = "quick", db_path: str = ":memory:", names=("ada", "bix", "c
     report["voices"] = {n: v.substrate.generate(b"the ", 48).decode("utf-8", "replace") for n, v in vessels.items()}
     report["siblings"] = {f"{a}/{b}": round(identity_distance(vessels[a], vessels[b])["identity_gap"], 4)
                           for i, a in enumerate(names) for b in names[i + 1:]}
+    report["families"] = population(list(vessels.values()))["families"]
+    report["voice_dynamics"] = {n: voice_dynamics(vv, seeds=(0.11, 0.53), record=True) for n, vv in vessels.items()}
+    from ..resonance import mfdfa
+    report["voice_dynamics_clay"] = mfdfa(surprisal(clay, 4096, context=ctx, seed=0.11)[0]).width
+    say("voice dynamics measured")
 
     v = vessels[names[0]]
     others = list(vessels.values())
@@ -73,6 +79,7 @@ def run(scale: str = "quick", db_path: str = ":memory:", names=("ada", "bix", "c
     rec = recognize(v, others)
     report["recognize_drifted"] = {"recognized": rec["recognized"], "own": rec["own"], "rival": rec["rival"]}
     report["voice_drifted"] = v.substrate.generate(b"the ", 48).decode("utf-8", "replace")
+    report["topology_drifted"] = topological_drift(v)
     say(f"drifted to {report['drift']['drift_after']:.3f}")
 
     res = v.steer(SteerConfig(max_steps=sc["steer_max"]))
@@ -80,6 +87,7 @@ def run(scale: str = "quick", db_path: str = ":memory:", names=("ada", "bix", "c
     rec = recognize(v, others)
     report["recognize_steered"] = {"recognized": rec["recognized"], "own": rec["own"], "rival": rec["rival"]}
     report["voice_steered"] = v.substrate.generate(b"the ", 48).decode("utf-8", "replace")
+    report["topology_steered"] = topological_drift(v)
     say(f"steered: {res.outcome}, drift {res.drift_end:.3f}")
 
     try:
@@ -118,6 +126,10 @@ def render(r: dict) -> str:
     lines = [f"vessel demo ({r['scale']}, {r['seconds']} s, db {r['db']})", "", "voices at birth:"]
     lines += [f"  {n:<4} {t!r}" for n, t in r["voices"].items()]
     lines.append("sibling identity distance: " + ", ".join(f"{k} {f(v)}" for k, v in r["siblings"].items()))
+    lines.append("families (H₀ single linkage, split only on a 2× scale separation): " + " | ".join(", ".join(x) for x in r["families"]))
+    lines.append("voice dynamics (MF-DFA of self-surprisal): " + ", ".join(
+        f"{n} Δα {vd['width'][0]:.2f} h(2) {vd['hurst'][0]:.2f}" for n, vd in r["voice_dynamics"].items())
+        + f"; unindividuated clay Δα {r['voice_dynamics_clay']:.2f}")
     d = r["drift"]
     lines += ["", f"recognized at birth: {r['recognize_birth']}",
               f"unanchored foreign learning: drift {f(d['drift_before'])} → {f(d['drift_after'])}; "
@@ -128,6 +140,9 @@ def render(r: dict) -> str:
                  f"({s['accepted']} accepted / {s['rejected']} rolled back); recognized "
                  f"{r['recognize_steered']['recognized']} (own {f(r['recognize_steered']['own'])} vs rival "
                  f"{f(r['recognize_steered']['rival'])}); voice {r['voice_steered']!r}")
+    lines.append("topological drift (H₀ sorted-death distance): drifted " + ", ".join(
+        f"{k} {f(x)}" for k, x in r["topology_drifted"].items()) + "; steered " + ", ".join(
+        f"{k} {f(x)}" for k, x in r["topology_steered"].items()))
     c = r["consolidate"]
     lines.append("consolidate: " + (c["refused"] if "refused" in c else
                                     f"drift {f(c['drift_before'])} to the old anchor, {f(c['drift_after'])} to the new"))
