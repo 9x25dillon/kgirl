@@ -143,11 +143,11 @@
 
 \paragraph{Reproduction.} From the root of a \code{kgirl} checkout on branch \code{claude/iwme-phase3}:
 \begin{itemize}[leftmargin=1.4em]
-\item \code{PYTHONPATH=src python -m kgirl.iwme verify} runs the 47 checks in about 20\,s (options \code{-{}-fast}, \code{-{}-json}, \code{-{}-latex FILE}, \code{-{}-only V22 V26});
+\item \code{PYTHONPATH=src python -m kgirl.iwme verify} runs the 62 checks in about 20\,s (options \code{-{}-fast}, \code{-{}-json}, \code{-{}-latex FILE}, \code{-{}-only V22 V26});
 \item \code{python -m unittest discover -s tests/iwme -t .} runs the 70 unit tests;
 \item \code{PYTHONPATH=src python -m kgirl.iwme plot -o research/iwme/figures} regenerates the five figures.
 \end{itemize}
-Check identifiers \V{V01}--\V{V47} in the text point to Appendix~\ref{app:verify}. All variates come from the repository's deterministic logistic-map generator (\code{kgirl.evolve.chaos.ChaosRNG}); no pseudo-random generator is used anywhere.
+Check identifiers \V{V01}--\V{V62} in the text point to Appendix~\ref{app:verify}. All variates come from the repository's deterministic logistic-map generator (\code{kgirl.evolve.chaos.ChaosRNG}); no pseudo-random generator is used anywhere.
 
 %=====================================================================
 \section{Phase 0: intake and provenance}
@@ -362,8 +362,16 @@ Draft~1.0 cites Source~D for ``convergence conditions and attention measurements
 \end{itemize}
 Source~D therefore provides no attention measurement IWME can use. It can be cited for the conceptual claim that attention is a relational condition; the abstract's dependency should be removed or rephrased.
 
-\subsection{Source E: scope note}
-\emph{From Triangle to Form} (E8 holography, the proton radius) is outside IWME's dependency graph and is not audited here. One methodological point transfers: its automated checks, such as $\sqrt{12/\cos^2 30^\circ}=4$, verify arithmetic identities that hold by construction; like Source~D's Parseval check, they test the code and say nothing about the physical identifications.
+\subsection{Source E: scope note and addendum}
+\emph{From Triangle to Form} (E8 holography, the proton radius) is outside IWME's dependency graph and was not audited in Phases 0--3. One methodological point transfers: its automated checks, such as $\sqrt{12/\cos^2 30^\circ}=4$, verify arithmetic identities that hold by construction; like Source~D's Parseval check, they test the code and say nothing about the physical identifications.
+
+\paragraph{Addendum (Phase 4): Source E proposed as the repair of F1, Source B and Q5.} A later proposal offers Source~E's modular flow, transport equation $\partial_tM=\alpha_0\nabla^2M-\beta_0|M|^2M+\gamma_0\,M\times(\nabla\times M)$, vortex triad and dipole radius as fixes. Fifteen checks (\V{V48}--\V{V62}) test the computable statements.
+\begin{itemize}
+\item \emph{Hold.} The Jordan identity holds in $\mathrm{Herm}_n(\mathbb O)$ for $n\le3$ and fails for $n=4$ (\V{V51}). The Lamb term is orthogonal to $M$, so $\int|M|^2$ and $\max|M|$ never increase and $|M|\le1$ persists (\V{V54}). With $\beta_0>0$ the steady wake energy converges as the domain grows, where the linear wake grows by $\ln2/(2\pi)$ per doubling (\V{V56}). $\Lambda=m_p\cos30^\circ$ gives $r_p=4\hbar/(m_pc)=0.84124$\,fm, $-0.09\sigma$ from CODATA~2018 and $+0.94\sigma$ from CREMA (\V{V59}); bins near $Q^2=0.06\,\mathrm{GeV}^2$ separate equal-radius shapes at the $1.5\%$ level (\V{V61}).
+\item \emph{Hold by construction.} $\sum|\alpha|^2/120=2$ is the root normalization and becomes 1 under $|\alpha|^2=1$ (\V{V48}). $\langle r^4\rangle=60\,G''(0)=\tfrac52\langle r^2\rangle^2=1.252$\,fm$^4$ is a property of every exponential charge density (\V{V59}). The modular flow of a Gibbs state is Heisenberg evolution under $\beta H$ (\V{V62}); it adds no coupling, so Finding F1 stands.
+\item \emph{Fail.} No root subsystem has 29 roots: subsystems are closed under $\alpha\mapsto-\alpha$ (\V{V49}), so the 29/211 split is a chosen parameter. Thomson rings are linearly stable up to $N=7$ (\V{V52}), and the chordal energy has Hessian $V_0\bigl[\begin{smallmatrix}2/3&1/3\\1/3&2/3\end{smallmatrix}\bigr]$ at the triad, positive definite, with equal spacing a minimum for every $N$ (\V{V53}); the stated $\det H=9/64$, $H_{11}<0$ is not reproduced and the $N\ge4$ obstruction does not follow. The cubic term gives an algebraic tail $u\simeq\sqrt{\alpha/\beta}/r$, not a mass gap; exponential decay needs a linear term $-\mu M$ (\V{V57}). A point source still costs $\ln2/(2\pi)$ of gradient energy per halving of its core with or without the cubic term (\V{V58}). The $30^\circ$ angle is the one input: CREMA requires $29.96^\circ$ and one degree moves $r_p$ by $0.0087$\,fm (\V{V60}).
+\end{itemize}
+Source~E therefore replaces Source~B's wake equation rather than repairing it, fixes B2 and B7 within its own model, leaves B5 and the mass gap open, and does not touch F1.
 
 %=====================================================================
 \section{Phase 3: formal rehabilitation}\label{sec:phase3}
@@ -595,7 +603,7 @@ The harness MCP server gains three tools: \code{iwme\_verify}, \code{iwme\_irt\_
 
 \begin{itemize}
 \item[Q1] Definition of ``intra-dimensional'' and ``emission'': open (candidate readings in F6 and \cref{sec:core}).
-\item[Q2] Sources B, C, D: supplied and audited; Source E received and outside scope.
+\item[Q2] Sources B, C, D: supplied and audited; Source E received and outside scope; its proposed fixes are checked in \V{V48}--\V{V62}.
 \item[Q3] Narrowing to the inductive-bias claim with $C_E\ne0$ as extension M4: clarification received (\cref{sec:hypothesis}); a formal decision is still requested.
 \item[Q4] Execution environment: used; every number in this report is computed.
 \item[Q5] Physical data or apparatus for Experiments B, C, F: open. Phase~4 proceeds simulation-first.
@@ -617,7 +625,7 @@ Draft~1.0 remains unready for submission: its core, as written, conflates observ
 %=====================================================================
 Generated from the repository root by
 \begin{flushleft}\small\code{PYTHONPATH=src python -m kgirl.iwme verify -{}-latex research/iwme/verification\_table.tex}\end{flushleft}
-``Observed'' is the program's output. A refutation of a source claim appears as a passing check. All 47 checks pass.
+``Observed'' is the program's output. A refutation of a source claim appears as a passing check. All 62 checks pass.
 
 {\footnotesize
 \begin{longtable}{@{}p{0.75cm}p{0.35cm}>{\raggedright\arraybackslash}p{6.6cm}>{\raggedright\arraybackslash}p{6.2cm}p{0.9cm}@{}}

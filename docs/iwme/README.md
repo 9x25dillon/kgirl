@@ -3,7 +3,7 @@
 `src/kgirl/iwme/` turns the IWME-PRIME-01 audit into code. It rebuilds IWME
 Draft 1.0 and the four supplied sources as computable objects, repairs the core
 architecture, and checks every number in the report
-`research/iwme/IWME_Phase0-3.pdf` with a 47-claim registry. A refuted source
+`research/iwme/IWME_Phase0-3.pdf` with a 62-claim registry. A refuted source
 claim appears as a passing check: each check asserts what the computation shows.
 
 ```
@@ -33,7 +33,8 @@ report: text, five figures, Appendix A (generated table)
 
 ```bash
 export PYTHONPATH=src
-python -m kgirl.iwme verify                       # 47 checks, about 20 s
+python -m kgirl.iwme verify                       # 62 checks, about 20 s
+python -m kgirl.iwme source-e [--data bins.csv]   # Source E checks V48–V62; optional G_E bins (Q2_GeV2,GE,sigma)
 python -m kgirl.iwme verify --fast                # 44 checks, about 4 s (drops V08, V19, V33)
 python -m kgirl.iwme verify --only V22 V26        # selected ids
 python -m kgirl.iwme verify --json                # machine-readable
@@ -83,7 +84,9 @@ The harness MCP server (`kgirl.harness.mcp_server`) exposes three tools:
   zero-order-hold memory coupling (`HybridWake`), and Source B's PDE claims.
 - `sources`: Source D's Walsh–Hadamard, Z9 and Prediction 5 checks;
   phase-coherence measures (Source B eq. 4.10, spectral share, mean resultant).
-- `verify`: the registry (V01–V47) with text, JSON and LaTeX renderers.
+- `source_e`: Source E's computable claims (E8 roots, octonionic Jordan identity, vortex rings, the proposed
+  transport PDE, the dipole radius, modular flow) and `compare_bins` for G_E data.
+- `verify`: the registry (V01–V62) with text, JSON and LaTeX renderers.
 - `plots`: the report's figures.
 
 ## Investigator input applied
@@ -136,6 +139,30 @@ C_E ≠ 0 as extension M4.
 Level 3, speculative: presence beyond state incompleteness; any reading of the
 IRT as a communication device.
 
+## Source E: the proposed fixes (V48–V62)
+
+Source E (E8 holography, the proton radius) was proposed as the fix for Finding F1, Source B's wake defects and
+Q5. `kgirl.iwme.source_e` computes every statement of that proposal that can be computed.
+
+| status | check | result |
+|---|---|---|
+| holds | V51 | Jordan identity: holds in Herm_n(𝕆) for n ≤ 3, fails for n = 4 |
+| holds | V54 | Lamb term ⟂ M: ∫\|M\|² and max\|M\| never increase, so \|M\| ≤ 1 persists (fixes B2 in its own model) |
+| holds | V56 | with β > 0 the steady wake energy converges as the domain grows (fixes B7); linear: +ln2/(2π) per doubling |
+| holds | V59 | Λ = m_p cos 30° ⇒ r_p = 4ħ/(m_p c) = 0.84124 fm: −0.09σ (CODATA 2018), +0.94σ (CREMA) |
+| holds | V61 | equal-radius shapes differ by 1.5 % near Q² = 0.06 GeV², so 0.35 % agreement there tests the dipole shape; below 0.01 GeV² they agree to 0.045 % |
+| by construction | V48 | Σ\|α\|²/120 = 2 is the \|α\|² = 2 normalization (= 1 under \|α\|² = 1) |
+| by construction | V59 | G″(0) = 0.02087 fm⁴ ⇒ ⟨r⁴⟩ = 60 G″ = 2.5 r_p⁴ = 1.252 fm⁴: any exponential density |
+| by construction | V62 | modular flow of a Gibbs state = Heisenberg evolution under βH: no H → X coupling, F1 stands |
+| fails | V49 | no root subsystem has 29 roots (subsystems are closed under α → −α): the 29/211 split is a free choice |
+| fails | V52, V53 | Thomson rings are stable up to N = 7; the triad Hessian is V0[[2/3,1/3],[1/3,2/3]] (det 1/3, positive definite), not det 9/64 with H11 < 0 |
+| fails | V57 | the cubic term gives an algebraic tail u ≈ √(α/β)/r, no mass gap; exponential decay needs −μM |
+| fails | V58 | a point source still costs ln2/(2π) per halving of its core, with or without the cubic term (B5 open) |
+| fails | V60 | 30° is the single input: CREMA needs 29.96°, and 1° moves r_p by 0.0087 fm |
+
+To test the dipole against real G_E bins (for example PRad 2019), run `python -m kgirl.iwme source-e --data
+bins.csv` with columns `Q2_GeV2,GE,sigma`. No experimental bins ship with the repo.
+
 ## Determinism
 
 Every variate comes from `kgirl.evolve.chaos.ChaosRNG` (logistic map). The
@@ -146,5 +173,7 @@ exactly.
 
 Q1, definitions of "intra-dimensional" and "emission"; Q3, a formal decision on
 the inductive-bias narrowing; Q5, physical data or apparatus for Experiments B,
-C and F; Q6, authorship and venue. The Phase 4 plan is in Section 10 of the
+C and F; Q6, authorship and venue. The PDF predates the Source E addendum: the `.tex` and
+`verification_table.tex` include V48–V62, but the PDF has not been rebuilt (no LaTeX toolchain in the session
+that added them). The Phase 4 plan is in Section 10 of the
 report.

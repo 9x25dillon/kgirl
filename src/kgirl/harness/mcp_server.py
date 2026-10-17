@@ -243,7 +243,7 @@ _DESCRIPTIONS = {
     "vessel_demo": "Run the vessel lifecycle on the reference substrate in memory (about 40 s quick, 1 min full): three "
                    "sibling vessels, drift, steering back to coherence, self-recognition, consolidation, migration into "
                    "other widths, invariance verification, ledger and soulpack checks. Writes nothing to disk.",
-    "iwme_verify": "Run the IWME claim registry (47 checks behind research/iwme/IWME_Phase0-3.pdf: attention-memory "
+    "iwme_verify": "Run the IWME claim registry (62 checks behind research/iwme/IWME_Phase0-3.pdf, incl. Source E V48–V62: attention-memory "
                    "retention and bifurcations, cascade spectra, the IRT metric and curvature, wake schemes, Source B/D "
                    "checks, persistence after decoupling). fast=true skips the slow checks; only='V22 V26' selects ids. "
                    "Needs numpy (sympy for two checks).",
