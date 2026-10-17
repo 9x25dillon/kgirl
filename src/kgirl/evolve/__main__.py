@@ -29,6 +29,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("-k", "--top", type=int, default=5)
     p.add_argument("--data", help="lattice dataset directory (default: NuRea_sim via kgirl.paths)")
     p.add_argument("--out", help="write every elite (with its 39 enrichments) to this JSON file")
+    p.add_argument("--features", choices=("ensemble", "maxtype", "poly"), default="ensemble",
+                   help="ensemble (default): pessimistic over poly and maxtype, inside the data's support; "
+                        "poly: the original single-model search")
     p.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     if a.cmd == "fuel":
@@ -75,10 +78,11 @@ def main(argv: list[str] | None = None) -> int:
 
 def _fuel(a) -> int:
     from .problems import fuel as Fu
-    me, model = Fu.evolve(a.generations, a.batch, a.seed, bins=a.bins, data_dir=a.data)
+    me, model = Fu.evolve(a.generations, a.batch, a.seed, bins=a.bins, data_dir=a.data, features=a.features)
     last, champ, elites = me.history[-1], me.champion(), me.elites()
     real_best = min(model.data_best.values(), key=lambda r: r["pppf"])
-    result = {"generations": a.generations, "coverage": last.coverage, "qd_score": last.qd_score,
+    result = {"generations": a.generations, "surrogate": {"degree": 2, "features": a.features},
+              "coverage": last.coverage, "qd_score": last.qd_score,
               "stepping_stones": me.stepping_stones(),
               "best_simulated_design": real_best,
               "champion": {"fitness": champ.fitness, "generation": champ.generation, **champ.info},
@@ -99,8 +103,13 @@ def _fuel(a) -> int:
           f"{champ.info['mean_enrichment']:.3f} wt% (trust {champ.info['trust_sd']:.2f} SD); best simulated design: "
           f"PPPF {real_best['pppf']:.4f}, k_inf {real_best['k_inf']:.4f}")
     print(f"versus the best simulated design in the same cell: elite predicted flatter in "
-          f"{cmp['cells_where_elite_flatter']} of {cmp['cells_compared']} cells (median ΔPPPF {cmp['median_pppf_delta']:+.4f})")
-    print("predictions are Level 2 until a lattice code simulates them; PPPF surrogate RMSE ≈ 0.063")
+          f"{cmp['cells_where_elite_flatter']} of {cmp['cells_compared']} cells (median ΔPPPF {cmp['median_pppf_delta']:+.4f}); "
+          f"counting only elites inside the data's support: {cmp['cells_where_elite_flatter_in_support']} of "
+          f"{cmp['cells_compared_in_support']}")
+    print(f"champion support {champ.info['support_sd']:.2f} SD (max-type features vs the training designs; > 3 is "
+          f"extrapolation), model spread {champ.info['pppf_spread']:.3f} PPPF")
+    print(f"predictions are Level 2 until a lattice code simulates them; surrogate mode: {a.features} "
+          f"(PPPF CV RMSE ≈ 0.0653 poly, 0.0595 maxtype; see docs/neutronics)")
     print("  fitness    k_inf    PPPF  mean_e  max_e  trust")
     for e in elites[:a.top]:
         i = e.info

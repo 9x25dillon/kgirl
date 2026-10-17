@@ -29,8 +29,9 @@ class FuelEvolveTests(unittest.TestCase):
         mid = np.full((1, F.N_RODS), (2.85 - F.E_LO) / (F.E_HI - F.E_LO))       # every rod at the training mean
         hi = np.ones((1, F.N_RODS))                                             # every rod at 5 wt%: far outside
         a, b = ev(mid)[0], ev(hi)[0]
-        pred = self.model.surrogate.predict(np.full((1, F.N_RODS), 2.85))[0]
-        self.assertAlmostEqual(a.info["k_inf"], float(pred[0]), places=9)
+        preds = [s.predict(np.full((1, F.N_RODS), 2.85))[0] for s in self.model.surrogates.values()]
+        self.assertAlmostEqual(a.info["k_inf"], float(np.mean([p[0] for p in preds])), places=9)
+        self.assertAlmostEqual(a.info["pppf"], float(max(p[1] for p in preds)), places=9)   # pessimistic
         self.assertLess(a.info["trust_sd"], 1.0)
         self.assertGreater(b.info["trust_sd"], 3.0)
         self.assertLess(b.fitness, -b.info["pppf"] - 1.0)                       # the penalty applies
@@ -47,6 +48,27 @@ class FuelEvolveTests(unittest.TestCase):
         self.assertEqual(len(champ["enrichments"]), F.N_RODS)
         self.assertTrue(all(F.E_LO <= v <= F.E_HI for v in champ["enrichments"]))
 
+    def test_default_is_the_pessimistic_ensemble_and_poly_is_the_original_search(self):
+        F = self.F
+        self.assertEqual(self.model.mode, "ensemble")
+        self.assertEqual(sorted(self.model.surrogates), ["maxtype", "poly"])
+        poly = F.load_model(features="poly")
+        self.assertEqual(list(poly.surrogates), ["poly"])
+        flat = np.full((1, F.N_RODS), (2.85 - F.E_LO) / (F.E_HI - F.E_LO))   # mean is typical, spread is not
+        e_ens, e_poly = F.make_evaluator(self.model)(flat)[0], F.make_evaluator(poly)(flat)[0]
+        self.assertGreater(e_ens.info["support_sd"], F.SUPPORT_SD)           # far outside the training designs
+        self.assertAlmostEqual(e_poly.fitness, -e_poly.info["pppf"], places=9)          # poly: no support penalty
+        self.assertLess(e_ens.fitness, -e_ens.info["pppf"] - 1.0)                       # ensemble: penalised
+        with self.assertRaises(ValueError):
+            F.load_model(features="fft")
+
+    def test_original_poly_search_is_reproduced_exactly(self):
+        me, m = self.F.evolve(300, 128, 0.4123, model=self.F.load_model(features="poly"))
+        champ = me.champion().info
+        self.assertAlmostEqual(champ["pppf"], 1.4350, places=3)              # docs/neutronics, before this change
+        self.assertAlmostEqual(me.history[-1].coverage, 0.59, places=2)
+        self.assertEqual(self.F.compare_to_data(me, m)["cells_where_elite_flatter"], 17)
+
     def test_cli_json(self):
         import contextlib
         import io
@@ -57,6 +79,8 @@ class FuelEvolveTests(unittest.TestCase):
             self.assertEqual(main(["fuel", "-g", "5", "-b", "32", "--json"]), 0)
         out = json.loads(buf.getvalue())
         self.assertIn("versus_simulated_per_cell", out)
+        self.assertEqual(out["surrogate"], {"degree": 2, "features": "ensemble"})
+        self.assertIn("cells_compared_in_support", out["versus_simulated_per_cell"])
         self.assertLess(out["best_simulated_design"]["pppf"], 2.0)
 
 
