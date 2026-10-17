@@ -81,6 +81,22 @@ exactly what an optimizer is tempted to do.
   `python3`. The script is part of the evidence.
 - Read-only git is fine: `status`, `log`, `show`, `diff`, `rev-parse`, `ls-files`.
 
+## Model swaps (Stage 2)
+
+A fine-tuned model replaces its base only on an ACCEPT from the gate. Never argue around a verdict.
+
+1. Evaluate the served artifact: the GGUF Ollama will serve, by sha. Use the same items, seeds and temperatures
+   (Jev's 0.1, 0.5, 0.9) for both arms. Write `runs/temper/<id>/runs.jsonl` with one row per run:
+   `item, family, arm, seed, temperature, valid, success, artifact`.
+2. Run the same parsed decisions of both models on unscored traffic, and write `shadow.jsonl`.
+3. Run `python3 -m kgirl.temper gate --eval ... --suite ... --train ... --shadow ... --artifact <sha>
+   --out runs/temper/<id>/gate.json`.
+   - Exit 0 is ACCEPT, 1 is REJECT, 2 is INCOMPLETE.
+   - Report the gate table as it stands. INCOMPLETE is not a pass.
+4. Size the suite before anything is trained: `python3 -m kgirl.temper plan --items <n>`.
+5. `kgirl.iwme verify` is a platform guard. It runs in every baseline, and any FAIL blocks every verdict, but it
+   is not a model evaluation.
+
 ## Evidence
 
 Label every number:
