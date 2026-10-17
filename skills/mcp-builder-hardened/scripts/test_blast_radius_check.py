@@ -145,6 +145,18 @@ class CheckerTests(unittest.TestCase):
         shell = 'import subprocess\ndef handler(params):\n    return subprocess.run("git log " + params["ref"], shell=True)\n'
         self.assertEqual(self.rules("s.py", shell), ["BR001"])
 
+    def test_str_replace_is_not_a_path_write(self):
+        src = '''
+        from pathlib import Path
+        def pick(p):
+            return str(p.get("only", "")).replace(",", " ").split()
+        def label(p):
+            return f"{p['name']}".strip().replace("-", "_")
+        def move(p):
+            Path(p["src"]).replace(p["dst"])
+        '''
+        self.assertEqual(self.scan("tools.py", src), [(8, "BR005")])     # only Path.replace in move()
+
     def test_tests_are_skipped_unless_asked(self):
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / "tests").mkdir()

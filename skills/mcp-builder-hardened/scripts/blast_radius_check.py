@@ -52,6 +52,9 @@ REVIEW_STATES = {"staged", "pending", "draft", "review", "quarantine", "proposed
 WRITE_CALLS = {("shutil", n) for n in ("copy", "copy2", "copyfile", "copytree", "move", "rmtree")} | \
     {("os", n) for n in ("remove", "unlink", "rename", "replace", "makedirs", "mkdir", "rmdir")}
 PATH_WRITE_METHODS = {"write_text", "write_bytes", "mkdir", "unlink", "rename", "replace", "touch", "rmdir"}
+# str methods that return a str: `.replace()` on one of these is str.replace, not Path.replace
+STR_METHODS = {"replace", "strip", "lstrip", "rstrip", "lower", "upper", "casefold", "title", "format", "join",
+               "removeprefix", "removesuffix", "translate", "expandtabs", "zfill", "center", "ljust", "rjust"}
 
 
 @dataclass(frozen=True)
@@ -83,6 +86,20 @@ def _is_handler(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
         if _dotted(target)[-1:] == ("tool",):
             return True
     return any(a.arg in HANDLER_PARAMS for a in fn.args.args)
+
+
+def _stringy(node: ast.AST) -> bool:
+    """Plainly a str: a literal, an f-string, str(...), or a str method called on one."""
+    if isinstance(node, ast.Constant):
+        return isinstance(node.value, (str, bytes))
+    if isinstance(node, ast.JoinedStr):
+        return True
+    if isinstance(node, ast.Call):
+        if isinstance(node.func, ast.Name):
+            return node.func.id in {"str", "repr", "format"}
+        if isinstance(node.func, ast.Attribute):
+            return node.func.attr in STR_METHODS and _stringy(node.func.value)
+    return False
 
 
 def _names(node: ast.AST) -> set[str]:
@@ -215,7 +232,8 @@ def check_python(path: Path, text: str) -> list[Finding]:
                 (dotted in {("open",), ("io", "open")} and len(node.args) > 1 and isinstance(node.args[1], ast.Constant)
                  and re.search(r"[wax+]", str(node.args[1].value)) and f.taints(node.args[0]))
                 or (dotted[-2:] in WRITE_CALLS and node.args and f.taints(node.args[0]))
-                or (isinstance(node.func, ast.Attribute) and node.func.attr in PATH_WRITE_METHODS and f.taints(node.func.value))
+                or (isinstance(node.func, ast.Attribute) and node.func.attr in PATH_WRITE_METHODS and f.taints(node.func.value)
+                    and not (node.func.attr == "replace" and _stringy(node.func.value)))
             )
             confined = re.search(r"resolve\(|realpath\(", f.text) and re.search(r"is_relative_to|parents|commonpath|startswith", f.text)
             if writes and not confined:
