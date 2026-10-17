@@ -176,6 +176,13 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
             raise ValueError("scale must be quick or full")
         return render(run(scale))                 # in-memory database: the demo writes nothing to disk
 
+    def vessel_autopilot(p):
+        from ..vessel.rsi_demo import render, run
+        rsi, cycles = int(p.get("rsi", 1)), int(p.get("cycles", 4))
+        if not 0 <= rsi <= 4 or not 1 <= cycles <= 8:
+            raise ValueError("rsi must be 0–4 and cycles 1–8")
+        return render(run(rsi, cycles))            # in-memory database: writes nothing to disk
+
     def resonance_analyze(p):
         import json as _json
 
@@ -224,12 +231,19 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
         "vessel_status": (S({"name": s}, []), vessel_status),
         "vessel_verify": (S({"name": s}, ["name"]), vessel_verify),
         "vessel_demo": (S({"scale": {"type": "string", "enum": ["quick", "full"]}}, []), vessel_demo),
+        "vessel_autopilot": (S({"rsi": {"type": "integer", "minimum": 0, "maximum": 4},
+                                "cycles": {"type": "integer", "minimum": 1, "maximum": 8}}, []), vessel_autopilot),
         "resonance_analyze": (S({"series": {"type": "array", "items": n}, "fs": n, "f0": n, "bandwidth": n,
                                  "dyadic": {"type": "boolean"}}, ["series"]), resonance_analyze),
     }
 
 
 _DESCRIPTIONS = {
+    "vessel_autopilot": "Run a vessel unattended for N cycles while a world pushes it off its identity, at a chosen "
+                        "recursive-self-improvement level (rsi 0 observe, 1 steer, 2 learn under the anchor, "
+                        "3 consolidate, 4 self-tune its own steering controller with fidelity-gated sandbox trials). "
+                        "Reports drift per cycle, repairs, learning, consolidations, adopted or refused controllers, "
+                        "kept voice and skill, self-recognition and ledger integrity. In memory; RSI 4 takes ~1–2 min.",
     "resonance_analyze": "Analyze a numeric series (40–200000 samples, sample rate fs): MF-DFA scaling exponents "
                          "(Hurst h(2), h(q), multifractal width), a constant-Q resonate-and-fire neuron bank "
                          "(CFAR spike detection, dominant frequency, peaks, spectral entropy) and, with f0, a "

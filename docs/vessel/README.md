@@ -149,6 +149,13 @@ They do not show how large models behave (Level 2 until measured there).
   reproduce the exact signature phrase from a fixed prompt. Identity is certified on the probe distribution,
   not on any single prompt.
 
+## Autopilot and the RSI slider
+
+`vessel/autopilot.py` runs the lifecycle unattended at a chosen recursive-self-improvement level: 0 observe,
+1 steer, 2 learn, 3 consolidate, 4 self-tune its own controller. Every level is gated and ledgered, and a
+circuit breaker can only lower the level. Run `python -m kgirl.vessel autopilot --rsi N` or use `--sweep`.
+Theory, guards and the measured slider table: **[AUTOPILOT.md](AUTOPILOT.md)**.
+
 ## Landscape: topology and voice dynamics
 
 `vessel/landscape.py` connects vessels to `kgirl.resonance` (see docs/resonance):

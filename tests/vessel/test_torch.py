@@ -63,6 +63,20 @@ class AuricSubstrateTests(unittest.TestCase):
         self.a.restore(state)
         self.assertAlmostEqual(rep(), r0, places=10)
 
+    def test_reset_optimizer_forgets_moments_and_still_steps(self):
+        from kgirl.vessel import geometry as G
+        from kgirl.vessel.substrate import Objective
+        acts = self.a.activations(self.P)
+        A = {k: G.normalized_gram(np.tanh(v[:, ::-1] * 3)) for k, v in acts.items()}
+        obj = Objective(lr=1e-3, task_weight=0, lam_rep=1.0, anchors=A, probes=self.P)
+        self.a.step(None, obj)
+        self.assertTrue(self.a.opt.state)
+        self.a.reset_optimizer()
+        self.assertFalse(self.a.opt.state)
+        before = self.a.parameters()["blocks.0.qkv.weight"].copy()
+        self.a.step(None, obj)
+        self.assertFalse(np.array_equal(before, self.a.parameters()["blocks.0.qkv.weight"]))
+
     def test_identity_crosses_from_numpy_mlp_into_auric(self):
         from kgirl.vessel import corpus as C
         from kgirl.vessel.matrixdb import MatrixDB

@@ -168,6 +168,10 @@ class ReferenceLM:
                 raise ValueError(f"shape mismatch for {k}: {params[k].shape} vs {self.p[k].shape}")
         self.p = {k: np.array(params[k], dtype=np.float64) for k in self.p}
 
+    def reset_optimizer(self) -> None:
+        """Forget Adam's moments, so a new optimization problem does not inherit another one's step sizes."""
+        self.opt = Adam()
+
     def checkpoint(self) -> Any:
         return (self.parameters(), copy.deepcopy(self.opt))
 
