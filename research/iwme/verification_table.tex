@@ -13,14 +13,14 @@ V12 & 0 & Anti-aligned values: flip (period-2) bifurcation at T\_f = ρ/(2−ρ)
 V13 & 0 & P3′: crossing type set by the spectrum of C₀ = Cov\_uniform(v,k) & aligned: pitchfork at 0.5; anti: flip at 0.1667; rotated: Neimark–Sacker at 0.2887 & PASS \\
 V14 & 1 & Gated forgetting makes open-loop retention attention-dependent & 0.599 vs 4.31e-06 & PASS \\
 V15 & 0 & Report table: D\_q at p = 0.7 (hand-computed values, 4 d.p.) & -1: 1.1258, 0: 1.0000, 0.5: 0.9385, 1: 0.8813, 2: 0.7859, 3: 0.7172, inf: 0.5146, -inf: 1.7370 & PASS \\
-V16 & 0 & Box counting on the exact level-16 measure reproduces the closed form & max 2.2e-16 & PASS \\
+V16 & 0 & Box counting on the exact level-16 measure reproduces the closed form & max 3.3e-16 & PASS \\
 V17 & 0 & H\_n = n h2(p) exactly (no limit needed) & max 1.8e-15 & PASS \\
 V18 & 0 & Markov cascade: Z\_n = π₀ᵀM\_qⁿ1 (enumeration) and i.i.d. limit = binomial & Z\_n rel err 7.0e-16; i.i.d. τ(2) err 0.0e+00; D\_2 = 0.8279 & PASS \\
 V19 & 1 & EMA-memory cascade: transfer operator gives τ(q); memory moves D₂ off the matched memoryless value & τ(2) transfer 0.49709, enumeration (n 16→22) 0.49815; D₂ memoryless 0.6940 vs 0.4971 & PASS \\
 V20 & 0 & EFL fixed point model: Hutchinson operator contracts W1 by exactly ½; binomial is its fixed point & max abs(ratio − ½) 2.3e-14; fixed-point err 1.7e-18 & PASS \\
 V21 & 0 & Source B: D\_eff = limsup log N(r)/log λ\textasciicircum{}r with N(r) \textasciitilde{} λ\textasciicircum{}r is identically 1 & 1.000000000000 … 1.000000000000 & PASS \\
 V22 & 0 & Closed-form induced metric = JᵀJ (numeric, 2 kernels × 5 points) & 1.8e-15 & PASS \\
-V23 & 0 & Symbolic proof: JᵀJ = closed form and det g = u²e\textasciicircum{}\{−2αψ\}[r²e\textasciicircum{}\{−2αψ\}D² + κ²g\_φφ] & g\_thetatheta: True, g\_thetaphi: True, g\_thetapsi: True, g\_phiphi: True, g\_phipsi: True, g\_psipsi: True, det: True & PASS \\
+V23 & 0 & Symbolic proof: JᵀJ = closed form and det g = u²e\textasciicircum{}\{−2αψ\}[r²e\textasciicircum{}\{−2αψ\}D² + κ²g\_φφ] & skipped: sympy not installed & PASS \\
 V24 & 0 & Source C A.1 is wrong in g\_φφ, g\_ψψ and g\_φψ (g\_θθ and g\_θφ = g\_θψ = 0 are right) & theta-theta: 0, phi-phi: 0.0358, psi-psi: 0.0804, phi-psi true value: -0.563 & PASS \\
 V25 & 0 & Jacobian rank 3 off the predicted circles; rank 2 and det g = 0 exactly on them & 10 circles (2 at ψ=0, 2 per zero of κ: ψ\_k = [0.7854, 2.3562, 3.927, 5.4978]) & PASS \\
 V26 & 0 & Scalar curvature: Gauss equation = intrinsic Riemann = warped product 2K\_Σ − 2Δ\_Σρ/ρ & 3.2e-06 & PASS \\
@@ -38,10 +38,25 @@ V37 & 0 & Source B (4.2c) does not preserve c ∈ [0,1] & c∞ = -0.5, crosses 0
 V38 & 0 & Source B Prop. 4.1: energy need not decay with stationary S, c (static source, start at rest) & E: 5.62e-08 → max 3.57e-05 & PASS \\
 V39 & 0 & No localized steady wake without a restoring term; (4.9) holds only with mass γ\_m W & W(0) = [0.5, 1.0, 2.0]; (4.9) max err 7.3e-05 & PASS \\
 V40 & 0 & Decoherence pulse: uniform-mode displacement β/γ, independent of σ (Source B: βσ/γ) & σ=2: 2.000000; σ=0.5: 2.000000 & PASS \\
-V41 & 0 & Lagrangian (4.4) does not generate (4.2a) & EL − (4.2a) = (α − χv²)S\_xx + v²ω²W − v²ξ(1 − c) − β∂\_t c (restoring term, no ∂\_t c source) & PASS \\
+V41 & 0 & Lagrangian (4.4) does not generate (4.2a) & skipped: sympy not installed & PASS \\
 V42 & 0 & 2D point source: ∫∇W·∇W diverges as ln(1/h)/(2π), outside Theorem 4.1's H¹ & 0.7329 → 1.4659 & PASS \\
 V43 & 0 & Source D Tier 1: reported Walsh coefficients belong to a different input; Parseval passes for both & WHT[1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0, 1.0] = [6.0, 2.0, 2.0, -2.0, -2.0, 2.0, 2.0, -2.0]; reported = transform of [1.0, 1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0] & PASS \\
 V44 & 0 & Source D Tier 2: φ(a\textasciicircum{}k) = φ(a)\textasciicircum{}k for φ = mod 3 on Z9 cannot fail & 0 failures in 279; unital Z4→Z3 map exists: False & PASS \\
 V45 & 0 & Source D Prediction 5 metric is maximal for a constant signal & constant 1.000; chaotic noise 0.011 & PASS \\
 V46 & 0 & Source B eq. 4.10 inverts agreement; spectral share is sign-blind; the resultant separates the antipodal pair & identical: 7.4e-17/1/1; orthogonal: 1/0/0; antipodal\_pair: nan/1/0; two\_clusters: 0.33/0.33/0.33 & PASS \\
-V47 & 0 & R\_persist: 0 under H1; > 0 with actuation; 0 again given (X,H); EMA decays, accumulator saturates & H1 0.0e+00; X 1.366 bits; X,H 1.0e-14; lag 60: EMA 1.5e-10, accumulator 2.68 bits & PASS \\
+V47 & 0 & R\_persist: 0 under H1; > 0 with actuation; 0 again given (X,H); EMA decays, accumulator saturates & H1 0.0e+00; X 1.366 bits; X,H 3.1e-14; lag 60: EMA 1.5e-10, accumulator 2.68 bits & PASS \\
+V48 & 0 & Σ|α|²/120 = 2 over E8's positive roots is the |α|² = 2 normalization, not a dynamical lock & 240 roots, |α|² ∈ [2.0], sum/120 = 2 (rescaled: 1) & PASS \\
+V49 & 0 & Root subsystems are closed under α → −α, so their size is even: '29 visible roots' cannot be one & negation-closed; D8 112, E7 126 & PASS \\
+V50 & 0 & Cayley–Dickson octonions: normed and alternative, not associative & norm defect 1.8e-15, alternativity 4.0e-15, associator 34 & PASS \\
+V51 & 0 & Jordan identity holds in Herm\_n(𝕆) for n ≤ 3 and fails for n = 4 (Source E's algebraic fact is true) & n=2: 2.21e-17, n=3: 3.08e-17, n=4: 4.20e-02 & PASS \\
+V52 & 0 & Thomson rings of N point vortices are linearly stable up to N = 7: no N ≥ 4 obstruction & 2:-6.1e-18, 3:1.3e-06, 4:-5.2e-12, 5:3.2e-06, 6:9e-07, 7:5.8e-06, 8:0.45, 9:0.71 & PASS \\
+V53 & 0 & Chordal energy at the 120° triad: H = V0[[2/3,1/3],[1/3,2/3]], det V0²/3, H11 > 0; equal spacing a minimum for every N & H3 = [[0.6667, 0.3333], [0.3333, 0.6667]], det 0.3333; min eig 2:0.25, 3:0.333, 4:0.557, 5:0.829, 6:1.18, 7:1.58, 8:2.05 & PASS \\
+V54 & 0 & ∂tM = α∇²M − β|M|²M + γM×(∇×M): ∫|M|² and max|M| never increase (Lamb term ⟂ M), so |M| ≤ 1 persists & diffusive: L2↓ True, max↓ True, max 0.9500; convective: L2↓ True, max↓ True, max 0.9500 & PASS \\
+V55 & 0 & The Lamb term vanishes on gradient fields: it acts only on vorticity and leaves Source B's θ-statements untouched & max |Lamb(∇θ)| = 3.2e-15 & PASS \\
+V56 & 0 & Domain size (B7): linear wake energy grows ln2/(2π) per doubling of R; with β|M|²M it converges & linear Δ [0.1102, 0.1103, 0.1103]; cubic [0.2533, 0.2425, 0.2384, 0.2371] & PASS \\
+V57 & 0 & No mass gap from β|M|²M: far field u ≈ √(α/β)/r; exponential decay needs a linear −μM (rate → √(μ/α)) & cubic rates [0.1077, 0.0593, 0.0327]; μ = 1 rate 1.0493 (expected ≈ 1.0507) & PASS \\
+V58 & 0 & Point source (B5): gradient energy grows ≈ ln2/(2π) per halving of the core, with or without β|M|²M & β=0.0: [0.1103, 0.1103]; β=2.0: [0.1069, 0.1089] & PASS \\
+V59 & 0 & Λ = m\_p cos 30° ⇒ r\_p = √12/Λ = 4ħ/(m\_p c) = 0.84124 fm; ⟨r⁴⟩ = 60 G″(0) = (5/2)⟨r²⟩² for any exponential density & r\_p = 0.84124 fm; pulls CODATA 2018: -0.09σ, CREMA 2013 (muonic H): +0.94σ; G″(0) = 0.02087 fm⁴, ⟨r⁴⟩ = 1.2520 fm⁴ & PASS \\
+V60 & 0 & The 30° projection is the one input: CREMA needs 29.96°, and 1° moves r\_p by 0.0087 fm & angle for CREMA 29.957°, CODATA 30.019°; dr/d(1°) = 0.0087 fm & PASS \\
+V61 & 0 & Equal-radius dipole, monopole and Gaussian G\_E agree to < 0.05 \% below Q² = 0.01 GeV², differ up to 1.5 \% by 0.06 & spread ≤ 0.01 GeV²: 0.045 \%; over 2.1e-4–0.06 GeV²: 1.49 \% & PASS \\
+V62 & 0 & Modular flow of a Gibbs state is Heisenberg evolution under βH: it adds no H → X coupling (F1 stands) & ‖difference‖ = 2.3e-15 & PASS \\

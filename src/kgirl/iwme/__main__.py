@@ -82,6 +82,9 @@ def main(argv=None) -> int:
     p.add_argument("--c", type=float, default=0.5)
     p.add_argument("--rho", type=float, default=0.3)
     p.add_argument("--memory", choices=("ema", "accumulator"), default="ema")
+    p = sub.add_parser("source-e", help="Source E (E8 / proton radius) checks V48–V62, optionally against G_E bins")
+    p.add_argument("--data", help="CSV with columns Q2_GeV2,GE,sigma (e.g. PRad bins) to compare with the dipole")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("plot", help="write the paper's figures (matplotlib)")
     p.add_argument("-o", "--outdir", default="outputs/iwme")
     a = ap.parse_args(argv)
@@ -93,6 +96,25 @@ def main(argv=None) -> int:
             Path(a.latex).parent.mkdir(parents=True, exist_ok=True)
             Path(a.latex).write_text(to_latex(res), encoding="utf-8")
         print(to_json(res) if a.json else render(res))
+        return 0 if all(r.passed for r in res) else 1
+    if a.cmd == "source-e":
+        from .verify import render, run_all, to_json
+        res = run_all(only=[f"V{i}" for i in range(48, 63)])
+        bins = None
+        if a.data:
+            from .source_e import compare_bins
+            bins = compare_bins(a.data)
+        if a.json:
+            out = json.loads(to_json(res))
+            print(json.dumps({"checks": out, "bins": bins}, indent=2, ensure_ascii=False))
+        else:
+            print(render(res))
+            if bins:
+                chi2 = sum(b["pull"] ** 2 for b in bins)
+                print(f"\ndipole (r_p = 4ƛ_p) vs {len(bins)} bins: χ² = {chi2:.2f}, "
+                      f"max |rel dev| = {100 * max(abs(b['rel_dev']) for b in bins):.3f} %")
+                for b in bins:
+                    print(f"  Q² {b['Q2']:.5f}  G_E {b['GE']:.5f}  dipole {b['pred']:.5f}  pull {b['pull']:+.2f}")
         return 0 if all(r.passed for r in res) else 1
     if a.cmd == "irt":
         print(_dump(irt_point(a.phi, a.psi, a.kernel, k0=a.k0)))

@@ -25,6 +25,7 @@ from . import attention as at
 from . import cascade as cs
 from . import core
 from . import irt
+from . import source_e as se
 from . import sources as so
 from . import wake as wk
 
@@ -508,6 +509,169 @@ def _v47():
 # ----------------------------------------------------------------------------------------------
 # Runner
 # ----------------------------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------------------------
+# Source E (E8 holography, proton radius): the claims offered as fixes for F1, B1–B7 and Q5
+# ----------------------------------------------------------------------------------------------
+
+@check("V48", "sourceE", "Σ|α|²/120 = 2 over E8's positive roots is the |α|² = 2 normalization, not a dynamical lock", 0)
+def _v48():
+    f, g = se.root_facts(), se.root_facts(1 / math.sqrt(2))
+    ok = (f["n_roots"], f["n_positive"]) == (240, 120) and f["norm2_values"] == [2.0] \
+        and abs(f["sum_norm2_over_120"] - 2) < 1e-12 and abs(g["sum_norm2_over_120"] - 1) < 1e-12
+    return ("240 roots, |α|² = 2, sum/120 = 2; = 1 when roots are normalized to |α|² = 1",
+            f"{f['n_roots']} roots, |α|² ∈ {[float(v) for v in f['norm2_values']]}, sum/120 = {f['sum_norm2_over_120']:.6g} "
+            f"(rescaled: {g['sum_norm2_over_120']:.6g})", ok, f)
+
+
+@check("V49", "sourceE", "Root subsystems are closed under α → −α, so their size is even: '29 visible roots' cannot be one", 0)
+def _v49():
+    R = se.e8_roots()
+    f = se.root_facts()
+    ok = se.negation_closed_counts_are_even(R) and f["D8_subsystem"] == 112 \
+        and f["E7_subsystem_orthogonal_to_a_root"] == 126 and 29 % 2 == 1
+    return ("even sizes (D8: 112, E7: 126); 29 odd ⇒ a chosen partition, i.e. a free parameter",
+            f"negation-closed; D8 {f['D8_subsystem']}, E7 {f['E7_subsystem_orthogonal_to_a_root']}", ok, {})
+
+
+@check("V50", "sourceE", "Cayley–Dickson octonions: normed and alternative, not associative", 0)
+def _v50():
+    r = se._rng(0.271)
+    a, b, c = r.normal(8), r.normal(8), r.normal(8)
+    norm = abs(np.linalg.norm(se.omul(a, b)) - np.linalg.norm(a) * np.linalg.norm(b))
+    alt = np.linalg.norm(se.omul(a, se.omul(a, b)) - se.omul(se.omul(a, a), b))
+    assoc = np.linalg.norm(se.omul(a, se.omul(b, c)) - se.omul(se.omul(a, b), c))
+    ok = norm < 1e-12 and alt < 1e-12 and assoc > 1e-3
+    return "|ab| = |a||b|, a(ab) = (aa)b, a(bc) ≠ (ab)c", \
+        f"norm defect {norm:.1e}, alternativity {alt:.1e}, associator {assoc:.3g}", ok, {}
+
+
+@check("V51", "sourceE", "Jordan identity holds in Herm_n(𝕆) for n ≤ 3 and fails for n = 4 (Source E's algebraic fact is true)", 0)
+def _v51():
+    res = {n: se.jordan_identity_residual(n) for n in (2, 3, 4)}
+    ok = res[2] < 1e-12 and res[3] < 1e-12 and res[4] > 1e-3
+    return "n = 2, 3: 0; n = 4: > 0", ", ".join(f"n={n}: {v:.2e}" for n, v in res.items()), ok, res
+
+
+@check("V52", "sourceE", "Thomson rings of N point vortices are linearly stable up to N = 7: no N ≥ 4 obstruction", 0)
+def _v52():
+    g = {N: se.ring_max_growth(N) for N in range(2, 10)}
+    ok = all(g[N] < 1e-4 for N in range(2, 8)) and g[8] > 0.1 and g[9] > 0.1
+    return "max Re λ ≈ 0 for N ≤ 7, > 0 for N ≥ 8 (Thomson 1883, Havelock 1931)", \
+        ", ".join(f"{N}:{v:.2g}" for N, v in g.items()), ok, g
+
+
+@check("V53", "sourceE", "Chordal energy at the 120° triad: H = V0[[2/3,1/3],[1/3,2/3]], det V0²/3, H11 > 0; equal spacing a minimum for every N", 0)
+def _v53():
+    H3 = se.chordal_hessian_reduced(3)
+    mins = {N: float(np.min(np.linalg.eigvalsh(se.chordal_hessian_reduced(N)))) for N in range(2, 9)}
+    ok = np.allclose(H3, [[2 / 3, 1 / 3], [1 / 3, 2 / 3]], atol=1e-5) and all(v > 0 for v in mins.values())
+    return "det 1/3 with H11 = 2/3 (the proposal: det 9/64, H11 < 0, not reproduced); min eig > 0 for N = 2–8", \
+        f"H3 = {np.round(H3, 4).tolist()}, det {np.linalg.det(H3):.4f}; min eig " + \
+        ", ".join(f"{N}:{v:.3g}" for N, v in mins.items()), ok, {"H3": H3, "min_eig": mins}
+
+
+@check("V54", "sourceE", "∂tM = α∇²M − β|M|²M + γM×(∇×M): ∫|M|² and max|M| never increase (Lamb term ⟂ M), so |M| ≤ 1 persists", 0)
+def _v54():
+    Mx, My, h = se.initial_field(48, 0.95)
+    out = {}
+    for name, p, dt, steps in (("diffusive", se.PDEParams(1.0, 2.0, 1.0), 0.2 * h * h, 1500),
+                               ("convective", se.PDEParams(0.05, 2.0, 5.0), 0.002, 3000)):
+        _, _, l2, mx = se.evolve_2d(Mx, My, p, h, dt, steps)
+        out[name] = (bool(np.all(np.diff(l2) <= 1e-12)), bool(np.all(np.diff(mx) <= 1e-12)), float(mx.max()))
+    ok = all(a and b and m <= 0.95 + 1e-12 for a, b, m in out.values())
+    return "both monotone; max|M| ≤ initial 0.95", \
+        "; ".join(f"{k}: L2↓ {a}, max↓ {b}, max {m:.4f}" for k, (a, b, m) in out.items()), ok, out
+
+
+@check("V55", "sourceE", "The Lamb term vanishes on gradient fields: it acts only on vorticity and leaves Source B's θ-statements untouched", 0)
+def _v55():
+    n = 48
+    h = 2 * np.pi / n
+    x = np.arange(n) * h
+    X, Y = np.meshgrid(x, x, indexing="ij")
+    gx, gy = se._grad(np.sin(X) * np.cos(2 * Y) + 0.3 * np.cos(3 * X), h)
+    Lx, Ly = se.lamb_term(gx, gy, h)
+    m = float(max(np.abs(Lx).max(), np.abs(Ly).max()))
+    return "M × (∇ × ∇θ) = 0", f"max |Lamb(∇θ)| = {m:.1e}", m < 1e-12, {}
+
+
+@check("V56", "sourceE", "Domain size (B7): linear wake energy grows ln2/(2π) per doubling of R; with β|M|²M it converges", 0)
+def _v56():
+    lin = [se.radial_steady(R, R * 20, se.PDEParams(beta=0.0), core=0.5)[2] for R in (20, 40, 80, 160)]
+    cub = [se.radial_steady(R, R * 20, se.PDEParams(beta=2.0), core=0.5)[2] for R in (20, 40, 80, 160)]
+    step = np.diff(lin)
+    ok = np.allclose(step, math.log(2) / (2 * math.pi), rtol=0.02) and abs(cub[-1] - cub[-2]) < 0.01 * cub[-1]
+    return f"linear Δ = {math.log(2) / (2 * math.pi):.4f} per doubling; cubic Δ → 0", \
+        f"linear Δ {np.round(step, 4).tolist()}; cubic {np.round(cub, 4).tolist()}", ok, {"linear": lin, "cubic": cub}
+
+
+@check("V57", "sourceE", "No mass gap from β|M|²M: far field u ≈ √(α/β)/r; exponential decay needs a linear −μM (rate → √(μ/α))", 0)
+def _v57():
+    r, u, _ = se.radial_steady(160, 3200, se.PDEParams(beta=2.0), core=0.5)
+    rates = [se.decay_rate(r, u, a, 2 * a) for a in (5, 10, 20)]
+    rm, um, _ = se.radial_steady(40, 800, se.PDEParams(beta=2.0, mu=1.0), core=0.5)
+    rate_mu = se.decay_rate(rm, um, 8, 12)
+    kappa = 1.0                                         # √(μ/α)
+    k0_tail = math.log(12 / 8) / (2 * 4)                # ½ d ln r / dr of K0 ~ e^{−κr}/√r over [8, 12]
+    halving = rates[0] / rates[1] > 1.6 and rates[1] / rates[2] > 1.6      # 1/r-type tail: rate ∝ 1/r
+    ok = halving and abs(rate_mu - (kappa + k0_tail)) < 0.05
+    return "cubic: rate halves per doubling of r (algebraic); μ = 1: rate ≈ 1 + K0 tail", \
+        f"cubic rates {np.round(rates, 4).tolist()}; μ = 1 rate {rate_mu:.4f} (expected ≈ {kappa + k0_tail:.4f})", ok, \
+        {"cubic_rates": rates, "mu_rate": rate_mu}
+
+
+@check("V58", "sourceE", "Point source (B5): gradient energy grows ≈ ln2/(2π) per halving of the core, with or without β|M|²M", 0)
+def _v58():
+    out = {}
+    for beta in (0.0, 2.0):
+        e = [se.radial_steady(10, int(10 / (a / 8)), se.PDEParams(beta=beta), core=a)[2] for a in (0.1, 0.05, 0.025)]
+        out[beta] = np.diff(e).tolist()
+    target = math.log(2) / (2 * math.pi)
+    ok = all(abs(d - target) < 0.15 * target for v in out.values() for d in v)
+    return f"Δ ≈ {target:.4f} per halving for β = 0 and β = 2 (only a finite core regularizes)", \
+        "; ".join(f"β={b}: {np.round(v, 4).tolist()}" for b, v in out.items()), ok, out
+
+
+@check("V59", "sourceE", "Λ = m_p cos 30° ⇒ r_p = √12/Λ = 4ħ/(m_p c) = 0.84124 fm; ⟨r⁴⟩ = 60 G″(0) = (5/2)⟨r²⟩² for any exponential density", 0)
+def _v59():
+    r = se.dipole_radius_fm(se.dipole_lambda(30.0))
+    lam_bar = se.HBARC_GEV_FM / se.M_PROTON_GEV
+    pulls = {k: (r - v) / s for k, (v, s) in se.RADIUS_DATA.items()}
+    lam = se.dipole_lambda()
+    g2 = 6 / lam ** 4 * se.HBARC_GEV_FM ** 4                 # G″(0) in fm⁴ (the proposal's 0.02087 fm⁴)
+    r4 = 60 * g2
+    ok = abs(r - 4 * lam_bar) < 1e-12 and abs(r - 0.84124) < 5e-6 and all(abs(p) < 1 for p in pulls.values()) \
+        and abs(r4 / r ** 4 - se.r4_over_r2sq("dipole (exponential density)")) < 1e-12 and abs(g2 - 0.02087) < 5e-5
+    return "r_p = 4ƛ_p within 1σ of CODATA 2018 and CREMA; G″(0) = 0.02087 fm⁴ ⇒ ⟨r⁴⟩ = 2.5 r_p⁴ (shape, not E8)", \
+        f"r_p = {r:.5f} fm; pulls " + ", ".join(f"{k}: {p:+.2f}σ" for k, p in pulls.items()) + \
+        f"; G″(0) = {g2:.5f} fm⁴, ⟨r⁴⟩ = {r4:.4f} fm⁴", ok, {"r_fm": r, "pulls": pulls, "G2_fm4": g2, "r4_fm4": r4}
+
+
+@check("V60", "sourceE", "The 30° projection is the one input: CREMA needs 29.96°, and 1° moves r_p by 0.0087 fm", 0)
+def _v60():
+    a_crema = se.angle_for_radius(0.84087)
+    a_codata = se.angle_for_radius(0.8414)
+    shift = se.dipole_radius_fm(se.dipole_lambda(31.0)) - se.dipole_radius_fm(se.dipole_lambda(30.0))
+    ok = abs(a_crema - 30) < 0.1 and abs(a_codata - 30) < 0.1 and 0.008 < shift < 0.0095
+    return "a sharp coincidence (r_p ≈ 4ƛ_p), not a derivation: 30° is chosen, not computed", \
+        f"angle for CREMA {a_crema:.3f}°, CODATA {a_codata:.3f}°; dr/d(1°) = {shift:.4f} fm", ok, {}
+
+
+@check("V61", "sourceE", "Equal-radius dipole, monopole and Gaussian G_E agree to < 0.05 % below Q² = 0.01 GeV², differ up to 1.5 % by 0.06", 0)
+def _v61():
+    r = se.dipole_radius_fm(se.dipole_lambda())
+    lo, full = se.max_shape_spread(r, 2.1e-4, 0.01), se.max_shape_spread(r)
+    ok = lo < 5e-4 and 0.01 < full < 0.02
+    return "low-Q² bins cannot discriminate shapes; bins near 0.06 GeV² can (at the 0.35 % level claimed)", \
+        f"spread ≤ 0.01 GeV²: {100 * lo:.3f} %; over 2.1e-4–0.06 GeV²: {100 * full:.2f} %", ok, {}
+
+
+@check("V62", "sourceE", "Modular flow of a Gibbs state is Heisenberg evolution under βH: it adds no H → X coupling (F1 stands)", 0)
+def _v62():
+    d = se.modular_vs_heisenberg()
+    return "ρ^{iτ}Oρ^{−iτ} = e^{−iβτH}Oe^{iβτH}", f"‖difference‖ = {d:.1e}", d < 1e-12, {}
+
 
 def run_all(fast: bool = False, only: Optional[List[str]] = None) -> List[Result]:
     out: List[Result] = []

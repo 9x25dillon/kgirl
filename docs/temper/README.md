@@ -144,7 +144,7 @@ The rules behind the gate:
 - **Size the suite before training.** At 20 % discordant items, α 0.05 one-sided and 80 % power: 47 items
   detect only a 0.159 gain, 200 detect 0.078, and a 0.050 gain needs 493 (`plan`). A model trained before the
   suite exists cannot be judged.
-- **`kgirl.iwme verify` is a platform guard, not a model evaluation.** Its 47 checks re-derive the IWME paper's
+- **`kgirl.iwme verify` is a platform guard, not a model evaluation.** Its 62 checks re-derive the IWME paper's
   numbers. They run in every baseline, and any FAIL blocks every verdict, but they say nothing about a coding
   model.
 

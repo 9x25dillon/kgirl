@@ -18,7 +18,9 @@ Modules (numpy everywhere; sympy only where marked):
                 identity, memory → wake zero-order hold; Source B §4 checks [sympy for Euler–Lagrange]
     sources     Source D Tier 1–2 checks (Walsh–Hadamard, Z9 → Z3) and Source B's coherence formula
     core        the repaired IWME core, P1 (augmented state), exact persistence-after-decoupling R_persist
-    verify      the claim registry: 47 checks, table / JSON / LaTeX output
+    source_e    Source E (E8 roots, octonions, vortex rings, the proposed transport PDE, the dipole proton
+                radius, modular flow): the computable claims offered as fixes for F1, B1–B7 and Q5
+    verify      the claim registry: 62 checks, table / JSON / LaTeX output
 
 Evidence levels follow the paper: 0 established, 1 extrapolation, 2 hypothesis, 3 speculative.
 Everything in this package is Level 0 or 1 mathematics; nothing here is evidence that memory acts on
