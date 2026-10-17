@@ -47,6 +47,7 @@ vessel is born from a chaos-seeded genome, so siblings are measurably distinct a
 ```bash
 PYTHONPATH=src python -m kgirl.vessel demo            # birth → drift → steer → consolidate → migrate (~40 s)
 PYTHONPATH=src python -m kgirl.vessel invariance      # verify the identity's invariance group
+PYTHONPATH=src python -m kgirl.vessel autopilot --rsi 3   # unattended, RSI slider 0–4 (--sweep for all)
 ```
 
 **[→ vessel guide, theory and evidence levels](docs/vessel/README.md)**

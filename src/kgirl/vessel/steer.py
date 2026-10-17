@@ -50,6 +50,7 @@ class SteerConfig:
     max_steps: int = 1200
     guard_tolerance: float = 0.10
     min_gain: float = 1e-5
+    fresh_optimizer: bool = False      # reset Adam's moments before steering (substrates with reset_optimizer)
 
     def __post_init__(self):
         if not 0 <= self.release < self.engage <= 1:
@@ -99,6 +100,8 @@ def steer(substrate, *, audit: Callable[[], float], objective: Callable[[float],
     if d0 < cfg.engage and not force:
         return SteerResult("within_band", d0, d0, 0, 0, 0, g0, g0)
     stream: Optional[Iterator] = iter(batches) if batches is not None else None
+    if cfg.fresh_optimizer and hasattr(substrate, "reset_optimizer"):
+        substrate.reset_optimizer()
     lr, steps, acc, rej = cfg.lr, 0, 0, 0
     d, g = d0, g0
     trace: list[BlockRecord] = []

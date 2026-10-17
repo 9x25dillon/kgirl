@@ -94,6 +94,10 @@ class TorchSubstrate:
                     raise ValueError(f"shape mismatch for {k}: {tuple(src.shape)} vs {tuple(p.shape)}")
                 p.copy_(src)
 
+    def reset_optimizer(self) -> None:
+        """Forget Adam's moments, so a new optimization problem does not inherit another one's step sizes."""
+        self.opt = torch.optim.Adam([p for p in self.model.parameters() if p.requires_grad], lr=1e-3)
+
     def checkpoint(self) -> Any:
         return copy.deepcopy(self.model.state_dict()), copy.deepcopy(self.opt.state_dict())
 

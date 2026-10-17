@@ -177,3 +177,12 @@ with a triage table in `research/resonance/README.md`.
 - `src/kgirl/vessel/landscape.py` adds population families, topological drift and voice dynamics.
 - There is a new MCP tool, `resonance_analyze`.
 - 14 new tests. Existing vessel numbers are unchanged; the demo only gained lines.
+
+## 10. Addendum (2026-10-17): autopilot and the RSI slider
+
+`vessel/autopilot.py` adds an unattended loop with a recursive-self-improvement slider: 0 observe, 1 steer,
+2 learn, 3 consolidate, 4 self-tune. The scenario lives in `vessel/rsi_demo.py`. The CLI command is
+`python -m kgirl.vessel autopilot --rsi N | --sweep`, and the MCP tool is `vessel_autopilot`. The guards
+(fidelity gate, experience replay, watchdog, breaker from RSI 1, fresh steering moments) each came from a
+measured failure, recorded in `docs/vessel/AUTOPILOT.md`. `SteerConfig.fresh_optimizer` and
+`reset_optimizer()` are additive, and their defaults leave every earlier number unchanged.

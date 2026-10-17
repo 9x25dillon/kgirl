@@ -34,6 +34,14 @@ def main(argv=None) -> int:
     v = sub.add_parser("verify", help="recompute a vessel's hash chain; exit 1 if broken")
     v.add_argument("name")
     v.add_argument("--db", default=default_db())
+    a = sub.add_parser("autopilot", help="run the vessel unattended at a recursive-self-improvement level (RSI slider)")
+    a.add_argument("--rsi", type=int, choices=range(5), default=1,
+                   help="0 observe · 1 steer · 2 learn · 3 consolidate · 4 self-tune (cumulative)")
+    a.add_argument("--cycles", type=int, default=8)
+    a.add_argument("--push", type=int, default=60, help="world disturbance: unanchored foreign steps per cycle")
+    a.add_argument("--sweep", action="store_true", help="run every level 0–4 on the same world")
+    a.add_argument("--db", default=":memory:", help="persist the run's ledger here (single level only)")
+    a.add_argument("--json", action="store_true")
     i = sub.add_parser("invariance", help="verify the signature's invariance group on a trained ReferenceLM")
     i.add_argument("--samples", type=int, default=8)
     p = sub.add_parser("soulpack", help="export a vessel's soulpack (CarryOn 0.1.x) as JSON")
@@ -45,6 +53,17 @@ def main(argv=None) -> int:
         from .demo import render, run
         r = run(args.scale, args.db, log=lambda m: print(f"· {m}", file=sys.stderr))
         print(json.dumps(r, indent=2, default=str) if args.json else render(r))
+        return 0
+
+    if args.cmd == "autopilot":
+        from .rsi_demo import render, run, sweep
+        if args.cycles < 1:
+            ap.error("--cycles must be at least 1")
+        say = lambda m: print(f"· {m}", file=sys.stderr)  # noqa: E731
+        results = sweep(cycles=args.cycles, push=args.push, log=say) if args.sweep else \
+            [run(args.rsi, args.cycles, push=args.push, db_path=args.db)]
+        print(json.dumps(results if args.sweep else results[0], indent=2, default=str) if args.json
+              else "\n\n".join(render(r) for r in results))
         return 0
 
     from .matrixdb import MatrixDB
