@@ -34,6 +34,23 @@ PYTHONPATH=src python -m kgirl.harness blast src/kgirl/llm/llm_adapters.py
 
 **[→ Harness guide](docs/harness/README.md)** · **[→ Cross-repo atlas report](docs/harness/ATLAS_REPORT.md)**
 
+## 🏺 vessel: identity as a measured, defended, portable invariant
+
+`src/kgirl/vessel/` gives every model its own identity. That identity lives in a MatrixDB that the model reads
+and writes, with content-addressed matrices and a hash-chained ledger. It is measured as representation
+geometry (CKA Grams) plus voice (next-byte distribution) on fixed probes. Both are invariant under any
+re-parametrization of the substrate, and that invariance is verified by group sampling, after substrate-comm.
+When the model drifts, a gated, reversible controller steers its weights back. The identity can be ceded into a
+container of another width or architecture (a numpy MLP into an AURIC transformer from patern-coding). Each
+vessel is born from a chaos-seeded genome, so siblings are measurably distinct and recognize themselves.
+
+```bash
+PYTHONPATH=src python -m kgirl.vessel demo            # birth → drift → steer → consolidate → migrate (~40 s)
+PYTHONPATH=src python -m kgirl.vessel invariance      # verify the identity's invariance group
+```
+
+**[→ vessel guide, theory and evidence levels](docs/vessel/README.md)**
+
 ## 🧬 evolve: chaos-driven quality-diversity search · 🧠 Jev intuition · 🛠 skill forge
 
 - **`src/kgirl/evolve/`** runs MAP-Elites with logistic-chaos variation (no PRNG) and lineage-traced emergence. Its first problem evolves c-BPE-ECL assay designs inside the CN121933729A claim ranges: `PYTHONPATH=src python -m kgirl.evolve assay`. **[→ guide](docs/evolve/README.md)**
