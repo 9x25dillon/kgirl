@@ -11,7 +11,7 @@ _Session window: 2026-09-28 → 2026-10-01. Branch: `claude/dazzling-sagan-0uf4y
 | commit `80f8b85` — evolve, Jev intuition, skill forge, `.claude/skills` | **pushed, not merged, no PR yet** |
 | this file | on the same branch as `80f8b85` |
 | tests | harness 43 · nihiline 23 · evolve 6 = **72**, all passing; `pyflakes` clean |
-| MCP server (`.mcp.json`, server name `kgirl`) | 21 tools (`atlas_*`, `soup_*`, `kgirl_ask`, `jev_swarm_task`, `skills_forge`, `ecl_*`, `evolve_assay_design`, `iwme_*`, `vessel_*`), connected in Claude Code |
+| MCP server (`.mcp.json`, server name `kgirl`) | 15 tools, connected in Claude Code |
 | `~/.kgirl/atlas.db` (the index the MCP tools read) | **empty**: index again before relying on the `atlas_*` tools |
 | live model runs (Ollama / Claude) | **never done**: every model call was tested with `ScriptedBackend` |
 
