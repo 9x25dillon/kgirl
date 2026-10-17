@@ -32,13 +32,15 @@ Porter opens the database read-only and never runs kgirl's code.
 The kgirl model is `context-relay/plugins/porter-blast-radius/examples/kgirl-harness.model.json`; the review behind it is
 `context-relay/docs/KGIRL_HARNESS.md`.
 
-- The model describes the harness on `main` (`d2314f2`): the #54 core plus `80f8b85` (Jev intuition, the skill forge
-  and the `ecl_*` / `evolve_*` tools). It maps all 15 MCP tools to components. With `KGIRL_SRC` set, a contract test
-  compares that map with `mcp_server._tools()`.
-- The controls added by [#55](https://github.com/9x25dillon/kgirl/pull/55) (merged) and [#59](https://github.com/9x25dillon/kgirl/pull/59) still read `proposed`.
-  They change to `implemented` in myAssistant, then sync here.
-- With both merged, one loop stays open (KFM-12): a `jev_swarm_task` goal persists in an `active` trajectory, which
-  the person-run `skills forge --export` can write into `SKILL.md`. The proposed fix is C-STAGE-TRAJECTORY.
+- The model describes the harness on `main` (`0e940c1`): the #54 core, `80f8b85` (Jev intuition, the skill forge
+  and the `ecl_*` / `evolve_*` tools), the `iwme_*` tools from [#65](https://github.com/9x25dillon/kgirl/pull/65) and the
+  `vessel_*` tools from [#70](https://github.com/9x25dillon/kgirl/pull/70). It maps all 21 MCP tools to components. With
+  `KGIRL_SRC` set, a contract test compares that map with `mcp_server._tools()`.
+- The controls from [#55](https://github.com/9x25dillon/kgirl/pull/55), [#59](https://github.com/9x25dillon/kgirl/pull/59)
+  and [#60](https://github.com/9x25dillon/kgirl/pull/60) read `implemented`. As built, no persistent loop is open: the
+  KFM-12 loop (a `jev_swarm_task` goal reaching `SKILL.md` through `skills forge --export`) closed with C-STAGE-TRAJECTORY.
+- Two controls are still `proposed`: C-DATA-FRAMING (atlas and soup text framed as untrusted data; partial) and C-REDACT
+  (secret redaction before a context pack goes to the scout model).
 
 ## Tests that use kgirl itself
 
