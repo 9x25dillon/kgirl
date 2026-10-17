@@ -167,3 +167,13 @@ negative results). It also adds three harness MCP tools: `vessel_status`, `vesse
 - Start with `PYTHONPATH=src python -m kgirl.vessel demo`, then read docs/vessel "Future evolution". The first
   item is to measure sibling distances and steering cost on a *trained* AURIC checkpoint and recalibrate the
   engage and release thresholds from them.
+
+## 9. Addendum (2026-10-17): `kgirl.resonance`
+
+The user's RVSE v2.1 / Quaternary Hyperspatial Engine is kept verbatim in `research/resonance/originals/`,
+with a triage table in `research/resonance/README.md`.
+- The real parts became `src/kgirl/resonance/`, numpy only and validated: DFA/MF-DFA, H₀ homology, the PLL
+  and the resonate-and-fire bank.
+- `src/kgirl/vessel/landscape.py` adds population families, topological drift and voice dynamics.
+- There is a new MCP tool, `resonance_analyze`.
+- 14 new tests. Existing vessel numbers are unchanged; the demo only gained lines.

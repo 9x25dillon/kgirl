@@ -176,6 +176,26 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
             raise ValueError("scale must be quick or full")
         return render(run(scale))                 # in-memory database: the demo writes nothing to disk
 
+    def resonance_analyze(p):
+        import json as _json
+
+        import numpy as _np
+
+        from ..resonance import mfdfa, recognize, track
+        x = _np.asarray(p.get("series") or [], dtype=float)
+        if x.ndim != 1 or not 40 <= len(x) <= 200_000 or not _np.all(_np.isfinite(x)):
+            raise ValueError("series must be 40 to 200000 finite numbers")
+        fs = float(p.get("fs", 1.0))
+        if not fs > 0:
+            raise ValueError("fs must be positive")
+        r = mfdfa(x, [-2.0, 0.0, 2.0, 4.0] if not p.get("dyadic") else None, dyadic=bool(p.get("dyadic")))
+        lo = max(4.0 * fs / len(x), fs / 1000.0)
+        bank = recognize(x - x.mean(), fs, lo=lo, hi=0.45 * fs)
+        out = {"samples": len(x), "fs": fs, "mfdfa": r.summary(), "resonators": bank.summary()}
+        if p.get("f0") is not None:
+            out["pll"] = track(x, fs, float(p["f0"]), bandwidth=float(p.get("bandwidth", min(2.0, float(p["f0"]) / 10)))).summary()
+        return _json.dumps(out, indent=2, default=float)
+
     S = lambda props, req: {"type": "object", "properties": props, "required": req}  # noqa: E731
     s, i, n = {"type": "string"}, {"type": "integer"}, {"type": "number"}
     return {
@@ -204,10 +224,17 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
         "vessel_status": (S({"name": s}, []), vessel_status),
         "vessel_verify": (S({"name": s}, ["name"]), vessel_verify),
         "vessel_demo": (S({"scale": {"type": "string", "enum": ["quick", "full"]}}, []), vessel_demo),
+        "resonance_analyze": (S({"series": {"type": "array", "items": n}, "fs": n, "f0": n, "bandwidth": n,
+                                 "dyadic": {"type": "boolean"}}, ["series"]), resonance_analyze),
     }
 
 
 _DESCRIPTIONS = {
+    "resonance_analyze": "Analyze a numeric series (40–200000 samples, sample rate fs): MF-DFA scaling exponents "
+                         "(Hurst h(2), h(q), multifractal width), a constant-Q resonate-and-fire neuron bank "
+                         "(CFAR spike detection, dominant frequency, peaks, spectral entropy) and, with f0, a "
+                         "second-order phase-locked loop (lock, lock time, tracked frequency). Pure computation; "
+                         "dyadic=true uses power-of-two scales for cascade-like data.",
     "vessel_status": "Vessel MatrixDB ($KGIRL_HOME/vessel/matrix.db): with no name, every vessel with its ledger state; "
                      "with a name, event counts, the last reading of each kind (drift, coherence, steering outcome, "
                      "migrations) and stored weight snapshots. Read-only. Needs numpy.",
