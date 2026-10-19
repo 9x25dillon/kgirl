@@ -56,3 +56,70 @@ runs/
 /NuRea_sim
 /Eopiez
 /LiMp
+
+# ---------------------------------------------------------------------------
+# Never commit a home directory, a .git directory or a virtualenv into the repo.
+# Root-anchored, so same-named files deeper in the tree stay trackable.
+# ---------------------------------------------------------------------------
+
+# shell, desktop and tool dotfiles
+/.bash_profile
+/.bashrc
+/.zshrc
+/.zsh_history
+/.zcompdump*
+/.gitconfig
+/.gtkrc-2.0
+/.lmmsrc.xml
+/.node_repl_history
+/.npmrc
+/.steampid
+/.wget-hsts
+/.python_history
+/.lesshst
+/.viminfo
+
+# git internals copied out of a .git/ directory
+/COMMIT_EDITMSG
+/FETCH_HEAD
+/HEAD
+/ORIG_HEAD
+/REBASE_HEAD
+/MERGE_HEAD
+/config
+/description
+/exclude
+/index
+/main
+/stash
+/*.sample
+
+# virtualenv launchers and interpreters copied from <venv>/bin
+/python
+/python3
+/python3.*
+/pip
+/pip3
+/pip3.*
+/f2py
+/fastapi
+/flask
+/fonttools
+/hf
+/httpx
+/huggingface-cli
+/isympy
+/midi2audio
+/midiplay
+/normalizer
+/numpy-config
+/proton
+/proton-viewer
+/pyftmerge
+/pyftsubset
+/tiny-agents
+/torchfrtrace
+/torchrun
+/tqdm
+/ttx
+/uvicorn
