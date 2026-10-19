@@ -1,7 +1,8 @@
-"""`python -m kgirl.evolve assay|fuel` — evolve designs; print elites, emergence stats, optional figure.
+"""`python -m kgirl.evolve assay|fuel|life` — evolve designs; print elites, emergence stats, optional figure.
 
     assay   c-BPE-ECL assay designs inside the CN121933729A claim ranges
     fuel    PWR fuel-rod enrichment patterns on the NuRea_sim lattice-physics surrogate
+    life    Algorithmic Life Equation parameters: viable organisms across compression × recovery
 """
 
 from __future__ import annotations
@@ -33,9 +34,17 @@ def main(argv: list[str] | None = None) -> int:
                    help="ensemble (default): pessimistic over poly and maxtype, inside the data's support; "
                         "poly: the original single-model search")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("life", help="MAP-Elites over life-equation parameters (kgirl.life), compression × recovery")
+    p.add_argument("-g", "--generations", type=int, default=20)
+    p.add_argument("-b", "--batch", type=int, default=32)
+    p.add_argument("--seed", type=float, default=0.4123)
+    p.add_argument("-k", "--top", type=int, default=5)
+    p.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     if a.cmd == "fuel":
         return _fuel(a)
+    if a.cmd == "life":
+        return _life(a)
 
     from .pareto import front
     from .problems import assay as A
@@ -73,6 +82,37 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {e.fitness:7.4f}  " + "  ".join(f"{e.info[k]:>11.3g}" for k in keys))
     if a.plot:
         print(f"figure: {result['figure']}")
+    return 0
+
+
+def life_result(generations: int, batch: int, seed: float, top: int) -> dict:
+    from .problems import life as L
+    me = L.evolve(generations, batch, seed)
+    base, champ, last = L.baseline(), me.champion(), me.history[-1]
+    alive = [e for e in me.elites() if e.info["survived"]]
+    return {"generations": generations, "coverage": last.coverage, "qd_score": last.qd_score,
+            "stepping_stones": me.stepping_stones(), "survivors": len(alive), "elites": len(me.archive),
+            "baseline_default_params": {"fitness": base.fitness, **base.info},
+            "champion": {"fitness": champ.fitness, "generation": champ.generation, **champ.info},
+            "fastest_survivor": min(alive, key=lambda e: e.info["adapt_steps"]).info if alive else None,
+            "leanest_survivor": min(alive, key=lambda e: e.info["model_norm"]).info if alive else None,
+            "top": [{"fitness": e.fitness, **e.info} for e in me.elites()[:top]]}
+
+
+def _life(a) -> int:
+    r = life_result(a.generations, a.batch, a.seed, a.top)
+    if a.json:
+        print(json.dumps(r, indent=2, default=float))
+        return 0
+    b, c = r["baseline_default_params"], r["champion"]
+    print(f"MAP-Elites, {a.generations} generations: coverage {r['coverage']:.0%}, QD-score {r['qd_score']:.3f}, "
+          f"{r['survivors']} of {r['elites']} elites keep O ≥ O_min through the shock")
+    print(f"champion mean C_eff {c['C_eff']:.4f} (default parameters: {b['C_eff']:.4f}, survived={b['survived']}); "
+          f"ancestry crossed {r['stepping_stones']} niches")
+    keys = ("a", "b", "eta_C", "eta_V", "eta_M", "lambda_reg", "rho", "deltaF", "C_eff", "adapt_steps", "model_norm")
+    print("  fitness  " + "  ".join(f"{k:>10}" for k in keys))
+    for e in r["top"]:
+        print(f"  {e['fitness']:7.4f}  " + "  ".join(f"{float(e[k]):>10.3g}" for k in keys))
     return 0
 
 

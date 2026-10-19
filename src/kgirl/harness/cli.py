@@ -50,7 +50,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("goal")
     p.add_argument("--repo", required=True, help="path of the repo to work on")
     p.add_argument("--verify", help="verification command, e.g. 'python -m pytest -q tests/test_x.py'")
-    p.add_argument("-n", "--size", type=int, default=3)
+    p.add_argument("-n", "--size", type=int, default=None,
+                   help="agents (default: the metabolism's replication criterion; 3 with KGIRL_LIFE=0)")
     p.add_argument("--apply", action="store_true", help="write the accepted diff into the repo")
     p.add_argument("--keep", action="store_true", help="keep agent workspaces for inspection")
     p = sub.add_parser("soup", help="memory pool")
@@ -82,6 +83,8 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("--min-utility", type=float, default=0.5)
     q.add_argument("--export", help="directory for <name>/SKILL.md (e.g. .claude/skills)")
     sk.add_parser("list")
+    p = sub.add_parser("vitals", help="the harness metabolism: reserve, organization, coherence, swarm plan")
+    p.add_argument("--json", action="store_true")
     sub.add_parser("route", help="show which backend serves each role")
     p = sub.add_parser("trace", help="tail the Hermes trace")
     p.add_argument("-n", type=int, default=40)
@@ -152,6 +155,13 @@ def _run(a: Assistant, args) -> int:
         else:
             for f in a.soup.all(kind="skill"):
                 print(f"#{f.id:<5} {f.status:<8} u={f.utility:.2f} {f.text}")
+    elif cmd == "vitals":
+        from .metabolism import render
+        if a.metabolism is None:
+            print("the metabolism is off (KGIRL_LIFE=0)")
+            return 0
+        v = a.metabolism.vitals()
+        print(json.dumps(v, indent=2, default=float) if args.json else render(v))
     elif cmd == "route":
         for role, chain in a.router.describe().items():
             print(f"{role:<6} -> " + "  |  ".join(chain))

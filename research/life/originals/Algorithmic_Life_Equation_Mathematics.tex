@@ -1,0 +1,163 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1.1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{microtype}
+
+\hypersetup{colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black}
+
+\title{\textbf{Detailed Mathematics of the Minimal Algorithmic Life Equation}}
+\author{Companion mathematical appendix\\ to ``Minimal Implementation of the Algorithmic Life Equation''}
+\date{18 October 2026}
+
+\begin{document}
+\maketitle
+
+\section*{Notation and State}
+
+The discrete-time state at step \(t\in\mathbb{N}_0\) is the tuple
+\[
+\mathbf{s}_t = \bigl(A_t,\,C_t,\,O_t,\,F_t,\,H_t,\,M_t,\,R_t,\,P_t,\,\pi_t\bigr).
+\]
+Domains:
+\begin{align*}
+A_t &\in[0,A_{\max}], &
+C_t &\in(C_{\min},C_{\max})\subset(0,1), &
+O_t &\in[0,1],\\
+F_t &\ge 0, &
+R_t &\in[0,1], &
+P_t &\ge 0.
+\end{align*}
+\(H_t\) lives in a finite-dimensional feature space \(\mathcal{H}\), \(M_t\) in a matrix space \(\mathcal{M}\), and \(\pi_t\) parametrizes a policy over a finite action set \(\mathcal{U}\).
+
+Observation \(I_t\in\mathbb{R}^d\) and energy inflow \(E_t\ge 0\) are exogenous. The system returns action \(u_t\in\mathcal{U}\) and the scalar diagnostic \(\mathcal{C}_{\mathrm{eff},t}\).
+
+\section{Energy Balance}
+
+\begin{equation}
+F_{t+1}=\bigl[F_t+\eta_{\mathrm{in}}E_t-W_t-D_t\bigr]_+,\qquad
+[\,x\,]_+=\max\{x,0\}.
+\end{equation}
+Work and dissipation:
+\begin{align}
+W_t &= w_0+w_A A_t+w_M\|M_t\|_F+w_u\|u_t\|,\\
+D_t &= \delta_0+\delta_F F_t+\delta_{\varepsilon}\|\varepsilon_t\|^2.
+\end{align}
+All coefficients are non-negative. The only source of free energy is the exogenous term \(\eta_{\mathrm{in}}E_t\). Consequently the map never creates usable free energy from nothing.
+
+\section{Organization Dynamics}
+
+Logistic construction opposed by error- and dissipation-driven decay:
+\begin{equation}
+O_{t+1}=\operatorname{clip}_{[0,1]}\Bigl(
+O_t+a\,F_t\,C_t\,(1-O_t)-b\,(D_t+\|\varepsilon_t\|^2)\,O_t
+\Bigr).
+\end{equation}
+The product \(F_t C_t\) is required for net growth; the factor \((1-O_t)\) saturates organization at unity.
+
+\section{Coherence Window}
+
+Hard bounds
+\[
+C_{\min}<C_t<C_{\max}
+\]
+are enforced by projection. Soft dynamics inside the interval:
+\begin{equation}
+C_{t+1}=\operatorname{clip}_{(C_{\min}+\epsilon,\,C_{\max}-\epsilon)}\Bigl(
+C_t+\eta_C(C_*-C_t)-\eta_V\operatorname{Var}(\varepsilon_{t-k:t})
+\Bigr),
+\end{equation}
+where \(C_*=(C_{\min}+C_{\max})/2\). Residual variance acts as a continuous degradation drive.
+
+\section{World-Model Revision}
+
+Linear predictor (any differentiable architecture may replace it):
+\[
+\widehat{I}_t=M_t\,\phi(H_t),\qquad\varepsilon_t=I_t-\widehat{I}_t.
+\]
+Complexity-penalized gradient step:
+\begin{equation}
+M_{t+1}=M_t-\eta_M\nabla_M\bigl(\|\varepsilon_t\|^2+\lambda\,\Omega(M_t)\bigr).
+\end{equation}
+Canonical regularizers:
+\begin{itemize}[leftmargin=*]
+\item \(\Omega(M)=\|M\|_F^2\) (ridge),
+\item \(\Omega(M)=\|M\|_*\) (nuclear norm, low-rank bias).
+\end{itemize}
+After the gradient step an optional hard truncation or soft-thresholding operator may be applied to enforce an explicit parameter budget.
+
+\section{Memory}
+
+Exponential moving average (or fixed-length ring buffer) of encoded observation--error pairs:
+\begin{equation}
+H_{t+1}=(1-\rho)H_t+\rho\,\mathcal{E}(I_t,\varepsilon_t),\qquad\rho\in(0,1).
+\end{equation}
+Capacity remains finite by construction.
+
+\section{Self-Model Strength}
+
+\begin{equation}
+R_{t+1}=\operatorname{clip}_{[0,1]}\Bigl(R_t+\eta_R\bigl(G_{\mathrm{self},t}-L_{\mathrm{self},t}\bigr)\Bigr).
+\end{equation}
+Gain (predictive usefulness of internal state):
+\[
+G_{\mathrm{self},t}=\operatorname{corr}\bigl(\mathbf{s}_t^{\mathrm{internal}},\,\varepsilon_{t+1}\bigr)
+\quad\text{or a differentiable surrogate}.
+\]
+Loss (self-prediction error plus discontinuity penalty):
+\[
+L_{\mathrm{self},t}=\|\mathbf{s}_t-\widehat{\mathbf{s}}_t^{\mathrm{self}}\|+\xi\,\mathbf{1}_{\{\text{discontinuity}\}}.
+\]
+
+\section{Reachable Potential}
+
+Scalar capacity measure
+\begin{equation}
+P_t=\log\bigl(1+N_{\mathrm{reach}}(F_t,O_t,C_t)\bigr),
+\end{equation}
+where \(N_{\mathrm{reach}}\) counts (or measures the volume of) next states attainable under the current free-energy and organization budgets. In continuous settings the count may be replaced by a truncated differential entropy of the push-forward measure.
+
+\section{Functional Index}
+
+\begin{equation}
+\mathcal{C}_{\mathrm{eff},t}=\frac{A_t}{A_{\max}}\,C_t\,O_t\,R_t\,\frac{F_t}{F_t+K_F}.
+\end{equation}
+The multiplicative structure encodes the modelling hypothesis that any factor near zero suppresses the diagnostic. It is not asserted to be a universal law of subjective experience.
+
+\section{Continuous-Time Counterpart}
+
+Thermodynamically consistent ODE system (isolated composite system + environment):
+\begin{align}
+\dot F&=\eta_{\mathrm{in}}E(t)-W(\mathbf{s})-D(\mathbf{s}),\\
+\dot O&=aFC(1-O)-b(D+\|\varepsilon\|^2)O,\\
+\dot C&=\eta_C(C_*-C)-\eta_V\operatorname{Var}(\varepsilon)
+       -\gamma_C(C-C_{\min})_+-\gamma_C(C_{\max}-C)_+,\\
+\dot R&=\eta_R(G_{\mathrm{self}}-L_{\mathrm{self}}),\\
+\dot M&=-\eta_M\nabla_M\bigl(\|\varepsilon\|^2+\lambda\Omega(M)\bigr).
+\end{align}
+Total entropy production of the isolated composite is monitored by
+\begin{equation}
+\dot S_{\mathrm{total}}=\frac{D+W_{\mathrm{irrev}}}{T}+\sigma_{\mathrm{info}}\ge 0,
+\end{equation}
+where \(W_{\mathrm{irrev}}\) collects irreversible computational work (Landauer contribution) and \(\sigma_{\mathrm{info}}\) is the information-theoretic contribution arising from model updates. Non-negativity is enforced by construction of the dissipation terms.
+
+\section{Constrained Optimization View}
+
+The architecture realises (approximately) the constrained program
+\begin{equation}
+\min_{\pi,M}\;\mathbb{E}\Bigl[\alpha\mathcal{L}_t+\beta W_t+\gamma V_t+\delta\mathcal{R}_{\mathrm{loss},t}\Bigr]
+\end{equation}
+subject to
+\[
+F_t\ge F_{\min},\qquad O_t\ge O_{\min},\qquad C_{\min}<C_t<C_{\max},
+\]
+where \(\mathcal{L}_t=\|\varepsilon_t\|^2+\lambda\Omega(M_t)\) is model loss, \(V_t\) a viability penalty, and \(\mathcal{R}_{\mathrm{loss},t}\) penalises loss of reachable potential. The coefficients \(\alpha,\beta,\gamma,\delta\) encode the trade-offs among accuracy, energetic cost, survival, and future option value.
+
+\section*{Status}
+
+All equations above are phenomenological and implementable. They convert the parent philosophical framework into a concrete dynamical system on which ablation, resource-stress, perturbation, and compression-trade-off experiments can be performed. They do not constitute a derivation of subjective experience from first principles.
+
+\end{document}

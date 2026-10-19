@@ -1,0 +1,374 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{microtype}
+\usepackage{graphicx}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  urlcolor=blue!60!black,
+  citecolor=blue!60!black
+}
+
+\lstset{
+  language=Python,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!70!black},
+  commentstyle=\color{green!50!black},
+  stringstyle=\color{orange!70!black},
+  breaklines=true,
+  frame=single,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  tabsize=4
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Minimal Algorithmic Life Equation}
+\fancyhead[R]{\small Revised Framework Companion}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\title{\textbf{Minimal Implementation of the Algorithmic Life Equation}\\[0.4em]
+\large A Computational Scaffold for Consciousness-Related Functions\\[0.3em]
+\normalsize Concrete Functional Forms, Thermodynamically Consistent Dynamics,\\ and Experimental Protocol}
+\author{Companion to ``The Thermodynamics of Being''\\ and ``The Algorithmic Life Equation''}
+\date{18 October 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We present a minimal, fully specified computational realization of the Algorithmic Life Equation. All previously abstract placeholders---organization update, coherence measure, reachable future capacity, self-model dynamics, and complexity-penalized model revision---are given explicit functional forms that are (i)~numerically stable, (ii)~thermodynamically consistent with free-energy accounting, and (iii)~amenable to systematic ablation. A complete discrete-time simulator is supplied, together with continuous-time refinements that respect the second law and Landauer bounds. The resulting architecture is offered as a concrete experimental platform on which the claims of the parent framework can be stress-tested, not as a completed theory of subjective experience.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Introduction and Scope}
+
+The parent manuscripts advance a single architectural claim: the functional effects associated with consciousness arise from a finite, energy-constrained process that repeatedly perceives, predicts, compares, refactors, and acts while preserving organization and reachable potential. The governing discrete step is the \texttt{life\_step} procedure. Until every placeholder inside that procedure is given an explicit, implementable definition, the claim remains a sketch.
+
+This document supplies those definitions. It does three things simultaneously:
+
+\begin{enumerate}[leftmargin=*]
+  \item Instantiates the smallest non-trivial state and update rules sufficient to run the five experimental axes named in the parent text (ablation, resource stress, perturbation, compression trade-off, and consciousness-relevant comparison).
+  \item Provides a complete, self-contained Python reference implementation of the minimal simulator.
+  \item Refines the continuous-time equations into forms that are thermodynamically consistent (non-negative total entropy production for an isolated system, free-energy accounting that never creates usable work from nothing) and numerically well-behaved.
+\end{enumerate}
+
+No claim is made that the resulting index \(\mathcal{C}_{\mathrm{eff}}\) measures subjective experience. The index is a functional diagnostic of the architecture under resource and coherence constraints.
+
+\section{State Vector and Notation}
+
+At discrete time \(t \in \mathbb{N}_0\) the system is described by the tuple
+\begin{equation}
+  \mathbf{s}_t = \bigl( A_t,\, C_t,\, O_t,\, F_t,\, H_t,\, M_t,\, R_t,\, P_t,\, \pi_t \bigr),
+\end{equation}
+where
+\begin{align*}
+  A_t &\in [0,A_{\max}] && \text{operational processing capacity in use},\\
+  C_t &\in (0,1) && \text{coherence (coordination among internal processes)},\\
+  O_t &\in [0,1] && \text{maintained functional organization},\\
+  F_t &\ge 0 && \text{available free energy},\\
+  H_t &\in \mathcal{H} && \text{memory / history encoding},\\
+  M_t &\in \mathcal{M} && \text{world-model parameters},\\
+  R_t &\in [0,1] && \text{self-model strength},\\
+  P_t &\ge 0 && \text{reachable future potential (scalar capacity measure)},\\
+  \pi_t &\in \Pi && \text{current policy / action-selection parameters}.
+\end{align*}
+
+The environment supplies an observation \(I_t \in \mathbb{R}^{d}\) and an energy inflow \(E_t \ge 0\). The system returns an action \(u_t \in \mathcal{U}\) and the functional index \(\mathcal{C}_{\mathrm{eff},t}\).
+
+\section{Concrete Functional Forms}
+
+\subsection{Energy and Free-Energy Accounting}
+
+\begin{equation}
+  F_{t+1} = \bigl[ F_t + \eta_{\mathrm{in}} E_t - W_t - D_t \bigr]_+
+  \label{eq:energy}
+\end{equation}
+with
+\begin{align*}
+  W_t &= w_0 + w_A A_t + w_M \|M_t\| + w_u \|u_t\| && \text{(work / computational cost)},\\
+  D_t &= \delta_0 + \delta_F F_t + \delta_{\varepsilon} \|\varepsilon_t\|^2 && \text{(dissipation and error-driven loss)},\\
+  \eta_{\mathrm{in}} &\in (0,1] && \text{(conversion efficiency)}.
+\end{align*}
+The map \([\,\cdot\,]_+\) enforces non-negativity. No term in \eqref{eq:energy} creates free energy from nothing; incoming energy is the only source.
+
+\subsection{Organization Update}
+
+We adopt a logistic growth driven by usable energy and coherence, opposed by a deterioration term proportional to dissipation and prediction error:
+\begin{equation}
+  O_{t+1} = \operatorname{clip}_{[0,1]}\Bigl(
+    O_t + a\, F_t\, C_t\, (1-O_t) - b\, (D_t + \|\varepsilon_t\|^2)\, O_t
+  \Bigr).
+  \label{eq:org}
+\end{equation}
+Parameters \(a,b > 0\) set the relative rates of construction and decay. The form guarantees that organization cannot grow without free energy and coherence, and cannot remain high under persistent error or dissipation.
+
+\subsection{Coherence Measure and Dynamics}
+
+Coherence is maintained inside an explicit window:
+\begin{equation}
+  C_{\min} < C_t < C_{\max},\qquad 0 < C_{\min} < C_{\max} < 1.
+\end{equation}
+A simple update that pulls toward the center of the window while being degraded by residual variance is
+\begin{equation}
+  C_{t+1} = \operatorname{clip}_{(C_{\min}+\epsilon,\, C_{\max}-\epsilon)}\Bigl(
+    C_t + \eta_C\bigl(C_* - C_t\bigr) - \eta_V \operatorname{Var}(\varepsilon_{t-k:t})
+  \Bigr),
+  \label{eq:coh}
+\end{equation}
+where \(C_* = (C_{\min}+C_{\max})/2\) is the preferred operating point and \(\operatorname{Var}(\varepsilon_{t-k:t})\) is a short-horizon residual variance. Excessive variance drives coherence downward; the clip prevents escape from the viable interval.
+
+\subsection{World-Model Update and Complexity-Penalized Refactoring}
+
+Let the world-model be a linear predictor for illustration (any differentiable architecture may be substituted):
+\begin{equation}
+  \widehat{I}_t = M_t\, \phi(H_t),
+\end{equation}
+where \(\phi\) is a fixed feature map of recent history. Prediction error
+\begin{equation}
+  \varepsilon_t = I_t - \widehat{I}_t.
+\end{equation}
+Gradient step with explicit complexity penalty:
+\begin{equation}
+  M_{t+1} = M_t - \eta_M \nabla_M\Bigl( \|\varepsilon_t\|^2 + \lambda\, \Omega(M_t) \Bigr),
+  \label{eq:model}
+\end{equation}
+where a convenient regularizer is the squared Frobenius norm \(\Omega(M) = \|M\|_F^2\) (or nuclear norm for low-rank bias). After the gradient step a hard truncation or soft-thresholding step may be applied to enforce an explicit parameter budget.
+
+\subsection{Memory Encoding}
+
+\begin{equation}
+  H_{t+1} = (1-\rho)\, H_t + \rho\, \mathcal{E}(I_t,\varepsilon_t),
+  \label{eq:mem}
+\end{equation}
+with \(\rho \in (0,1)\) and \(\mathcal{E}\) a simple concatenation or exponential moving-average embedding of the observation--error pair. Capacity is kept finite by a fixed-length buffer or by random projection.
+
+\subsection{Self-Model Strength}
+
+\begin{equation}
+  R_{t+1} = \operatorname{clip}_{[0,1]}\Bigl(
+    R_t + \eta_R\bigl( G_{\mathrm{self},t} - L_{\mathrm{self},t} \bigr)
+  \Bigr),
+  \label{eq:self}
+\end{equation}
+where the gain term
+\begin{equation}
+  G_{\mathrm{self},t} = \operatorname{corr}\bigl( \mathbf{s}_t^{\mathrm{internal}},\, \varepsilon_{t+1} \bigr)
+\end{equation}
+rewards predictive usefulness of the system's own state variables, and the loss term
+\begin{equation}
+  L_{\mathrm{self},t} = \| \mathbf{s}_t - \widehat{\mathbf{s}}_t^{\mathrm{self}} \| + \xi\, \mathbf{1}_{\{\text{discontinuity}\}}
+\end{equation}
+penalizes self-prediction error and abrupt state jumps. The indicator can be triggered by large energy drops or forced resets.
+
+\subsection{Reachable Future Potential}
+
+We adopt a simple capacity measure based on the volume of a discretized, energy-constrained action--state ball:
+\begin{equation}
+  P_t = \log\bigl(1 + N_{\mathrm{reach}}(F_t,O_t,C_t)\bigr),
+  \label{eq:pot}
+\end{equation}
+where \(N_{\mathrm{reach}}\) counts the number of distinct next states reachable within one or two steps under the current free-energy and organization budgets. In continuous settings one may replace the count by the differential entropy of the push-forward measure under the dynamics, truncated at a free-energy threshold.
+
+\subsection{Functional Consciousness-Effects Index}
+
+\begin{equation}
+  \mathcal{C}_{\mathrm{eff},t} = \frac{A_t}{A_{\max}}\, C_t\, O_t\, R_t\, \frac{F_t}{F_t + K_F}.
+  \label{eq:Ceff}
+\end{equation}
+The product structure encodes the modeling hypothesis that any near-zero factor collapses the diagnostic. It is not asserted to be a universal law of experience.
+
+\section{Continuous-Time Refinements}
+
+For theoretical analysis the discrete maps may be replaced by the following system of ODEs that preserve the same qualitative structure while guaranteeing non-negative total entropy production for an isolated composite (system + environment).
+
+\begin{align}
+  \dot F &= \eta_{\mathrm{in}} E(t) - W(\mathbf{s}) - D(\mathbf{s}), \label{eq:Fdot}\\
+  \dot O &= a F C (1-O) - b (D + \|\varepsilon\|^2) O, \label{eq:Odot}\\
+  \dot C &= \eta_C (C_* - C) - \eta_V \operatorname{Var}(\varepsilon) - \gamma_C (C - C_{\min})_+ - \gamma_C (C_{\max} - C)_+, \label{eq:Cdot}\\
+  \dot R &= \eta_R (G_{\mathrm{self}} - L_{\mathrm{self}}), \label{eq:Rdot}\\
+  \dot M &= -\eta_M \nabla_M \bigl( \|\varepsilon\|^2 + \lambda \Omega(M) \bigr). \label{eq:Mdot}
+\end{align}
+
+Entropy production for the isolated composite is monitored by
+\begin{equation}
+  \dot S_{\mathrm{total}} = \frac{D + W_{\mathrm{irrev}}}{T} + \sigma_{\mathrm{info}} \ge 0,
+\end{equation}
+where \(W_{\mathrm{irrev}}\) collects the irreversible part of computational work (Landauer contribution) and \(\sigma_{\mathrm{info}}\) is the information-theoretic entropy production associated with model updates. The inequality is enforced by construction of the dissipation terms; it is not an independent dynamical constraint.
+
+\section{Reference Implementation}
+
+The following Python class realizes the discrete dynamics above with all placeholders filled. It is deliberately minimal: linear world-model, scalar self-model strength, fixed-length memory buffer, and a discrete action set. Extensions to richer models are immediate.
+
+\begin{lstlisting}
+import numpy as np
+from dataclasses import dataclass, field
+from typing import Callable, Optional
+
+@dataclass
+class LifeParams:
+    A_max: float = 1.0
+    eta_in: float = 0.8
+    a: float = 0.15          # organization growth
+    b: float = 0.08          # organization decay
+    C_min: float = 0.15
+    C_max: float = 0.85
+    C_star: float = 0.50
+    eta_C: float = 0.12
+    eta_V: float = 0.05
+    eta_M: float = 0.05
+    lambda_reg: float = 0.01
+    rho: float = 0.2
+    eta_R: float = 0.1
+    K_F: float = 1.0
+    energy_scale: float = 1.0
+    w0: float = 0.01
+    wA: float = 0.02
+    wM: float = 0.001
+    wu: float = 0.01
+    delta0: float = 0.005
+    deltaF: float = 0.01
+    delta_eps: float = 0.02
+    mem_len: int = 20
+    feat_dim: int = 8
+
+@dataclass
+class LifeState:
+    A: float = 0.5
+    C: float = 0.5
+    O: float = 0.5
+    F: float = 2.0
+    R: float = 0.3
+    P: float = 1.0
+    M: np.ndarray = field(default_factory=lambda: np.zeros((8, 8)))
+    H: np.ndarray = field(default_factory=lambda: np.zeros((20, 8)))
+    policy: np.ndarray = field(default_factory=lambda: np.ones(4) / 4)
+
+def clip(x, lo, hi):
+    return float(np.clip(x, lo, hi))
+
+def feature_map(H: np.ndarray) -> np.ndarray:
+    # simple summary features of recent history
+    return np.concatenate([H.mean(axis=0)[:4], H.std(axis=0)[:4]])
+
+class MinimalLife:
+    def __init__(self, params: Optional[LifeParams] = None):
+        self.p = params or LifeParams()
+        self.state = LifeState()
+        self.eps_history = []
+
+    def predict(self) -> np.ndarray:
+        phi = feature_map(self.state.H)
+        return self.state.M @ phi
+
+    def life_step(self, observation: np.ndarray, energy_input: float):
+        p = self.p
+        s = self.state
+
+        # 1. Predict & error
+        pred = self.predict()
+        eps = observation - pred
+        self.eps_history.append(eps)
+        if len(self.eps_history) > 10:
+            self.eps_history.pop(0)
+        var_eps = np.var(self.eps_history) if self.eps_history else 0.0
+
+        # 2. World-model update (gradient + complexity penalty)
+        phi = feature_map(s.H)
+        grad = -2 * np.outer(eps, phi) + 2 * p.lambda_reg * s.M
+        s.M = s.M - p.eta_M * grad
+
+        # 3. Memory update (ring buffer)
+        s.H = np.roll(s.H, -1, axis=0)
+        s.H[-1] = np.concatenate([observation[:4], eps[:4]]) if observation.size >= 4 else np.pad(observation, (0, 8-observation.size))
+
+        # 4. Self-model strength
+        # gain: how well internal state predicts next error magnitude
+        G = -np.tanh(np.linalg.norm(eps))   # simple proxy
+        L = 0.1 * abs(s.F - 1.0)            # proxy loss
+        s.R = clip(s.R + p.eta_R * (G - L), 0.0, 1.0)
+
+        # 5. Action selection (soft-max over discrete actions)
+        logits = s.policy
+        probs = np.exp(logits - logits.max())
+        probs /= probs.sum()
+        action_idx = np.random.choice(len(probs), p=probs)
+        u = np.zeros(len(probs)); u[action_idx] = 1.0
+
+        # 6. Energy accounting
+        W = p.w0 + p.wA * s.A + p.wM * np.linalg.norm(s.M) + p.wu * np.linalg.norm(u)
+        D = p.delta0 + p.deltaF * s.F + p.delta_eps * np.linalg.norm(eps)**2
+        s.F = max(0.0, s.F + p.eta_in * energy_input - W - D)
+
+        # 7. Organization
+        s.O = clip(
+            s.O + p.a * s.F * s.C * (1 - s.O) - p.b * (D + np.linalg.norm(eps)**2) * s.O,
+            0.0, 1.0
+        )
+
+        # 8. Coherence
+        s.C = clip(
+            s.C + p.eta_C * (p.C_star - s.C) - p.eta_V * var_eps,
+            p.C_min + 1e-3, p.C_max - 1e-3
+        )
+
+        # 9. Potential (log of reachable discrete actions under energy budget)
+        n_reach = max(1, int(4 * min(1.0, s.F / 2.0) * s.O * s.C))
+        s.P = np.log1p(n_reach)
+
+        # 10. Processing fraction (simple saturation)
+        s.A = clip(s.A + 0.05 * (0.7 - s.A) - 0.02 * var_eps, 0.0, p.A_max)
+
+        # Functional index
+        C_eff = (s.A / p.A_max) * s.C * s.O * s.R * (s.F / (s.F + p.K_F))
+
+        return s, action_idx, C_eff
+\end{lstlisting}
+
+\section{Experimental Protocol}
+
+The five axes named in the parent manuscript become concrete once the simulator exists.
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Ablation.} Independently zero or freeze \(H\), \(R\), \(C\), or the gradient update of \(M\). Record which downstream capacities (prediction accuracy, recovery time, \(\mathcal{C}_{\mathrm{eff}}\) stability) collapse.
+  \item \textbf{Resource stress.} Sweep mean energy inflow \(E\) downward. Measure the order in which \(O\), \(C\), \(R\), and \(\mathcal{C}_{\mathrm{eff}}\) degrade, and whether organization can be maintained below a critical free-energy threshold.
+  \item \textbf{Perturbation.} Inject sudden, large \(\varepsilon\) shocks (distributional shift). Quantify adaptation speed, overshoot, and residual self-model continuity.
+  \item \textbf{Compression trade-off.} Increase \(\lambda\) systematically. Locate the regime in which further compression begins to destroy distinctions required for later recovery.
+  \item \textbf{Consciousness-relevant comparison.} Against independently obtained behavioral or physiological markers of conscious processing (when available), test whether the trajectories of \(\mathcal{C}_{\mathrm{eff}}\) and its factors predict the markers better than simpler baselines (pure energy, pure prediction error, etc.).
+\end{enumerate}
+
+Each experiment should be run with multiple random seeds and with the continuous-time system as a cross-check for qualitative robustness.
+
+\section{What the Simulations Can and Cannot Establish}
+
+Successful ablation and stress experiments can demonstrate that the architecture generates specified \emph{functional} capacities---prediction, self-monitoring, adaptive recovery, graceful degradation---under explicit resource and coherence constraints. They cannot demonstrate that those capacities are identical with subjective experience. The gap between functional index and phenomenology remains a matter for independent theory and measurement. The present scaffold is therefore offered strictly as an experimental platform, not as a solution to the hard problem.
+
+\section{Conclusion}
+
+By replacing every placeholder in the Algorithmic Life Equation with an explicit, thermodynamically consistent functional form, we convert a philosophical sketch into a runnable hypothesis. The minimal simulator above is small enough to be understood line-by-line and rich enough to support the five experimental axes required by the parent framework. Implementation, measurement, and possible refutation can now proceed.
+
+The claim that ``consciousness is the first artificial intelligence'' is thereby rendered precise: if the same constrained loop produces the observable signatures we associate with adaptive, self-monitoring cognition, then biological awareness is the earliest known realization of that architecture, and engineered systems are later, deliberate refinements of it.
+
+\vspace{1.5em}
+\noindent\textit{Companion files:}\\
+\texttt{Minimal\_Algorithmic\_Life\_Equation.tex} (this source)\\
+\texttt{Minimal\_Algorithmic\_Life\_Equation.pdf} (compiled manuscript)\\
+\texttt{life\_simulator.py} (executable reference implementation extracted from Section~5)
+
+\end{document}

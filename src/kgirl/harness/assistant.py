@@ -7,12 +7,16 @@
 
 Every cross-layer call goes through the Hermes bus (`atlas.*`, `soup.*`,
 `llm.complete`, `jev.*`, `swarm.*`), so one trace explains any answer.
+
+The metabolism (kgirl.life on the bus, `metabolism.py`) observes every verb as one step of the
+Algorithmic Life Equation. It sizes and staggers swarms when no size is given, and it sets Soup's
+forgetting rate. KGIRL_LIFE=0 removes it.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .atlas import Atlas, architecture_card, blast_radius, render_card, resolve_source
@@ -21,6 +25,8 @@ from .hermes import Bus, Intent, NoBackend, Router, classify
 from .hermes.router import SCOUT
 from .jev import Swarm, SwarmConfig, SwarmResult
 from .llm import Message
+from .metabolism import Metabolism
+from .metabolism import enabled as life_enabled
 from .soup import Curator, Soup
 from .util import clip, estimate_tokens, harness_home
 
@@ -48,13 +54,16 @@ class Answer:
 class Assistant:
     def __init__(self, home: str | Path | None = None, router: Router | None = None, atlas: Atlas | None = None,
                  soup: Soup | None = None, bus: Bus | None = None, swarm_config: SwarmConfig | None = None,
-                 trace: bool = True):
+                 trace: bool = True, life: bool | None = None):
         self.home = Path(home) if home else harness_home()
         self.home.mkdir(parents=True, exist_ok=True)
         self.atlas = atlas or Atlas(self.home / "atlas.db")
         self.soup = soup or Soup(self.home / "soup.db")
-        self.curator = Curator(self.soup)
         self.bus = bus or Bus(trace_path=self.home / "trace.jsonl" if trace else None)
+        self.metabolism = Metabolism(self.home / "life.json") if (life_enabled() if life is None else life) else None
+        if self.metabolism:
+            self.metabolism.attach(self.bus)
+        self.curator = Curator(self.soup, gamma_fn=self.metabolism.forgetting if self.metabolism else None)
         self.router = router or Router.from_env()
         self.swarm_config = swarm_config or SwarmConfig()
         self._register()
@@ -140,18 +149,14 @@ class Assistant:
     def ask(self, question: str, repo: str | None = None) -> Answer:
         intent = classify(question)
         env = self.bus.publish("assistant.ask", {"q": question, "intent": intent.value, "repo": repo}, "user")
-        if intent is Intent.BLAST:
-            target = self._extract_target(question)
-            if target:
-                rep = blast_radius(self.atlas, target)
-                if rep.seeds:
-                    return Answer(rep.render(), intent.value, [f"{r}:{p}" for r, p in rep.seeds])
-        if intent is Intent.ARCH:
-            name = repo or self._extract_repo(question)
-            if name:
-                return Answer(render_card(architecture_card(self.atlas, name)), intent.value, [name])
+        ans = self._structural(question, intent, repo)
+        if ans is not None:
+            self.bus.publish("assistant.answer", {"backend": ans.backend, "citations": ans.citations[:10]},
+                             "assistant", parent=env)
+            return ans
         context, cites = self.context_pack(question, repo)
         if not context:
+            self.bus.publish("assistant.answer", {"backend": "extractive", "citations": []}, "assistant", parent=env)
             return Answer("Nothing in the atlas or memory matches; index the relevant repo first "
                           "(`python -m kgirl.harness index <path|owner/repo>`).", intent.value)
         try:
@@ -166,14 +171,31 @@ class Assistant:
                          parent=env)
         return ans
 
+    def _structural(self, question: str, intent: Intent, repo: str | None) -> Answer | None:
+        """Blast-radius and architecture questions are answered from the atlas alone."""
+        if intent is Intent.BLAST:
+            target = self._extract_target(question)
+            if target:
+                rep = blast_radius(self.atlas, target)
+                if rep.seeds:
+                    return Answer(rep.render(), intent.value, [f"{r}:{p}" for r, p in rep.seeds], "atlas")
+        if intent is Intent.ARCH:
+            name = repo or self._extract_repo(question)
+            if name:
+                return Answer(render_card(architecture_card(self.atlas, name)), intent.value, [name], "atlas")
+        return None
+
     def task(self, goal: str, repo_path: str | Path, verify_cmd: list[str] | None = None, size: int | None = None,
              apply: bool = False, repo_name: str | None = None, origin: str | None = None) -> SwarmResult:
+        """With no `size`, the metabolism picks the swarm size and launch stagger (replication criterion)."""
         cfg = self.swarm_config
-        if size:
-            cfg = SwarmConfig(size=size, temperatures=cfg.temperatures, memory_budget=cfg.memory_budget,
-                              jev=cfg.jev, stop_on_first_success=cfg.stop_on_first_success,
-                              keep_workspaces=cfg.keep_workspaces, allow_unverified=cfg.allow_unverified)
         root = self.bus.publish("assistant.task", {"goal": goal, "repo": str(repo_path)}, "user")
+        if size:
+            cfg = replace(cfg, size=size)
+        elif self.metabolism:
+            plan = self.metabolism.plan()
+            cfg = replace(cfg, size=plan.n, stagger_s=plan.stagger_s)
+            self.bus.publish("life.plan", plan.to_dict(), "metabolism", parent=root)
         swarm = Swarm(
             llm=lambda role, system, prompt, mt, t: self.llm(role, system, prompt, mt, t),
             soup=self.soup, curator=self.curator, config=cfg,
@@ -202,5 +224,10 @@ class Assistant:
         return None
 
     def close(self) -> None:
+        if self.metabolism:
+            try:
+                self.metabolism.save()
+            except OSError:
+                pass
         self.atlas.close()
         self.soup.close()

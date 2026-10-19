@@ -5,6 +5,7 @@
                                      • a different memory slice (diversity)
                                      • a different temperature
              first verified DONE ──> cancel the rest ("poof")
+             stagger Δ > 0 ──> agent k waits kΔ first; a win before then means it never spawns
              winner ──> independent re-verification ──> distill ──> Soup (staged)
                      └─> credit: winner's recalled fragments +1, losers' −½
              curator.step()  (promote / retire / decay)
@@ -68,6 +69,7 @@ class SwarmConfig:
     allow_unverified: bool = False     # accept DONE without a verifier
     intuition_fraction: float = 0.5    # share of agents that may act on intuition (the rest keep exploring)
     intuition_threshold: float = 0.6
+    stagger_s: float = 0.0             # agent k starts after k·stagger_s unless a verified win came first
 
 
 @dataclass
@@ -80,6 +82,7 @@ class SwarmResult:
     applied: list[str] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
     origin: str | None = None
+    unspawned: int = 0
 
     def render(self) -> str:
         lines = [f"swarm for: {self.goal}"]
@@ -96,6 +99,8 @@ class SwarmResult:
                 lines.append(clip(self.winner.diff, 3000))
         else:
             lines.append("no trajectory accepted")
+        if self.unspawned:
+            lines.append(f"{self.unspawned} staggered agent(s) never spawned: a verified win came first")
         if self.proposals:
             lines.append("soup: " + ", ".join(f"#{i} {s}" for i, s in self.proposals))
         for i, s in self.proposals:
@@ -132,7 +137,8 @@ class Swarm:
         repo_name = repo_name or repo.name
         recall = self.soup.recall(goal, budget_tokens=cfg.memory_budget * 2, scope=repo_name,
                                   kinds=("abstraction", "trajectory", "preference", "antipattern", "fact"))
-        self.emit("swarm.start", {"goal": goal, "repo": repo_name, "size": cfg.size, "recalled": recall.ids})
+        self.emit("swarm.start", {"goal": goal, "repo": repo_name, "size": cfg.size, "stagger_s": cfg.stagger_s,
+                                  "recalled": recall.ids})
         intuition = (Intuition.from_soup(self.soup, scope=repo_name, threshold=cfg.intuition_threshold)
                      if cfg.intuition_fraction > 0 else None)
         n_intuitive = round(cfg.size * cfg.intuition_fraction) if intuition and intuition.routines else 0
@@ -141,8 +147,12 @@ class Swarm:
         results: list[Trajectory] = []
         winner: Trajectory | None = None
         lock = threading.Lock()
+        unspawned = 0
 
-        def one(i: int) -> Trajectory:
+        def one(i: int) -> Trajectory | None:
+            if i and cfg.stagger_s > 0 and cancel.wait(i * cfg.stagger_s):
+                self.emit("jev.unspawned", {"slice": i, "delay_s": i * cfg.stagger_s})
+                return None                               # a verified win arrived before this agent's start
             ws = self._workspace(repo, i)
             with lock:
                 workspaces.append(ws)
@@ -186,25 +196,29 @@ class Swarm:
             self.emit("jev.done", {"jev": traj.jev_id, "outcome": traj.outcome, "verified": traj.verified,
                                    "steps": len(traj.steps), "tokens": traj.prompt_tokens,
                                    "llm_calls": traj.llm_calls, "intuition_steps": traj.intuition_steps,
-                                   "surprised": traj.surprised})
+                                   "surprised": traj.surprised, "elapsed": round(traj.elapsed, 3)})
             return traj
 
         try:
             with ThreadPoolExecutor(max_workers=cfg.size, thread_name_prefix="jev") as pool:
                 for fut in as_completed([pool.submit(one, i) for i in range(cfg.size)]):
-                    results.append(fut.result())
+                    traj = fut.result()
+                    if traj is None:
+                        unspawned += 1
+                    else:
+                        results.append(traj)
             accepted = [t for t in results if t.outcome == "done" and t.diff and
                         (t.verified is True or (t.verified is None and cfg.allow_unverified))]
             winner = min(accepted, key=lambda t: (len(t.steps), t.prompt_tokens), default=None)
             results.sort(key=lambda t: t.variant.get("slice", 0))
-            res = SwarmResult(goal, winner, results, recall, origin=origin)
+            res = SwarmResult(goal, winner, results, recall, origin=origin, unspawned=unspawned)
             for t in results:
                 if t is not winner and t.outcome != "cancelled":
                     self.emit("jev.poof", {"jev": t.jev_id, "outcome": t.outcome})
             self._learn(res, repo_name, verify_cmd, origin)
             if winner and apply:
                 self._apply(res, repo)
-            self.emit("swarm.end", {"winner": winner.jev_id if winner else None,
+            self.emit("swarm.end", {"winner": winner.jev_id if winner else None, "unspawned": unspawned,
                                     "proposals": res.proposals, "applied": res.applied})
             return res
         finally:

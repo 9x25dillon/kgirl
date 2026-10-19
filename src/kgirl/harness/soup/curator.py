@@ -17,6 +17,10 @@ Regularizers (why it cannot run away):
   * lower/upper confidence bounds — promotion needs evidence, retirement too
   * append-only ledger + rollback(ts) — every transition is auditable/reversible
 
+Adaptive forgetting: `gamma_fn(γ)` may replace the fixed decay each step. The harness passes the
+metabolism's variable forgetting factor (kgirl.harness.metabolism), so evidence fades faster while
+outcomes keep surprising the harness's own world model, and at the policy rate when they do not.
+
 Confidence levels: gate/ledger/decay mechanics are Level 0 (standard bandit and
 cache-admission engineering). That curated memories make a small local model
 solve *your* tasks better is Level 2 — measure it with `soup stats` over time.
@@ -49,6 +53,7 @@ class CurationReport:
     promoted: list[int] = field(default_factory=list)
     retired: list[int] = field(default_factory=list)
     expired: list[int] = field(default_factory=list)
+    gamma: float | None = None
 
     def __bool__(self) -> bool:
         return bool(self.promoted or self.retired or self.expired)
@@ -58,10 +63,12 @@ Validator = Callable[[Fragment], bool]
 
 
 class Curator:
-    def __init__(self, soup: Soup, policy: CurationPolicy | None = None, validator: Validator | None = None):
+    def __init__(self, soup: Soup, policy: CurationPolicy | None = None, validator: Validator | None = None,
+                 gamma_fn: Callable[[float], float] | None = None):
         self.soup = soup
         self.policy = policy or CurationPolicy()
         self.validator = validator
+        self.gamma_fn = gamma_fn
 
     def propose(self, text: str, kind: str = "abstraction", tags: str = "", source: str = "", scope: str = "*",
                 data: str | None = None) -> tuple[int, str]:
@@ -78,7 +85,9 @@ class Curator:
     def step(self) -> CurationReport:
         p = self.policy
         rep = CurationReport()
-        self.soup.decay(p.gamma)
+        gamma = p.gamma if self.gamma_fn is None else min(1.0, max(0.0, float(self.gamma_fn(p.gamma))))
+        self.soup.decay(gamma)
+        rep.gamma = gamma
         t = now()
         for f in self.soup.all(status="staged"):
             auto = f.source not in p.manual_sources

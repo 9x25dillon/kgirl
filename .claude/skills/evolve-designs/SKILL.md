@@ -23,6 +23,14 @@ Report four things:
 Designs that sit on a claim bound (for example probe 25 µg/mL) are predictions to test in the
 wet lab, not conclusions.
 
+## Run the life-equation problem
+
+- CLI: `PYTHONPATH=src python -m kgirl.evolve life -g 20 [--json]`; quick checks: `python -m kgirl.life stress`.
+- Genome: eight `kgirl.life` parameters. Fitness: mean C_eff, halved if organization falls below O_min. Grid:
+  ‖M‖ × adaptation steps after a distribution shift.
+- Report the champion against the published defaults, the survivors, and the leanest and fastest survivors.
+  Elites at a bound (for example b or δF at their minimum) show what this fitness rewards, not a law.
+
 ## Add a new problem
 
 1. Define a `Space([Param(name, lo, hi, log=...)])`. Genomes live in the unit cube.
