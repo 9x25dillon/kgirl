@@ -66,6 +66,21 @@ PYTHONPATH=src python -m kgirl.evolve assay -g 40 --plot docs/evolve/figures/ass
 
 ![assay evolution](figures/assay_run.png)
 
+## Second problem: Algorithmic Life Equation parameters
+
+```bash
+PYTHONPATH=src python -m kgirl.evolve life -g 20
+```
+
+The genome is eight parameters of `kgirl.life`: a, b, η_C, η_V, η_M, λ, ρ and δF. Each decoded genome must pass
+`LifeParams.check()`. The protocol runs a 4-channel world at a lean inflow Ē = 0.12, with a distribution shift
+halfway through.
+- **Fitness:** mean C_eff, halved if organization ever falls below O_min after the shift.
+- **Behaviour grid:** ‖M‖ × adaptation steps. This turns the manuscript's compression trade-off into a map.
+
+In 12 generations: 32 % coverage, every elite survived, and the champion's mean C_eff was 0.245 against 0.152
+for the published defaults. See `docs/life/README.md`.
+
 ## Using it from Claude Code
 
 - The MCP tool `evolve_assay_design` runs the same search.

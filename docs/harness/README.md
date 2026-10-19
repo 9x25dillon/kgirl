@@ -10,6 +10,7 @@ not hold their text. It combines four subsystems:
 | **Soup** | shared, task-adaptive memory pool | `recall(q, budget)` (just-in-time), `credit(ids, ok)`, `Curator.propose/step` (staged RSI) |
 | **Hermes** | messenger: bus + router | every cross-layer call is an `Envelope` on a topic; roles → model fallback chains |
 | **Jev** | Mr. Meeseeks agents | one goal, tiny context, one-line decisions over a numbered table; run as sacrificial swarms |
+| **Metabolism** | the harness as an organism (`kgirl.life`) | one life step per verb from bus events; `plan()` sizes and staggers swarms, `forgetting(γ)` sets Soup's decay, `vitals()` |
 
 The core is standard-library only (Python ≥ 3.10, SQLite FTS5). The optional extras are
 `anthropic` (Claude), a running Ollama (local models), and `playwright` (browser Jev).
@@ -40,21 +41,24 @@ python -m kgirl.harness task "make tests/test_x.py pass" --repo . \
        --verify "python -m pytest -q tests/test_x.py" -n 3        # Jev swarm; add --apply to write the diff
 python -m kgirl.harness report -o docs/harness/ATLAS_REPORT.md
 python -m kgirl.harness route                                    # which backend serves which role
+python -m kgirl.harness vitals                                   # the metabolism: reserve, coherence, next swarm plan
 python -m kgirl.harness soup stats | soup recall "…" | soup ledger | soup export-sft out.jsonl
 python -m kgirl.harness soup export-sft jev.jsonl --role jev     # or --role smith; see "Decision log" below
 ```
 
-State lives in `$KGIRL_HOME` (default `~/.kgirl`): `atlas.db`, `soup.db`, `trace.jsonl`, and
-`repos/` (a shallow-clone cache).
+State lives in `$KGIRL_HOME` (default `~/.kgirl`): `atlas.db`, `soup.db`, `trace.jsonl`, `life.json`
+(the metabolism), and `repos/` (a shallow-clone cache).
+
+`task` without `-n` lets the metabolism choose the swarm size and launch stagger (below); `-n` overrides it.
 
 ### Inside Claude Code (MCP)
 
 `.mcp.json` at the repo root registers the harness as the `kgirl` MCP server. Claude Code
 then gets these tools: `atlas_search`, `atlas_outline`, `atlas_source`, `atlas_blast_radius`,
 `atlas_coupling`, `atlas_card`, `soup_recall`, `soup_remember`, `kgirl_ask`,
-`jev_swarm_task`, `skills_forge`, `evolve_assay_design`, and the assay tools `ecl_quantify`,
-`ecl_protocol` and `ecl_gap`
-(see `docs/nihiline/README.md`). Run `index` once, before first use.
+`jev_swarm_task`, `skills_forge`, `evolve_assay_design`, the assay tools `ecl_quantify`,
+`ecl_protocol` and `ecl_gap` (see `docs/nihiline/README.md`), and the life tools `life_vitals` (read-only) and
+`life_experiment` (pure computation; see `docs/life/README.md`). Run `index` once, before first use.
 
 Four tools change state, so the MCP server holds them to what the user allows, not what the model asks:
 
@@ -182,6 +186,26 @@ The regularizers are:
   credit assignment. `--apply` writes the diff only to files unchanged since the copy was taken,
   and reports conflicts otherwise.
 
+### Metabolism — the life equation over the harness *(mechanics Level 0; benefit Level 2)*
+
+`metabolism.py` subscribes to `*` on the bus and runs one step of `kgirl.life.core.step` per verb. Each step takes:
+- the observation I = (success, latency, cost, errors)
+- an inflow of one budget (`KGIRL_LIFE_BUDGET` tokens, default 20000)
+- the tokens actually spent, as measured work
+
+F is then a token reserve that leaks at δF. ε is the surprise of the harness's own world model at each outcome.
+
+| control | formula | consumer |
+|---|---|---|
+| swarm size | N* = ⌈ln(c/(pV))/ln(1 − p)⌉ with p the decayed Beta posterior of agent outcomes (cancelled agents censored) and V/c = `KGIRL_LIFE_VALUE` (10); capped by the affordable sizes N_reach(F, O, C) and `KGIRL_LIFE_MAX_SWARM` (6). With no history this is 3, the old default. | `Assistant.task` when no size is given |
+| launch stagger | Δ* = argmin E[cost] + w·E[latency] for the measured agent run time (exact expectations); w = `KGIRL_LIFE_LATENCY` (2). Agent k waits kΔ; a verified win before then means it never spawns. | `SwarmConfig.stagger_s`, `SwarmResult.unspawned` |
+| forgetting | γ_eff = γ^(1 + Var ε/0.05), capped at γ⁴ (variable forgetting factor) | `Curator(gamma_fn=…)` |
+
+`life.json` is written atomically after every episode. A corrupt or incompatible file restarts the organism, and
+its first step counts as a discontinuity. Each plan is a `life.plan` envelope in the trace. `KGIRL_LIFE=0`
+removes the metabolism and restores the previous behaviour exactly. The derivations, the measured findings and
+the open questions are in `docs/life/README.md`.
+
 ## Intuition (System 1) and the skill forge
 
 **Intuition.** Accepted runs are stored with their *routine*: the ordered list of
@@ -228,6 +252,8 @@ The tests cover:
 - Jev: decision contract, exactly-once edits, sandbox escape, a full open→edit→run→done fix,
   swarm accept/apply/learn/promote, rejection of unverified runs, apply conflicts
 - MCP: handshake, tool calls and errors, a real stdio round trip
+- Metabolism: one bus episode = one life step, persistence and corrupt-state recovery, plans that follow the
+  success rate and the reserve, adaptive forgetting, staggered swarms that skip spawns, `KGIRL_LIFE=0`
 - Browser Jev: a real Chromium form fill, skipped when Playwright is absent
 
 ## Failure modes and mitigations
@@ -244,6 +270,8 @@ The tests cover:
 | model-chosen apply target | diff written into an unrelated directory | `KGIRL_MCP_APPLY=1` and an indexed repo root required |
 | model-chosen swarm goal persists | the goal text returns via recall, intuition, forged `SKILL.md` or fine-tuning data | MCP-started runs learn `staged` under source `mcp`; every consumer reads only `active` trajectories |
 | Claude unreachable / no key | no prose answers | falls back to the local model, then to an extractive context pack |
+| `life.json` corrupt, or written by two processes at once | lost or reset metabolism state | atomic replace; a corrupt file restarts the organism with a recorded discontinuity; `KGIRL_LIFE=0` |
+| swarm plan from a stale success rate | too many or too few agents | the Beta evidence decays (γ = 0.97 per task); an explicit `-n`/`size` always wins |
 
 ## Evidence vs speculation
 

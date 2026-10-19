@@ -58,9 +58,31 @@ vessel package uses them to find families of vessels and to measure the fractal 
 voice. Individuation makes that voice markedly multifractal (Δα 0.19 → 0.50–0.66).
 **[→ resonance guide](docs/resonance/README.md)** · triage of the original in `research/resonance/`
 
+## 🫀 life: the Algorithmic Life Equation, verified and running the harness
+
+`src/kgirl/life/` rebuilds *The Thermodynamics of Being* and the *Minimal Algorithmic Life Equation* as one pure
+discrete map with checked invariants: the energy ledger closes, entropy production is ≥ 0, and states stay in
+their domains. It also provides closed-form steady states, a critical inflow E_crit that predicts the simulated
+collapse, an ODE counterpart, and the manuscript's five experimental axes.
+
+The uploaded reference had measured defects, and the rebuild removes them: the self-model died at step 49, the
+potential P was constant, the organization map was unstable, and learning continued with no free energy. Two
+errors in the mathematics are corrected: the coherence barrier is a constant, and half-cycle replica offsets
+make replica 3 redundant.
+
+`src/kgirl/harness/metabolism.py` runs the harness as an organism under the same map. It sizes and staggers Jev
+swarms with the replication criterion and sets Soup's forgetting rate (`KGIRL_LIFE=0` turns it off).
+
+```bash
+PYTHONPATH=src python -m kgirl.life stress        # also demo, steady, ablation, perturbation, compression, stagger, triage
+PYTHONPATH=src python -m kgirl.harness vitals     # the harness's own metabolism and next swarm plan
+```
+
+**[→ life guide, findings and evidence levels](docs/life/README.md)** · triage of the originals in `research/life/`
+
 ## 🧬 evolve: chaos-driven quality-diversity search · 🧠 Jev intuition · 🛠 skill forge
 
-- **`src/kgirl/evolve/`** runs MAP-Elites with logistic-chaos variation (no PRNG) and lineage-traced emergence. Its first problem evolves c-BPE-ECL assay designs inside the CN121933729A claim ranges: `PYTHONPATH=src python -m kgirl.evolve assay`. **[→ guide](docs/evolve/README.md)**
+- **`src/kgirl/evolve/`** runs MAP-Elites with logistic-chaos variation (no PRNG) and lineage-traced emergence. Its first problem evolves c-BPE-ECL assay designs inside the CN121933729A claim ranges: `PYTHONPATH=src python -m kgirl.evolve assay`. `evolve life` searches the life equation's parameters across compression × recovery. **[→ guide](docs/evolve/README.md)**
 - **Jev intuition:** accepted routines let repeat tasks run without model calls, falling back to the model on surprise.
 - **Skill forge:** verified routines become Claude Code skills (`python -m kgirl.harness skills forge --export .claude/skills`). Hand-written repo skills live in `.claude/skills/`.
 

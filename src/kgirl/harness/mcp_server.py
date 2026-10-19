@@ -87,7 +87,10 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
             if os.environ.get("KGIRL_MCP_APPLY") != "1" or Path(p["repo_path"]).resolve() not in roots:
                 raise PermissionError("apply over MCP needs KGIRL_MCP_APPLY=1 and repo_path set to an indexed repo root")
         # A model chose the goal: what the run teaches is staged under "mcp" for a person to promote (KFM-12).
-        res = a.task(p["goal"], p["repo_path"], cmd, size=int(p.get("size", 3)), apply=apply, origin="mcp")
+        size = int(p["size"]) if p.get("size") is not None else None      # None: the metabolism sizes it
+        if size is not None and not 1 <= size <= 8:
+            raise ValueError("size must be 1–8")
+        res = a.task(p["goal"], p["repo_path"], cmd, size=size, apply=apply, origin="mcp")
         return res.render()
 
     def ecl_quantify(p):
@@ -203,6 +206,25 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
             out["pll"] = track(x, fs, float(p["f0"]), bandwidth=float(p.get("bandwidth", min(2.0, float(p["f0"]) / 10)))).summary()
         return _json.dumps(out, indent=2, default=float)
 
+    def life_vitals(p):
+        import json as _json
+
+        from .metabolism import render
+        if a.metabolism is None:
+            return "the metabolism is off (KGIRL_LIFE=0)"
+        v = a.metabolism.vitals()
+        return _json.dumps(v, indent=2, default=float) if p.get("json") else render(v)
+
+    def life_experiment(p):
+        import json as _json
+
+        from ..life.__main__ import experiment
+        axis = str(p.get("axis", "steady"))
+        seeds = int(p.get("seeds", 2))
+        if not 1 <= seeds <= 5:
+            raise ValueError("seeds must be 1–5")
+        return _json.dumps(experiment(axis, seeds, energy=float(p.get("energy", 0.5))), indent=2, default=float)
+
     S = lambda props, req: {"type": "object", "properties": props, "required": req}  # noqa: E731
     s, i, n = {"type": "string"}, {"type": "integer"}, {"type": "number"}
     return {
@@ -235,10 +257,23 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
                                 "cycles": {"type": "integer", "minimum": 1, "maximum": 8}}, []), vessel_autopilot),
         "resonance_analyze": (S({"series": {"type": "array", "items": n}, "fs": n, "f0": n, "bandwidth": n,
                                  "dyadic": {"type": "boolean"}}, ["series"]), resonance_analyze),
+        "life_vitals": (S({"json": {"type": "boolean"}}, []), life_vitals),
+        "life_experiment": (S({"axis": {"type": "string", "enum": ["steady", "ablation", "stress", "perturbation",
+                                                                    "compression", "stagger", "triage"]},
+                               "seeds": {"type": "integer", "minimum": 1, "maximum": 5}, "energy": n}, []),
+                            life_experiment),
     }
 
 
 _DESCRIPTIONS = {
+    "life_vitals": "The harness as an organism under the Algorithmic Life Equation (kgirl.life): free-energy "
+                   "reserve in token budgets, organization, coherence window, self-model strength, reachable "
+                   "potential, C_eff, surprise of its own world model, the swarm plan it would use next "
+                   "(replication criterion, stagger), Soup's adaptive forgetting and the rigidity verdict. Read-only.",
+    "life_experiment": "Run one experiment on the reference life model, in memory: steady (closed-form fixed point "
+                       "and critical inflow at energy E), ablation, stress, perturbation, compression (the "
+                       "manuscript's axes, 1–5 seeds), stagger (replica schedules) or triage (the uploaded "
+                       "reference simulator's measured defects; needs numpy). Pure computation, a few seconds.",
     "vessel_autopilot": "Run a vessel unattended for N cycles while a world pushes it off its identity, at a chosen "
                         "recursive-self-improvement level (rsi 0 observe, 1 steer, 2 learn under the anchor, "
                         "3 consolidate, 4 self-tune its own steering controller with fidelity-gated sandbox trials). "
@@ -284,7 +319,8 @@ _DESCRIPTIONS = {
     "soup_recall": "Just-in-time recall from the shared memory pool within a token budget.",
     "soup_remember": "Stage a fact/preference/note for the shared memory pool; a person promotes it before recall.",
     "kgirl_ask": "Answer a question about the user's repos from a cited, token-bounded context pack.",
-    "jev_swarm_task": "Run a swarm of sandboxed Jev agents on a coding goal; returns the verified diff. verify must be "
+    "jev_swarm_task": "Run a swarm of sandboxed Jev agents on a coding goal; returns the verified diff. Without size, "
+                      "the harness metabolism sizes and staggers the swarm (see life_vitals). verify must be "
                       "one of the user's KGIRL_VERIFY_ALLOWLIST commands; apply needs KGIRL_MCP_APPLY=1 and an indexed "
                       "repo root. The run's trajectory and rules are staged until a person promotes them. Requires "
                       "local Ollama models.",

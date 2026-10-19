@@ -186,3 +186,25 @@ with a triage table in `research/resonance/README.md`.
 (fidelity gate, experience replay, watchdog, breaker from RSI 1, fresh steering moments) each came from a
 measured failure, recorded in `docs/vessel/AUTOPILOT.md`. `SteerConfig.fresh_optimizer` and
 `reset_optimizer()` are additive, and their defaults leave every earlier number unchanged.
+
+## 11. Addendum (2026-10-19): `kgirl.life` and the harness metabolism
+
+The user's *Thermodynamics of Being*, *Minimal Algorithmic Life Equation* (tex/pdf), its mathematical appendix
+and `life_simulator.py` are kept verbatim in `research/life/originals/`, with a triage table in
+`research/life/README.md`.
+- `src/kgirl/life/` (standard library only) holds the pure map, closed forms and E_crit, the ODE with a
+  corrected barrier, replica availability and swarm sizing, and the five experimental axes.
+  `python -m kgirl.life …` runs them.
+- `src/kgirl/harness/metabolism.py` runs the harness as an organism. It sizes and staggers swarms when no size
+  is given, and sets Soup's forgetting factor. It adds the CLI command `vitals` and the MCP tools `life_vitals`
+  and `life_experiment`. Everything it changes is gated by `KGIRL_LIFE` (default on; 0 restores the old
+  behaviour).
+- Harness changes are additive:
+  - `SwarmConfig.stagger_s` (default 0), `SwarmResult.unspawned`, `elapsed` in `jev.done`
+  - `Curator(gamma_fn=…)`, `CurationReport.gamma`
+  - `task -n` defaults to the metabolism
+  - blast and architecture answers now publish `assistant.answer` with backend `atlas`
+- `kgirl.evolve life` adds a MAP-Elites problem.
+- 46 new tests. Findings and open questions are in `docs/life/README.md`. R and C have no causal role in these
+  equations yet; that is open question 1.
+
