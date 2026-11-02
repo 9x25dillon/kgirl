@@ -1,6 +1,7 @@
 """Decision log on trajectories and the role-specific SFT exporters (soup export-sft --role)."""
 import contextlib
 import io
+import itertools
 import json
 import tempfile
 import unittest
@@ -130,6 +131,54 @@ class DecisionLogTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(main(["--home", str(home), "soup", "export-sft", str(out)]), 0)
         self.assertEqual(set(json.loads(out.read_text().splitlines()[0])), {"instruction", "context", "output", "meta"})
+
+
+class ExportFilterTests(unittest.TestCase):
+    """Every combination of each filter's flags, on records complete enough to export.
+
+    The records carry every key a row needs (notably `smith_system`), so a step can only stay out because the
+    filter rejected it. A KeyError guard around a broken filter does not pass here.
+    """
+
+    def exported(self, role, **fields):
+        rec = {"goal": "g", "files": [], "diff": "d", "system": "s", "smith_system": "ss",
+               "decisions": [], "smith": [], **fields}
+        with tempfile.TemporaryDirectory() as tmp:          # a fresh store per case, so no case sees another's record
+            soup = Soup(Path(tmp) / "soup.db")
+            try:
+                soup.add("run", kind="trajectory", source="cli", data=json.dumps(rec))
+                return list(sft.rows(soup, role))
+            finally:
+                soup.close()
+
+    def test_smith_exports_only_applied_untruncated_replies(self):
+        for applied, truncated, reply_truncated in itertools.product((True, False), repeat=3):
+            flags = {"applied": applied, "truncated": truncated, "reply_truncated": reply_truncated}
+            with self.subTest(**flags):
+                call = {"prompt": "p", "reply": "r", "step": 1, "path": "a.py", **flags}
+                rows = self.exported("smith", smith=[call])
+                if applied and not truncated and not reply_truncated:
+                    (row,) = rows
+                    self.assertEqual((row["system"], row["prompt"], row["completion"]), ("ss", "p", "r"))
+                else:
+                    self.assertEqual(rows, [])
+
+    def test_jev_exports_only_valid_successful_untruncated_decisions(self):
+        for valid, ok, truncated, decision in itertools.product((True, False), (True, False), (True, False),
+                                                                ("OPEN 1", "")):
+            flags = {"valid": valid, "ok": ok, "truncated": truncated, "decision": decision}
+            with self.subTest(**flags):
+                step = {"n": 1, "op": "OPEN", "prompt": "p", **flags}
+                rows = self.exported("jev", decisions=[step])
+                if valid and ok and not truncated and decision:
+                    (row,) = rows
+                    self.assertEqual((row["system"], row["prompt"], row["completion"]), ("s", "p", "OPEN 1"))
+                else:
+                    self.assertEqual(rows, [])
+
+    def test_diff_exports_only_records_with_a_diff(self):
+        self.assertEqual(len(self.exported("diff")), 1)
+        self.assertEqual(self.exported("diff", diff=""), [])
 
 
 if __name__ == "__main__":
