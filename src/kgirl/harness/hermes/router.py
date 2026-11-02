@@ -77,6 +77,8 @@ class Router:
         smith = OllamaBackend(smith_model)
         jev = OllamaBackend(jev_model, timeout=60.0)
         smith_chain: list[Backend] = [smith]
+        if os.environ.get("KGIRL_LOCAL_ONLY") == "1":  # no cloud model in any chain, see docs/PRIVACY.md
+            return cls({SCOUT: [smith], SMITH: smith_chain, JEV: [jev, smith]})
         if os.environ.get("KGIRL_ALLOW_CLOUD_CODE") == "1":
             smith_chain.append(AnthropicBackend(os.environ.get("KGIRL_CLOUD_CODE_MODEL", "claude-opus-5")))
         return cls({SCOUT: [scout, smith], SMITH: smith_chain, JEV: [jev, smith]})

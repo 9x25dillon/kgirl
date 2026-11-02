@@ -6,6 +6,8 @@
                       a block applies only if its SEARCH text occurs exactly once
     BLAST i           who depends on this file (Atlas graph, cross-repo)
     RUN               run the verifier command fixed by the caller (never model-chosen)
+                      (it also runs by itself: once at the start to reproduce the failure,
+                      and after each applied edit, so a fix ends the run even if unclaimed)
     DONE :: summary   claim success (the swarm re-verifies independently)
     BLOCKED :: why    give up
 
@@ -46,6 +48,77 @@ Smith = Callable[[str, str, str, str], str]
 Blast = Callable[[str], str]
 
 _BLOCK = re.compile(r"<<<<<<< ?SEARCH\n(.*?)\n?=======\n(.*?)\n?>>>>>>> ?REPLACE", re.S)
+_THINK = re.compile(r"<think>.*?</think>", re.S)
+_FENCE = re.compile(r"```[^\n]*\n(.*?)\n?```", re.S)
+MIN_REWRITE_SHARED = 2                # non-blank region lines a fenced rewrite must repeat to count as one
+MIN_REWRITE_OVERLAP = 0.5             # share of the replaced span's non-blank lines it must keep
+_TRACE = re.compile(r'File "([^"]+)", line (\d+)')
+_TEST_PATH = re.compile(r"(^|/)(tests?/|test_[^/]*$|[^/]*_test\.[^/]*$)")
+BRIEFING_CHARS = 1200                 # tail of the verifier's output kept for the agent and the smith
+MAX_SITES = 4                         # traceback locations promoted to the top of the table
+MAX_SITE_SPAN = 40                    # lines of a large enclosing symbol kept around a traceback location
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
+def _loose_replace(text: str, search: str, replace: str) -> str | None:
+    """Apply a block whose SEARCH differs from the file only in indentation, if those lines occur exactly once."""
+    wanted = search.strip("\n").split("\n")
+    stripped = [line.strip() for line in wanted]
+    lines = text.split("\n")
+    hits = [i for i in range(len(lines) - len(stripped) + 1)
+            if [line.strip() for line in lines[i:i + len(stripped)]] == stripped]
+    if len(hits) != 1 or not any(stripped):
+        return None
+    start = hits[0]
+    shift = _indent(lines[start]) - _indent(wanted[0])
+    moved = [(" " * shift + line if shift > 0 else line[min(-shift, _indent(line)):]) if line.strip() else line
+             for line in replace.split("\n")]
+    return "\n".join(lines[:start] + moved + lines[start + len(stripped):])
+
+
+def _rewrite_block(new_lines: list[str], lines: list[str]) -> list[tuple[str, str]]:
+    """A fence that rewrites the region replaces the span it shares with it; lines it omits outside that span stay."""
+    matcher = difflib.SequenceMatcher(None, lines, new_lines, autojunk=False)
+    shared = [i for m in matcher.get_matching_blocks() for i in range(m.a, m.a + m.size) if lines[i].strip()]
+    if len(shared) < MIN_REWRITE_SHARED:
+        return []
+    span = lines[shared[0]:shared[-1] + 1]
+    if len(shared) < MIN_REWRITE_OVERLAP * sum(1 for line in span if line.strip()):
+        return []
+    return [("\n".join(span), "\n".join(new_lines))]
+
+
+def recover_blocks(reply: str, region: str) -> list[tuple[str, str]]:
+    """Read an edit from a reply small models commonly get nearly right.
+
+    Used only when no well-formed block exists. Everything it returns still has to
+    match the file exactly once and pass the verifier, so a wrong guess costs one step.
+    """
+    text = _THINK.sub("", reply or "").strip()
+    if "\n=======\n" in text or text.startswith("=======\n"):
+        before, after = ("\n" + text).split("\n=======\n", 1)
+        before = re.sub(r"^\s*<{3,}[^\n]*\n?", "", before.strip("\n"))
+        after = re.sub(r"\n?>{3,}[^\n]*\s*$", "", after)
+        fenced = _FENCE.findall(after)
+        return [(before, fenced[-1] if fenced else after)] if before.strip() else []
+    fences = _FENCE.findall(text)
+    if not fences:
+        return []
+    # A fenced definition replaces the same definition in the region, found by its first line.
+    new_lines = fences[-1].split("\n")
+    lines = region.split("\n")
+    if lines.count(new_lines[0]) != 1 or not new_lines[0].lstrip().startswith(("def ", "async def ", "class ")):
+        return _rewrite_block(new_lines, lines)
+    start = lines.index(new_lines[0])
+    end = start + 1
+    while end < len(lines) and (not lines[end].strip() or _indent(lines[end]) > _indent(lines[start])):
+        end += 1
+    while end > start + 1 and not lines[end - 1].strip():
+        end -= 1
+    return [("\n".join(lines[start:end]), fences[-1])]
 MAX_TABLE = 18
 
 
@@ -82,7 +155,9 @@ class CodeEnvironment:
         self.elements: list[Element] = []
         self.note = ""
         self.last_verify: tuple[int, str] | None = None
-        self._seed(seed_paths or [])
+        self.briefing = ""        # the verifier's current failure output, shown to the agent and the smith
+        self._last_failure = ""   # why the previous EDIT was refused
+        self._seed(seed_paths or [], self._reproduce())
 
     # ------------------------------------------------------------------ index
 
@@ -124,7 +199,8 @@ class CodeEnvironment:
             hit = len(words & s.terms)
             if hit:
                 bonus = 0.5 if s.kind in ("function", "method", "class") else 0.0
-                scored.append((hit + bonus - 0.001 * len(s.path), s))
+                penalty = 1.0 if self._protected(s.path) else 0.0
+                scored.append((hit + bonus - penalty - 0.001 * len(s.path), s))
         scored.sort(key=lambda x: (-x[0], x[1].path, x[1].line))
         return [s for _, s in scored[:limit]]
 
@@ -136,8 +212,39 @@ class CodeEnvironment:
         return Element("symbol", f"{span}  {clip(s.signature, 90)}" + (f" — {clip(s.doc, 60)}" if s.doc else ""),
                        {"path": s.path, "line": s.line, "end": s.end_line})
 
-    def _seed(self, seed_paths: list[str]) -> None:
-        els: list[Element] = []
+    def _protected(self, path: str) -> bool:
+        """With a verifier fixed by the caller, tests are the judge: they can be read but not edited."""
+        return bool(self.verify_cmd) and _TEST_PATH.search(path) is not None
+
+    def _reproduce(self) -> list[tuple[str, int]]:
+        """Run the verifier before anything else; return where its traceback points, innermost first, source first."""
+        if not self.verify_cmd:
+            return []
+        code, out = self.verify()
+        if code == 0:
+            return []
+        self.briefing = out[-BRIEFING_CHARS:]
+        sites: list[tuple[str, int]] = []
+        for path, line in reversed(_TRACE.findall(out)):
+            full = Path(path) if Path(path).is_absolute() else self.root / path
+            full = full.resolve()
+            if self.root in full.parents and full.is_file():
+                site = (full.relative_to(self.root).as_posix(), int(line))
+                if site not in sites:
+                    sites.append(site)
+        return sorted(sites, key=lambda s: self._protected(s[0]))[:MAX_SITES]
+
+    def _site_element(self, path: str, line: int) -> Element:
+        enclosing = [s for s in self._build_index() if s.path == path and s.kind != "file" and s.line <= line <= s.end_line]
+        best = min(enclosing, key=lambda s: s.end_line - s.line, default=None)
+        lo, hi = (best.line, best.end_line) if best else (line, line)
+        if hi - lo > MAX_SITE_SPAN:
+            lo, hi = max(lo, line - MAX_SITE_SPAN // 2), min(hi, line + MAX_SITE_SPAN // 2)
+        source = (self.root / path).read_text(encoding="utf-8", errors="replace").split("\n")[line - 1].strip()
+        return Element("symbol", f"{path}:{line}  in the failure: {clip(source, 90)}", {"path": path, "line": lo, "end": hi})
+
+    def _seed(self, seed_paths: list[str], sites: list[tuple[str, int]] | None = None) -> None:
+        els: list[Element] = [self._site_element(path, line) for path, line in sites or []]
         for p in seed_paths:
             if (self.root / p).is_file():
                 els.append(Element("file", f"{p}  (from memory)", {"path": p, "line": 1, "end": 10**9}))
@@ -146,7 +253,8 @@ class CodeEnvironment:
             if all(e.ref != x.ref for x in els):
                 els.append(e)
         self.elements = els[:MAX_TABLE]
-        self.note = "start: table seeded from the goal" + (" and memory" if seed_paths else "")
+        self.note = "start: table seeded from " + ("the failure and " if sites else "") + "the goal" + \
+            (" and memory" if seed_paths else "")
 
     # ------------------------------------------------------------------ protocol
 
@@ -190,6 +298,18 @@ class CodeEnvironment:
         self.elements = [keep] + [self._element(s) for s in outline]
         return ActionResult(True, f"OPEN {path}:{lo}-{hi}\n{src}")
 
+    def _refuse_edit(self, why: str) -> ActionResult:
+        self._last_failure = why
+        return ActionResult(False, why)
+
+    def _smith_context(self) -> str:
+        parts = [self.memory_text] if self.memory_text else []
+        if self.briefing:
+            parts.append(f"VERIFIER OUTPUT:\n{self.briefing}")
+        if self._last_failure:
+            parts.append(f"YOUR LAST ATTEMPT FAILED: {self._last_failure}")
+        return "\n".join(parts)
+
     def _op_edit(self, d: Decision) -> ActionResult:
         if self.smith is None:
             return ActionResult(False, "EDIT unavailable: no code model configured")
@@ -197,35 +317,47 @@ class CodeEnvironment:
         path, line, end = el.ref["path"], el.ref["line"], el.ref["end"]
         full = self._safe(path)
         if full is None or not full.is_file():
-            return ActionResult(False, f"EDIT: {path} not found")
+            return self._refuse_edit(f"EDIT: {path} not found")
+        if self._protected(path):
+            return self._refuse_edit(f"EDIT: {path} is a test and tests judge the fix; edit the source code it exercises")
         text = full.read_text(encoding="utf-8")
         lines = text.split("\n")
         lo, hi = max(1, line - 5), min(len(lines), max(end, line) + 5)
         if hi - lo > 160:
             hi = lo + 160
         region = "\n".join(lines[lo - 1:hi])
-        reply = self.smith(self.goal, path, region, self.memory_text)
-        blocks = _BLOCK.findall(reply or "")
+        reply = self.smith(self.goal, path, region, self._smith_context())
+        blocks = _BLOCK.findall(reply or "") or recover_blocks(reply, region)
         if not blocks:
-            return ActionResult(False, "EDIT: model returned no SEARCH/REPLACE block")
+            return self._refuse_edit("EDIT: model returned no SEARCH/REPLACE block")
         new = text
         applied = 0
         for search, replace in blocks:
             if search.strip() == "":
-                return ActionResult(False, "EDIT: empty SEARCH block rejected")
+                return self._refuse_edit("EDIT: empty SEARCH block rejected")
             count = new.count(search)
-            if count != 1:
-                return ActionResult(False, f"EDIT: SEARCH text found {count}x in {path} (must be exactly 1); "
-                                           "no change applied")
-            new = new.replace(search, replace, 1)
+            loose = _loose_replace(new, search, replace) if count == 0 else None
+            if count != 1 and loose is None:
+                return self._refuse_edit(f"EDIT: SEARCH text found {count}x in {path} (must be exactly 1); "
+                                         "no change applied")
+            new = loose if loose is not None else new.replace(search, replace, 1)
             applied += 1
         if new == text:
-            return ActionResult(False, "EDIT: blocks produced no change")
+            return self._refuse_edit("EDIT: blocks produced no change")
         self._originals.setdefault(path, text)
         full.write_text(new, encoding="utf-8")
         self._index = None  # re-parse lazily: line numbers moved
         diff = "".join(difflib.unified_diff(text.splitlines(True), new.splitlines(True), f"a/{path}", f"b/{path}", n=1))
-        return ActionResult(True, f"EDIT applied {applied} block(s) to {path}\n{clip(diff, 1200)}")
+        self._last_failure = ""
+        note = f"EDIT applied {applied} block(s) to {path}\n{clip(diff, 1200)}"
+        if not self.verify_cmd:
+            return ActionResult(True, note)
+        code, out = self.verify()
+        if code == 0:
+            self.briefing = ""
+            return ActionResult(True, f"{note}\nRUN exit=0: the verifier passes", terminal=True, success_claimed=True)
+        self.briefing = out[-BRIEFING_CHARS:]
+        return ActionResult(True, f"{note}\nRUN exit={code}: the verifier still fails")
 
     def _op_blast(self, d: Decision) -> ActionResult:
         path = self.elements[d.target].ref["path"]

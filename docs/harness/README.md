@@ -286,3 +286,22 @@ The tests cover:
   `trace.jsonl` (steps, tokens, verified).
 - **Next experiment:** 20 seeded bug-fix tasks from kgirl's history. Run with memory off, then
   on. Compare success@N and median tokens, and use a paired sign test to check for significance.
+
+## QINCRS integration (opt-in)
+
+**Soup promotion validator** — `kgirl.harness.soup.QincrsValidator`, passed to `Curator(validator=...)`
+or enabled with `KGIRL_QINCRS_GATE=1` and `KGIRL_QINCRS_PATH=/path/to/QiNCrs.py`.
+It runs QINCRS's `CollapseIntegrityAuditor` on each staged fragment that already passed the
+support and LCB gates: original kappa = utility, reconstructed kappa = the confidence bound at a
+per-band z (0 … −2). Thin evidence shows up as large shortfall/drift and keeps the fragment staged.
+Thresholds (`max_shortfall` 0.20, `max_drift` 0.15) are this harness's; `audit_pass` is logged, not
+used (its signed sum can cancel). **Fail-open** if the engine is missing (`strict=True` inverts).
+Level 2: the mapping is a heuristic; measure with `soup stats`.
+
+**Atlas instances** — `python -m kgirl.harness qincrs FILE...` registers each distinct QINCRS file
+(grouped by content hash) as repo `qincrs-<sha8>`. Only named files are copied; no directory is
+walked; paths containing `numbskull` are refused.
+
+**Isolation from numbskull** — the engine loads under the private module name
+`_kgirl_qincrs_engine`; nothing imports, patches or shadows numbskull's coherence scorer or inference
+injection, and the validator only returns a boolean.

@@ -63,8 +63,8 @@ class IntuitionTests(unittest.TestCase):
             env = CodeEnvironment(repo, GOAL, smith=lambda *a: fix, verify_cmd=VERIFY)
             t = Jev(env, decide, config=JevConfig(max_steps=6), intuition=Intuition([self.routine(first="calc.py def mean(xs)")])).run(GOAL)
             self.assertEqual(t.outcome, "done")
-            self.assertEqual((t.llm_calls, t.intuition_steps, len(calls)), (0, 4, 0))
-            self.assertEqual([s.source for s in t.steps], ["intuition"] * 4)
+            self.assertEqual((t.llm_calls, t.intuition_steps, len(calls)), (0, 2, 0))
+            self.assertEqual([s.source for s in t.steps], ["intuition"] * 2)
             # a misleading routine: EDIT with a smith that cannot apply → surprise → System 2 finishes
             write(Path(d) / "calc", BUGGY_REPO)
             env = CodeEnvironment(repo, GOAL, smith=lambda *a: "no blocks here", verify_cmd=VERIFY)
@@ -95,13 +95,13 @@ class SwarmLearningTests(unittest.TestCase):
                 self.assertLess(per_run[1], per_run[0])
                 self.assertTrue(any(t.intuition_steps for t in res.trajectories))
                 rec = json.loads(soup.all(kind="trajectory")[0].data)
-                self.assertEqual([s["op"] for s in rec["steps"]], ["OPEN", "EDIT", "RUN", "DONE"])
+                self.assertEqual([s["op"] for s in rec["steps"]], ["OPEN", "EDIT"])
 
                 skills = forge(soup, min_support=2)
                 self.assertEqual(len(skills), 1)
                 sk = skills[0]
                 self.assertIn("calc", sk.name)
-                self.assertEqual(sk.shape(), "OPEN(calc.py def mean(xs)) → EDIT(calc.py def mean(xs)) → RUN → DONE")
+                self.assertEqual(sk.shape(), "OPEN(calc.py def mean(xs)) → EDIT(calc.py def mean(xs))")
                 self.assertTrue(soup.all(kind="skill"))
                 out = export(skills, base / "skills")
                 text = out[0].read_text()

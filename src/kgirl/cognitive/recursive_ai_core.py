@@ -259,4 +259,5 @@ async def reset_processor():
     return {"status": "reset_complete"}
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import os
+    uvicorn.run(app, host=os.getenv("KGIRL_BIND_HOST", "127.0.0.1"), port=8000)

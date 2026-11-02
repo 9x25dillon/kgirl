@@ -21,6 +21,7 @@ Author: Assistant
 License: MIT
 """
 
+import os
 import sys
 from pathlib import Path
 from kgirl.paths import find_repo
@@ -517,13 +518,14 @@ if __name__ == "__main__":
     print("INTEGRATED API SERVER")
     print("LiMp + Numbskull + LFM2-8B-A1B")
     print("=" * 70)
-    print("\nStarting server on http://0.0.0.0:8888")
-    print("\nAPI Documentation: http://0.0.0.0:8888/docs")
+    bind_host = os.getenv("KGIRL_BIND_HOST", "127.0.0.1")
+    print(f"\nStarting server on http://{bind_host}:8888")
+    print(f"\nAPI Documentation: http://{bind_host}:8888/docs")
     print("=" * 70 + "\n")
     
     uvicorn.run(
         app,
-        host="0.0.0.0",
+        host=bind_host,
         port=8888,
         log_level="info"
     )

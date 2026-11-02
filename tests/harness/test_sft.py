@@ -50,13 +50,13 @@ class DecisionLogTests(unittest.TestCase):
         self.assertEqual(rec["system_sha1"], sha1(w.system))
         self.assertTrue(rec["system"].startswith(SYSTEM.split("{grammar}")[0]))
         decs = rec["decisions"]
-        self.assertEqual([d["op"] for d in decs], ["OPEN", "EDIT", "RUN", "DONE"])   # good_decider's path
+        self.assertEqual([d["op"] for d in decs], ["OPEN", "EDIT"])   # good_decider's path
         self.assertEqual(len(decs), w.llm_calls)
         for d in decs:
             self.assertTrue(d["prompt"].startswith(f"GOAL: {GOAL}"))
             self.assertTrue(d["prompt"].rstrip().endswith("Your one-line decision:"))
             self.assertTrue(d["valid"] and d["ok"] and not d["truncated"])
-        self.assertIn("EDIT applied", decs[2]["prompt"])          # the prompt after the edit shows its result
+        self.assertIn("OPEN calc.py", decs[1]["prompt"])          # the prompt after a step shows its result
         (call,) = rec["smith"]
         self.assertEqual((call["step"], call["applied"], call["reply"]), (decs[1]["n"], True, FIX))
         self.assertEqual(call["temperature"], 0.1)
@@ -80,7 +80,7 @@ class DecisionLogTests(unittest.TestCase):
         self.assertEqual(set(diff[0]), {"instruction", "context", "output", "meta"})   # kgirl.tauls reads this
         self.assertEqual(diff[0]["output"], rec["diff"])
         jev = list(sft.rows(self.soup, "jev"))
-        self.assertEqual([r["completion"].split()[0] for r in jev], ["OPEN", "EDIT", "RUN", "DONE"])
+        self.assertEqual([r["completion"].split()[0] for r in jev], ["OPEN", "EDIT"])
         for r in jev:
             self.assertEqual(r["system"], rec["system"])
             self.assertEqual(r["meta"]["fragment"], frag.id)
@@ -98,7 +98,7 @@ class DecisionLogTests(unittest.TestCase):
         for role in sft.ROLES:
             self.assertEqual(list(sft.rows(self.soup, role)), [], role)
         self.soup.set_status(frag.id, "active", "promoted by user")
-        self.assertEqual([len(list(sft.rows(self.soup, r))) for r in sft.ROLES], [1, 4, 1])
+        self.assertEqual([len(list(sft.rows(self.soup, r))) for r in sft.ROLES], [1, 2, 1])
 
     def test_truncated_prompts_and_old_records_are_skipped(self):
         long_goal = "x" * (PROMPT_CAP + 10)
@@ -125,8 +125,8 @@ class DecisionLogTests(unittest.TestCase):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             self.assertEqual(main(["--home", str(home), "soup", "export-sft", str(out), "--role", "jev"]), 0)
-        self.assertIn("wrote 4 jev examples", buf.getvalue())
-        self.assertEqual(len(out.read_text().splitlines()), 4)
+        self.assertIn("wrote 2 jev examples", buf.getvalue())
+        self.assertEqual(len(out.read_text().splitlines()), 2)
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(main(["--home", str(home), "soup", "export-sft", str(out)]), 0)
         self.assertEqual(set(json.loads(out.read_text().splitlines()[0])), {"instruction", "context", "output", "meta"})

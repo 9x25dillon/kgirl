@@ -27,6 +27,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("sources", nargs="+")
     p.add_argument("--refresh", action="store_true", help="re-fetch cached clones")
     sub.add_parser("repos", help="list indexed repos")
+    p = sub.add_parser("qincrs", help="register distinct QINCRS files as Atlas instances (never touches numbskull)")
+    p.add_argument("files", nargs="+")
     p = sub.add_parser("search", help="symbol search across repos")
     p.add_argument("query")
     p.add_argument("--repo")
@@ -104,6 +106,14 @@ def _run(a: Assistant, args) -> int:
         for st in a.index(args.sources, refresh=args.refresh):
             print(f"{st.repo:<40} files={st.scanned:<5} changed={st.changed:<5} removed={st.removed:<4} "
                   f"symbols+={st.symbols}")
+        for spec, err in a.index_failures:
+            print(f"FAILED {spec}: {err}", file=sys.stderr)
+        if a.index_failures:
+            return 1
+    elif cmd == "qincrs":
+        from .atlas.instances import register_qincrs
+        for inst in register_qincrs(a.atlas, args.files):
+            print(f"{inst.repo:<18} {inst.filename}  ({len(inst.paths)} cop{'y' if len(inst.paths) == 1 else 'ies'})")
     elif cmd == "repos":
         for r in a.atlas.repos():
             print(f"{r['name']:<40} files={r['nfiles']:<5} symbols={r['nsymbols']:<6} {r['root']}")
