@@ -157,6 +157,7 @@ class CodeEnvironment:
         self.last_verify: tuple[int, str] | None = None
         self.briefing = ""        # the verifier's current failure output, shown to the agent and the smith
         self._last_failure = ""   # why the previous EDIT was refused
+        self._edit_tried = False  # BLOCKED is refused under a fixed verifier until a source EDIT was attempted
         self._seed(seed_paths or [], self._reproduce())
 
     # ------------------------------------------------------------------ index
@@ -320,6 +321,7 @@ class CodeEnvironment:
             return self._refuse_edit(f"EDIT: {path} not found")
         if self._protected(path):
             return self._refuse_edit(f"EDIT: {path} is a test and tests judge the fix; edit the source code it exercises")
+        self._edit_tried = True
         text = full.read_text(encoding="utf-8")
         lines = text.split("\n")
         lo, hi = max(1, line - 5), min(len(lines), max(end, line) + 5)
@@ -375,6 +377,9 @@ class CodeEnvironment:
         return ActionResult(True, f"DONE: {d.arg}", terminal=True, success_claimed=True)
 
     def _op_blocked(self, d: Decision) -> ActionResult:
+        if self.verify_cmd and self.smith is not None and not self._edit_tried:
+            return ActionResult(False, "BLOCKED refused: no source edit attempted yet. Tests are read-only and the bug "
+                                       "is in source. SEARCH for it, OPEN it, or EDIT it.")
         return ActionResult(False, f"BLOCKED: {d.arg}", terminal=True)
 
     # ------------------------------------------------------------------ helpers

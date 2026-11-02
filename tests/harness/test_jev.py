@@ -115,6 +115,25 @@ class CodeEnvTests(unittest.TestCase):
         self.assertFalse(res.terminal)
         self.assertIn("still fails", res.note)
 
+    def test_blocked_is_refused_until_a_source_edit_was_attempted(self):
+        wrong = "<<<<<<< SEARCH\n    return sum(xs) / (len(xs) + 1)\n=======\n    return 0\n>>>>>>> REPLACE"
+        env = CodeEnvironment(self.repo, "make test_calc pass", smith=lambda *a: wrong, verify_cmd=VERIFY)
+        blocked = parse_decision("BLOCKED :: the test is wrong", CODE_OPS, len(env.elements))
+        res = env.act(blocked)
+        self.assertFalse(res.terminal)
+        self.assertIn("BLOCKED refused", res.note)
+        test_idx = next(i for i, e in enumerate(env.elements) if e.ref.get("path") == "test_calc.py")
+        env.act(parse_decision(f"EDIT {test_idx}", CODE_OPS, len(env.elements)))
+        self.assertFalse(env.act(blocked).terminal, "a refused edit on a test doesn't open the gate")
+        idx = next(i for i, e in enumerate(env.elements) if e.ref.get("path") == "calc.py")
+        env.act(parse_decision(f"EDIT {idx}", CODE_OPS, len(env.elements)))
+        self.assertTrue(env.act(blocked).terminal)
+
+    def test_blocked_ends_the_run_without_a_verifier_or_a_code_model(self):
+        for kwargs in ({"smith": lambda *a: FIX}, {"verify_cmd": VERIFY}):
+            env = CodeEnvironment(self.repo, "make test_calc pass", **kwargs)
+            self.assertTrue(env.act(parse_decision("BLOCKED :: no way", CODE_OPS, len(env.elements))).terminal, kwargs)
+
     def test_failure_is_reproduced_first_and_points_at_the_source(self):
         (self.repo / "calc.py").write_text("def mean(xs):\n    raise ValueError('boom')\n")
         env = CodeEnvironment(self.repo, "make it work", verify_cmd=VERIFY)
@@ -196,7 +215,7 @@ class SwarmTests(unittest.TestCase):
         self.assertEqual(res.winner.variant["temperature"], 0.1)
         self.assertTrue(res.winner.verified)
         losers = {t.outcome for t in res.trajectories if t is not res.winner}
-        self.assertTrue(losers <= {"blocked", "invalid", "cancelled"}, losers)
+        self.assertTrue(losers <= {"blocked", "exhausted", "invalid", "cancelled"}, losers)  # BLOCKED is refused until an edit
         self.assertEqual(res.applied, ["calc.py"])
         self.assertIn("/ len(xs)", (self.repo / "calc.py").read_text())
         self.assertIn("swarm.end", self.events)
