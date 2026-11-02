@@ -94,9 +94,10 @@ function start_limps_server(port=8000)
     HTTP.register!(router, "POST", "/optimize", matrix_optimize_handler)  # Alternative endpoint
     
     # Start server
-    @info "LIMPS server listening on http://0.0.0.0:$port"
+    bind_host = get(ENV, "KGIRL_BIND_HOST", "127.0.0.1")
+    @info "LIMPS server listening on http://$bind_host:$port"
     @info "Endpoints: /health, /embed, /matrix/optimize, /optimize"
-    HTTP.serve(router, "0.0.0.0", port)
+    HTTP.serve(router, bind_host, port)
 end
 
 # Run if executed directly

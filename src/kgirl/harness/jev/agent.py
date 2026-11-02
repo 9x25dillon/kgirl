@@ -119,6 +119,9 @@ class Jev:
         parts = [f"GOAL: {goal}"]
         if self.memory_text:
             parts.append("MEMORY (lessons from earlier runs):\n" + self.memory_text)
+        briefing = getattr(self.env, "briefing", "")
+        if briefing:
+            parts.append("CURRENT FAILURE (verifier output):\n" + briefing)
         if recent:
             parts.append("RECENT:\n" + "\n---\n".join(recent))
         parts.append(f"STATE: {obs.header}")
@@ -193,7 +196,7 @@ class Jev:
                 recent.append(f"{d.raw} -> {clip(res.note, cfg.note_chars)}")
                 if res.terminal:
                     traj.outcome = "done" if res.success_claimed else "blocked"
-                    traj.summary = d.arg
+                    traj.summary = d.arg or clip(res.note, 200)
                     break
             else:
                 traj.outcome = "exhausted"

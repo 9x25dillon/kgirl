@@ -4,6 +4,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.harness._fixtures import SRC, make_repos
 
@@ -54,6 +55,42 @@ class AssistantTests(unittest.TestCase):
         ans = self.a.ask("how does Engine run work")
         self.assertEqual(ans.backend, "extractive")
         self.assertIn("Engine", ans.text)
+
+    def test_index_failure_keeps_other_sources_and_is_reported(self):
+        stats = self.a.index(["/no/such/path", str(self.lib)])
+        self.assertEqual([st.repo for st in stats], ["lib"])
+        self.assertEqual([spec for spec, _ in self.a.index_failures], ["/no/such/path"])
+
+    def test_failed_clone_leaves_nothing_a_retry_would_trust(self):
+        cache = Path(self.tmp.name) / "cache"
+        from kgirl.harness.atlas import sources
+        def checkout_fails(args, timeout):
+            (Path(args[-1]) / ".git").mkdir(parents=True)
+            raise RuntimeError("git clone --quiet --depth failed: smudge filter lfs failed")
+        with mock.patch.object(sources, "_git", checkout_fails):
+            stats = self.a.index(["https://example.invalid/o/broken.git", str(self.hub)], cache_dir=cache)
+        self.assertEqual([st.repo for st in stats], ["hub"])
+        self.assertIn("smudge", self.a.index_failures[0][1])
+        self.assertFalse((cache / "broken").exists())
+
+    def test_clone_skips_lfs_smudge(self):
+        repo = Path(self.tmp.name) / "lfsrepo"
+        repo.mkdir()
+        git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+        subprocess.run([*git, "init", "-q"], check=True)
+        (repo / ".gitattributes").write_text("*.bin filter=lfs\n")
+        (repo / "a.py").write_text("x = 1\n")
+        subprocess.run([*git, "add", "a.py", ".gitattributes"], check=True)
+        subprocess.run([*git, "commit", "-qm", "init"], check=True)
+        from kgirl.harness.atlas import sources
+        real_run = subprocess.run
+        seen = {}
+        def spy(cmd, **kw):
+            seen["env"] = kw.get("env")
+            return real_run(cmd, **kw)
+        with mock.patch.object(sources.subprocess, "run", spy):
+            sources.resolve_source(f"file://{repo}", cache_dir=Path(self.tmp.name) / "c2")
+        self.assertEqual(seen["env"]["GIT_LFS_SKIP_SMUDGE"], "1")
 
     def test_index_writes_repo_facts_and_report(self):
         facts = self.a.soup.all(kind="fact")

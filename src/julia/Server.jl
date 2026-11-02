@@ -113,7 +113,7 @@ function ws_handler(ws)
     end
 end
 
-function start(; host="0.0.0.0", http_port::Integer=8088, ws_port::Integer=8089)
+function start(; host=get(ENV, "KGIRL_BIND_HOST", "127.0.0.1"), http_port::Integer=8088, ws_port::Integer=8089)
     STATE[] = AppState(now(), 0, 0)
     @info "Starting Chaos Julia Server" host http_port ws_port
     @async HTTP.serve(route, host, http_port; verbose=false)

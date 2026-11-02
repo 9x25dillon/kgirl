@@ -15,7 +15,9 @@ forgetting rate. KGIRL_LIFE=0 removes it.
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -57,15 +59,25 @@ class Assistant:
                  trace: bool = True, life: bool | None = None):
         self.home = Path(home) if home else harness_home()
         self.home.mkdir(parents=True, exist_ok=True)
+        self.home.chmod(0o700)  # questions and code snippets live here, see docs/PRIVACY.md
         self.atlas = atlas or Atlas(self.home / "atlas.db")
         self.soup = soup or Soup(self.home / "soup.db")
+        validator = None
+        if os.environ.get("KGIRL_QINCRS_GATE") == "1":  # opt-in; fail-open, see soup/qincrs_gate.py
+            from .soup.qincrs_gate import QincrsValidator
+            validator = QincrsValidator()
         self.bus = bus or Bus(trace_path=self.home / "trace.jsonl" if trace else None)
         self.metabolism = Metabolism(self.home / "life.json") if (life_enabled() if life is None else life) else None
         if self.metabolism:
             self.metabolism.attach(self.bus)
-        self.curator = Curator(self.soup, gamma_fn=self.metabolism.forgetting if self.metabolism else None)
+        self.curator = Curator(self.soup, validator=validator,
+                               gamma_fn=self.metabolism.forgetting if self.metabolism else None)
         self.router = router or Router.from_env()
         self.swarm_config = swarm_config or SwarmConfig()
+        self.retriever = None
+        if os.environ.get("KGIRL_CHUNKS_DB"):  # opt-in; needs numpy, see atlas/retrieval.py
+            from .atlas.retrieval import Retriever
+            self.retriever = Retriever.from_env()
         self._register()
 
     def _register(self) -> None:
@@ -76,6 +88,8 @@ class Assistant:
         b.serve("atlas.card", lambda p: architecture_card(self.atlas, p["repo"]), "atlas")
         b.serve("soup.recall", lambda p: self.soup.recall(p["q"], p.get("budget", 400), scope=p.get("scope")),
                 "soup")
+        if self.retriever:
+            b.serve("atlas.chunks", lambda p: self.retriever.search(p["q"], p.get("limit", 8)), "atlas")
 
     # ------------------------------------------------------------------ model access
 
@@ -89,8 +103,15 @@ class Assistant:
 
     def index(self, specs: list[str], refresh: bool = False, cache_dir: Path | None = None) -> list[IngestStats]:
         stats = []
+        self.index_failures: list[tuple[str, str]] = []
         for spec in specs:
-            src = resolve_source(spec, cache_dir=cache_dir or self.home / "repos", refresh=refresh)
+            try:
+                src = resolve_source(spec, cache_dir=cache_dir or self.home / "repos", refresh=refresh)
+            except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
+                # One bad source shouldn't cost the rest of a long batch; the CLI reports these and exits 1.
+                self.index_failures.append((spec, str(e)))
+                self.bus.publish("atlas.index_failed", {"spec": spec, "error": str(e)}, "assistant")
+                continue
             st = self.atlas.ingest(src.root, src.name, src.origin)
             self.bus.publish("atlas.indexed", st.__dict__, "assistant")
             stats.append(st)
@@ -116,7 +137,17 @@ class Assistant:
         hits = self.bus.request("atlas.search", {"q": question, "limit": 14, "repo": repo}, "assistant")
         parts, cites, used = [], [], 0
         code_hits = [h for h in hits if h.kind != "section"]
-        for h in code_hits[:snippets]:
+        if self.retriever:
+            for c in self.bus.request("atlas.chunks", {"q": question}, "assistant"):
+                if repo and c.repo != repo:
+                    continue
+                block = f"### {c.cite()}  {c.symbol}\n{c.text}"
+                if used + estimate_tokens(block) > budget * 0.6:
+                    continue
+                parts.append(block)
+                cites.append(c.cite())
+                used += estimate_tokens(block)
+        for h in code_hits[:snippets] if not parts else []:
             try:
                 src = self.atlas.read_source(h.repo, h.path, max(1, h.line - 2), h.line + 28)
             except (FileNotFoundError, OSError):
@@ -229,5 +260,7 @@ class Assistant:
                 self.metabolism.save()
             except OSError:
                 pass
+        if self.retriever:
+            self.retriever.close()
         self.atlas.close()
         self.soup.close()

@@ -43,13 +43,18 @@ class InvalidDecision(ValueError):
 
 
 _LINE = re.compile(r"^\s*([A-Za-z_]+)(?:\s*\[?\s*(\d+)\s*\]?)?\s*(?:(?:::|:|-)\s*(.*))?\s*$")
+_BARE_ARG = re.compile(r"^\s*([A-Za-z_]+)\s+(.+?)\s*$")   # `SEARCH some words`, without the `::`
 
 
 def parse_decision(text: str, specs: dict[str, OpSpec], n_elements: int, max_arg: int = 160) -> Decision:
     line = next((ln.strip().strip("`*> ") for ln in (text or "").splitlines() if ln.strip().strip("`")), "")
     m = _LINE.match(line)
     if not m:
-        raise InvalidDecision(f"unparseable decision: {clip(line)!r}")
+        bare = _BARE_ARG.match(line)
+        spec = specs.get(bare.group(1).upper()) if bare else None
+        if spec is None or not spec.needs_arg or spec.needs_target:
+            raise InvalidDecision(f"unparseable decision: {clip(line)!r}")
+        return Decision(spec.name, None, bare.group(2).strip("\"'")[:max_arg], line)
     op = m.group(1).upper()
     if op not in specs:
         raise InvalidDecision(f"unknown op {op!r}; allowed: {', '.join(specs)}")

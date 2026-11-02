@@ -4,6 +4,8 @@ import re
 import sys
 import tempfile
 import unittest
+
+from kgirl.harness.jev.code_env import recover_blocks
 from pathlib import Path
 
 from tests.harness._fixtures import BUGGY_REPO, write
@@ -57,6 +59,14 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual((d.op, d.arg), ("SEARCH", "tokenizer padding"))
         self.assertEqual(parse_decision("RUN", CODE_OPS, 0).op, "RUN")
 
+    def test_parse_accepts_an_argument_without_the_separator(self):
+        d = parse_decision('SEARCH "pop index" out of range', CODE_OPS, 0)
+        self.assertEqual((d.op, d.arg), ("SEARCH", 'pop index" out of range'))
+        with self.assertRaises(InvalidDecision):
+            parse_decision("EDIT some words", CODE_OPS, 3)
+        with self.assertRaises(InvalidDecision):
+            parse_decision("REMOVE some words", CODE_OPS, 3)
+
     def test_parse_rejects_out_of_contract(self):
         for bad, n in [("OPEN 9", 3), ("OPEN", 3), ("rm -rf / 1", 3), ("DONE", 3), ("", 3), ("EXEC 1 :: ls", 3)]:
             with self.assertRaises(InvalidDecision, msg=bad):
@@ -86,9 +96,66 @@ class CodeEnvTests(unittest.TestCase):
                               verify_cmd=VERIFY)
         traj = Jev(env, good_decider, config=JevConfig(max_steps=6)).run(env.goal)
         self.assertEqual(traj.outcome, "done", [s.note[:80] for s in traj.steps])
-        self.assertEqual([s.op for s in traj.steps], ["OPEN", "EDIT", "RUN", "DONE"])
+        self.assertEqual([s.op for s in traj.steps], ["OPEN", "EDIT"])
         self.assertEqual(env.verify()[0], 0)
         self.assertIn("+    return sum(xs) / len(xs)", env.diff())
+
+    def test_a_fix_ends_the_run_even_if_the_model_never_claims_it(self):
+        env = CodeEnvironment(self.repo, "make test_calc pass", smith=lambda *a: FIX, verify_cmd=VERIFY)
+        idx = next(i for i, e in enumerate(env.elements) if e.ref.get("path") == "calc.py")
+        traj = Jev(env, lambda s, p: f"EDIT {idx}", config=JevConfig(max_steps=6)).run(env.goal)
+        self.assertEqual((traj.outcome, len(traj.steps)), ("done", 1))
+
+    def test_a_wrong_edit_reports_the_new_failure_and_the_run_continues(self):
+        wrong = "<<<<<<< SEARCH\n    return sum(xs) / (len(xs) + 1)\n=======\n    return 0\n>>>>>>> REPLACE"
+        env = CodeEnvironment(self.repo, "make test_calc pass", smith=lambda *a: wrong, verify_cmd=VERIFY)
+        idx = next(i for i, e in enumerate(env.elements) if e.ref.get("path") == "calc.py")
+        res = env.act(parse_decision(f"EDIT {idx}", CODE_OPS, len(env.elements)))
+        self.assertTrue(res.ok)
+        self.assertFalse(res.terminal)
+        self.assertIn("still fails", res.note)
+
+    def test_failure_is_reproduced_first_and_points_at_the_source(self):
+        (self.repo / "calc.py").write_text("def mean(xs):\n    raise ValueError('boom')\n")
+        env = CodeEnvironment(self.repo, "make it work", verify_cmd=VERIFY)
+        self.assertIn("boom", env.briefing)
+        self.assertTrue(env.elements[0].label.startswith("calc.py:2"), env.elements[0].label)
+        self.assertEqual(env.elements[0].ref["line"], 1)
+        prompt = Jev(env, lambda s, p: "RUN").prompt("make it work", [])
+        self.assertIn("CURRENT FAILURE", prompt)
+
+    def test_tests_are_read_only_when_a_verifier_judges(self):
+        seen = []
+        env = CodeEnvironment(self.repo, "make test_calc pass", smith=lambda *a: seen.append(a) or FIX, verify_cmd=VERIFY)
+        idx = next(i for i, e in enumerate(env.elements) if e.ref.get("path") == "test_calc.py")
+        res = env.act(parse_decision(f"EDIT {idx}", CODE_OPS, len(env.elements)))
+        self.assertFalse(res.ok)
+        self.assertIn("tests judge", res.note)
+        self.assertEqual(seen, [])
+
+    def test_the_smith_is_told_why_its_last_attempt_failed(self):
+        seen = []
+        bad = "<<<<<<< SEARCH\nnot in the file\n=======\nx\n>>>>>>> REPLACE"
+        env = CodeEnvironment(self.repo, "make test_calc pass", smith=lambda *a: seen.append(a[3]) or bad, verify_cmd=VERIFY)
+        idx = next(i for i, e in enumerate(env.elements) if e.ref.get("path") == "calc.py")
+        for _ in range(2):
+            env.act(parse_decision(f"EDIT {idx}", CODE_OPS, len(env.elements)))
+        self.assertIn("VERIFIER OUTPUT", seen[0])
+        self.assertNotIn("LAST ATTEMPT", seen[0])
+        self.assertIn("YOUR LAST ATTEMPT FAILED: EDIT: SEARCH text found 0x", seen[1])
+
+    def test_search_text_may_differ_in_indentation_only(self):
+        unindented = "<<<<<<< SEARCH\nreturn sum(xs) / (len(xs) + 1)\n=======\nreturn sum(xs) / len(xs)\n>>>>>>> REPLACE"
+        env = CodeEnvironment(self.repo, "make test_calc pass", smith=lambda *a: unindented, verify_cmd=VERIFY)
+        idx = next(i for i, e in enumerate(env.elements) if e.ref.get("path") == "calc.py")
+        self.assertTrue(env.act(parse_decision(f"EDIT {idx}", CODE_OPS, len(env.elements))).terminal)
+        self.assertIn("    return sum(xs) / len(xs)", (self.repo / "calc.py").read_text())
+
+    def test_loose_matching_refuses_an_ambiguous_search(self):
+        (self.repo / "dup.py").write_text("def a():\n    x = 1\ndef b():\n        x = 1\n")
+        env = CodeEnvironment(self.repo, "change x in dup", smith=lambda *a: "<<<<<<< SEARCH\nx = 1\n=======\nx = 2\n>>>>>>> REPLACE")
+        idx = next(i for i, e in enumerate(env.elements) if e.ref.get("path") == "dup.py")
+        self.assertFalse(env.act(parse_decision(f"EDIT {idx}", CODE_OPS, len(env.elements))).ok)
 
     def test_verifier_runs_without_secret_environment(self):
         os.environ["FAKE_SERVICE_API_KEY"] = "do-not-leak"
@@ -184,6 +251,44 @@ class SwarmTests(unittest.TestCase):
         self.assertEqual(res.conflicts, ["calc.py"])
         self.assertEqual((self.repo / "calc.py").read_text(), "# edited by the human meanwhile\n")
 
+
+
+class RecoverBlocksTests(unittest.TestCase):
+    REGION = ("import math\n\ndef mean(values):\n    \"\"\"Doc.\"\"\"\n    return sum(values) / (len(values) - 1)\n\n"
+              "def other():\n    return 1")
+    OLD = "def mean(values):\n    \"\"\"Doc.\"\"\"\n    return sum(values) / (len(values) - 1)"
+    NEW = "def mean(values):\n    \"\"\"Doc.\"\"\"\n    return sum(values) / len(values)"
+
+    def test_missing_markers(self):
+        self.assertEqual(recover_blocks(f"{self.OLD}\n=======\n{self.NEW}", self.REGION), [(self.OLD, self.NEW)])
+        self.assertEqual(recover_blocks(f"<<<<< SEARCH\n{self.OLD}\n=======\n{self.NEW}\n>>>>>>> REPLACE", self.REGION),
+                         [(self.OLD, self.NEW)])
+
+    def test_fenced_definition_replaces_only_that_definition(self):
+        reply = f"<think>hmm</think>Explanation.\n\n```python\n{self.NEW}\n```\nDone."
+        self.assertEqual(recover_blocks(reply, self.REGION), [(self.OLD, self.NEW)])
+
+    def test_fenced_rewrite_adds_to_the_region(self):
+        region = '"""Doc."""\n\nimport re\n\n\ndef a() -> int:\n    return 1\n'
+        new = 'import re\n\n\ndef a() -> int:\n    return 1\n\n\ndef b() -> int:\n    return 2'
+        blocks = recover_blocks(f"```python\n{new}\n```", region)
+        self.assertEqual(blocks, [("import re\n\n\ndef a() -> int:\n    return 1", new)])
+        self.assertEqual(region.replace(*blocks[0], 1), f'"""Doc."""\n\n{new}\n')
+
+    def test_fenced_rewrite_sharing_too_little_gives_nothing(self):
+        region = "import re\n\n\ndef a():\n    return 1\n\n\ndef b():\n    return 2\n\n\ndef c():\n    return 3"
+        self.assertEqual(recover_blocks("```python\nimport re\nx = 1\n```", region), [])
+        new = "import re\n" + "\n".join(f"y{i} = {i}" for i in range(6)) + "\n    return 3"
+        self.assertEqual(recover_blocks(f"```python\n{new}\n```", region), [])
+
+    def test_replacement_half_alone_gives_nothing(self):
+        self.assertEqual(recover_blocks(f"=======\n{self.NEW}\n>>>>>>> REPLACE", self.REGION), [])
+
+    def test_unrelated_fence_and_prose_give_nothing(self):
+        self.assertEqual(recover_blocks("```python\ndef unknown():\n    pass\n```", self.REGION), [])
+        self.assertEqual(recover_blocks("I would change the denominator.", self.REGION), [])
+        self.assertEqual(recover_blocks("", self.REGION), [])
+        self.assertEqual(recover_blocks(None, self.REGION), [])
 
 if __name__ == "__main__":
     unittest.main()
