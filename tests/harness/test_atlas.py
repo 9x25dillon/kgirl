@@ -18,6 +18,13 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(sig, "def f(self, x: int=1) -> str")
         self.assertIn("g", f.refs)
 
+    def test_return_annotations_survive_in_every_signature(self):
+        f = extract("m.py", "async def fetch(url) -> list[int]:\n    return []\n\n"
+                            "def plain() -> dict[str, int]:\n    return {}\n", "python")
+        sigs = {s.name: s.signature for s in f.symbols}
+        self.assertEqual(sigs["fetch"], "async def fetch(url) -> list[int]")
+        self.assertEqual(sigs["plain"], "def plain() -> dict[str, int]")
+
     def test_broken_python_falls_back_to_regex(self):
         f = extract("b.py", "def ok():\n    return 1\n\ndef bad(:\n", "python")
         self.assertTrue(f.parse_error)
@@ -94,6 +101,11 @@ class AtlasTests(unittest.TestCase):
         sym = blast_radius(self.atlas, "engine.py::Engine")
         self.assertEqual({(i.path, i.via) for i in sym.impacts if i.depth == 1}, {("app.py", "ref")})
         self.assertFalse(blast_radius(self.atlas, "Nope").seeds)
+
+    def test_blast_weight_halves_with_each_import_hop(self):
+        rep = blast_radius(self.atlas, "lib:engine.py")
+        w = {i.path: i.weight for i in rep.impacts if i.via == "import"}
+        self.assertEqual((w["app.py"], w["pkg/other.py"], w["pkg/rel.py"]), (1.0, 0.5, 0.333))
 
     def test_coupling_and_card(self):
         c = {x.repo: x for x in coupling(self.atlas, "hub")}["lib"]

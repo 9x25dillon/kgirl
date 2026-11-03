@@ -44,6 +44,13 @@ class MatrixTests(unittest.TestCase):
             bits, vals = m.encode_query(vecs[i])
             self.assertEqual(m.search(bits, vals, k=1)[0][0], ids[i])
 
+    def test_rejects_ids_outside_u32(self):
+        vecs = unit(np.random.default_rng(2), 2, 64)
+        for ids in ([-1, 5], [0, 0x1_0000_0000]):
+            with self.subTest(ids=ids), self.assertRaises(ValueError):
+                write_matrix(self.path, ids, vecs, "demo")
+        write_matrix(self.path, [0, 0xFFFFFFFF], vecs, "demo")
+
     def test_rejects_a_truncated_file_and_a_wrong_query_size(self):
         write_matrix(self.path, [1, 2], unit(np.random.default_rng(2), 2, 16), "demo")
         m = Matrix(self.path)
