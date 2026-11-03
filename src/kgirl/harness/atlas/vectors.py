@@ -4,12 +4,13 @@ Built on the desktop from a chunk index and copied to the router, where
 `router/kgvecd.c` serves the same file. `Matrix.search` ranks exactly as the
 daemon does, so either side can answer a query.
 
-    python -m kgirl.harness.atlas.vectors chunks.db chunks.kgvm
+    python -m kgirl.harness.atlas.vectors chunks.db chunks.kgvm --cache embed-cache.db
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sqlite3
@@ -140,9 +141,39 @@ def _batches(items: list, size: int) -> Iterable[list]:
         yield items[i:i + size]
 
 
+class EmbedCache:
+    """Document embeddings keyed by model and exact input, so a rebuild embeds only chunks whose text changed."""
+
+    def __init__(self, path: str | os.PathLike):
+        self.db = sqlite3.connect(str(path))
+        self.db.execute("CREATE TABLE IF NOT EXISTS embeddings (key TEXT PRIMARY KEY, dim INTEGER, vec BLOB)")
+
+    @staticmethod
+    def key(model: str, doc: str) -> str:
+        return hashlib.sha256(f"{model}\0{doc}".encode()).hexdigest()
+
+    def get(self, keys: Sequence[str]) -> dict[str, np.ndarray]:
+        found: dict[str, np.ndarray] = {}
+        for part in _batches(list(keys), 500):
+            marks = ",".join("?" * len(part))
+            for k, dim, blob in self.db.execute(f"SELECT key, dim, vec FROM embeddings WHERE key IN ({marks})", part):
+                found[k] = np.frombuffer(blob, dtype=np.float32, count=dim)
+        return found
+
+    def put(self, keys: Sequence[str], vecs: np.ndarray) -> None:
+        vecs = np.asarray(vecs, dtype=np.float32)
+        self.db.executemany("INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?)",
+                            [(k, int(v.shape[0]), v.tobytes()) for k, v in zip(keys, vecs)])
+        self.db.commit()
+
+    def close(self) -> None:
+        self.db.close()
+
+
 def build(chunks_db: str | os.PathLike, out: str | os.PathLike, embed: Embedder | None = None,
-          model: str = DEFAULT_MODEL, batch: int = 32, progress: Callable[[int, int], None] | None = None) -> dict:
-    """Embed every chunk in a chunk index and write the matrix."""
+          model: str = DEFAULT_MODEL, batch: int = 32, progress: Callable[[int, int], None] | None = None,
+          cache: str | os.PathLike | None = None) -> dict:
+    """Embed every chunk in a chunk index and write the matrix. With `cache`, unchanged chunks reuse stored vectors."""
     embed = embed or ollama_embedder(model)
     db = sqlite3.connect(f"file:{Path(chunks_db)}?mode=ro", uri=True)
     try:
@@ -151,15 +182,28 @@ def build(chunks_db: str | os.PathLike, out: str | os.PathLike, embed: Embedder 
         db.close()
     if not rows:
         raise ValueError(f"{chunks_db}: no chunks")
-    vecs = []
-    done = 0
-    for part in _batches(rows, batch):
-        vecs.append(embed([f"{DOC_PREFIX}{p} {s or ''}\n{t[:MAX_EMBED_CHARS]}" for _, p, s, t in part]))
-        done += len(part)
-        if progress:
-            progress(done, len(rows))
-    return write_matrix(out, [r[0] for r in rows], np.concatenate(vecs), model)
-
+    docs = [f"{DOC_PREFIX}{p} {s or ''}\n{t[:MAX_EMBED_CHARS]}" for _, p, s, t in rows]
+    store = EmbedCache(cache) if cache else None
+    try:
+        keys = [EmbedCache.key(model, d) for d in docs]
+        known = store.get(keys) if store else {}
+        todo = [i for i, k in enumerate(keys) if k not in known]
+        done = len(rows) - len(todo)
+        for part in _batches(todo, batch):
+            got = embed([docs[i] for i in part])
+            for i, v in zip(part, got):
+                known[keys[i]] = np.asarray(v, dtype=np.float32)
+            if store:
+                store.put([keys[i] for i in part], got)
+            done += len(part)
+            if progress:
+                progress(done, len(rows))
+    finally:
+        if store:
+            store.close()
+    result = write_matrix(out, [r[0] for r in rows], np.stack([known[k] for k in keys]), model)
+    result["embedded"] = len(todo)
+    return result
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
@@ -167,10 +211,11 @@ def main() -> None:
     ap.add_argument("out")
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--gpu", action="store_true", help="embed on the GPU (faster, but takes GPU memory)")
+    ap.add_argument("--cache", help="embedding cache file; a rebuild then embeds only chunks whose text changed")
     args = ap.parse_args()
     embedder = ollama_embedder(args.model, cpu=not args.gpu)
     print(build(args.chunks_db, args.out, embedder, args.model,
-                progress=lambda d, n: print(f"\r{d}/{n}", end="", flush=True)))
+                progress=lambda d, n: print(f"\r{d}/{n}", end="", flush=True), cache=args.cache))
 
 
 if __name__ == "__main__":
