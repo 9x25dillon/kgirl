@@ -276,5 +276,37 @@ class AssistantIntegrationTests(unittest.TestCase):
         self.assertNotIn("demo:a.py:1", cites)
 
 
+class EmbedCacheTests(unittest.TestCase):
+    def test_rebuild_embeds_only_changed_chunks_and_matches_a_full_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            repo = d / "repo"
+            repo.mkdir()
+            (repo / "a.py").write_text("def alpha():\n    return 1\n")
+            (repo / "b.py").write_text("def beta():\n    return 2\n")
+            chunks, cache = d / "c.db", d / "cache.db"
+            seen: list[str] = []
+
+            def counting(texts):
+                seen.extend(texts)
+                return fake_embed(texts)
+
+            build_chunks(repo, chunks, "demo")
+            first = build_matrix(chunks, d / "1.kgvm", counting, model="fake", cache=cache)
+            self.assertEqual(first["embedded"], len(seen))
+            (repo / "b.py").write_text("def beta():\n    return 3\n")
+            chunks.unlink()
+            build_chunks(repo, chunks, "demo")
+            seen.clear()
+            again = build_matrix(chunks, d / "2.kgvm", counting, model="fake", cache=cache)
+            self.assertEqual(again["embedded"], 1)
+            self.assertIn("return 3", seen[0])
+            build_matrix(chunks, d / "3.kgvm", fake_embed, model="fake")
+            self.assertEqual((d / "2.kgvm").read_bytes(), (d / "3.kgvm").read_bytes())
+            seen.clear()
+            build_matrix(chunks, d / "4.kgvm", counting, model="other", cache=cache)
+            self.assertEqual(len(seen), first["embedded"], "a different model must not reuse cached vectors")
+
+
 if __name__ == "__main__":
     unittest.main()
