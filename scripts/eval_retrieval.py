@@ -74,9 +74,25 @@ def candidates(db: sqlite3.Connection, all_repos: bool, seed: int) -> list[tuple
     return [g[i] for i in range(max(map(len, groups), default=0)) for g in groups if i < len(g)]
 
 
+def question_hashes(db: sqlite3.Connection, path: str) -> set[str]:
+    """Source-chunk text hashes of a frozen question file (older files without "hash" are resolved by id)."""
+    out = set()
+    for q in map(json.loads, open(path)):
+        if q.get("hash"):
+            out.add(q["hash"])
+        elif row := db.execute("SELECT text FROM chunks WHERE id = ?", (q["id"],)).fetchone():
+            out.add(text_hash(row[0]))
+    return out
+
+
 def make_queries(args) -> None:
     db = sqlite3.connect(args.chunks)
     unique = candidates(db, args.all_repos, args.seed)
+    excluded = set().union(*(question_hashes(db, p) for p in args.exclude_queries))
+    if excluded:  # filter after ordering, so excluding never reshuffles the rest
+        before = len(unique)
+        unique = [c for c in unique if text_hash(c[2]) not in excluded]
+        print(f"excluded {before - len(unique)} candidates already used by {', '.join(args.exclude_queries)}")
     kept = rejected = 0
     with open(args.queries, "w") as f:
         for cid, symbol, text in unique:
@@ -137,6 +153,8 @@ def run(args) -> None:
 
     methods = {name: Score() for name in ("keyword", "vector_full", "vector_s100", "vector_s400", "vector_s1000",
                                           "hybrid_s400", "atlas_current")}
+    for w in args.vector_weights:
+        methods[f"hybrid_vw{w:g}"] = Score()
     tmp = tempfile.TemporaryDirectory()
     if args.atlas:  # score against an existing Atlas, through a copy so the original is never written
         shutil.copyfile(args.atlas, Path(tmp.name) / "atlas.db")
@@ -160,6 +178,8 @@ def run(args) -> None:
         vec = [h[0] for h in matrix.search(bits, vals, 40, 400)]
         hybrid = [i for i, _ in reciprocal_rank_fusion([kw, vec])]
         ranks["hybrid_s400"] = scored(hybrid, gold, methods["hybrid_s400"])
+        for w in args.vector_weights:
+            ranks[f"hybrid_vw{w:g}"] = scored(weighted_fusion(kw, vec, w), gold, methods[f"hybrid_vw{w:g}"])
         spans = [(all_rows[c][1], all_rows[c][2], all_rows[c][3], all_rows[c][4]) for c in gold]
         hits = atlas.search(text, 10, None)
         ranks["atlas_current"] = next((i for i, h in enumerate(hits) if any(
@@ -176,6 +196,17 @@ def run(args) -> None:
                       "methods": {k: v.row() for k, v in methods.items()}}, indent=1))
     if args.router_ssh:
         router_checks(args, queries, matrix, embed)
+
+
+def weighted_fusion(keyword: list[int], vector: list[int], vector_weight: float, k: int = 60) -> list[int]:
+    """RRF with the vector list scaled by `vector_weight`; 1.0 ranks exactly as reciprocal_rank_fusion does."""
+    scores: dict[int, float] = {}
+    for ranking, weight in ((keyword, 1.0), (vector, vector_weight)):
+        if weight <= 0:
+            continue
+        for rank, item in enumerate(ranking):
+            scores[item] = scores.get(item, 0.0) + weight / (k + rank + 1)
+    return [i for i, _ in sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))]
 
 
 def fts_or_empty(text: str) -> str:
@@ -231,6 +262,8 @@ def main() -> None:
     m.add_argument("--seed", type=int, default=1729)
     m.add_argument("--all-repos", action="store_true",
                    help="sample every repo and language, round-robin by repo (default: kgirl's src/kgirl Python)")
+    m.add_argument("--exclude-queries", action="append", default=[], metavar="FILE",
+                   help="skip source chunks already used by this frozen question file (repeatable)")
     m.set_defaults(fn=make_queries)
     r = sub.add_parser("run")
     r.add_argument("chunks")
@@ -240,6 +273,8 @@ def main() -> None:
     r.add_argument("--atlas", help="score atlas_current against this existing atlas.db (read through a copy)"
                                    " instead of indexing --repo-root")
     r.add_argument("--details", help="write one JSON line per query: gold, rank per method, hybrid top 3")
+    r.add_argument("--vector-weights", type=lambda v: [float(x) for x in v.split(",")], default=[],
+                   help="also score weighted fusion at these vector weights, e.g. 0,0.5,1")
     r.add_argument("--router-ssh")
     r.add_argument("--router-dir", default="/mnt/kgirl")
     r.set_defaults(fn=run)
