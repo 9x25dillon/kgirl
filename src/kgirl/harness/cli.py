@@ -26,6 +26,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("index", help="index local paths, owner/repo or git URLs into the atlas")
     p.add_argument("sources", nargs="+")
     p.add_argument("--refresh", action="store_true", help="re-fetch cached clones")
+    p = sub.add_parser("chunks", help="rebuild the hybrid-search index (chunk text + vectors) from every indexed "
+                                      "git repo's committed files")
+    p.add_argument("--out", help="directory for all-repos.db and all-repos.kgvm (default $KGIRL_HOME/chunks/all)")
+    p.add_argument("--exclude", action="append", default=[], metavar="REPO", help="leave an indexed repo out")
+    p.add_argument("--gpu", action="store_true", help="embed on the GPU (faster, but takes GPU memory)")
     sub.add_parser("repos", help="list indexed repos")
     p = sub.add_parser("qincrs", help="register distinct QINCRS files as Atlas instances (never touches numbskull)")
     p.add_argument("files", nargs="+")
@@ -110,6 +115,8 @@ def _run(a: Assistant, args) -> int:
             print(f"FAILED {spec}: {err}", file=sys.stderr)
         if a.index_failures:
             return 1
+    elif cmd == "chunks":
+        return _chunks(a, args)
     elif cmd == "qincrs":
         from .atlas.instances import register_qincrs
         for inst in register_qincrs(a.atlas, args.files):
@@ -185,6 +192,40 @@ def _run(a: Assistant, args) -> int:
     elif cmd == "mcp":
         from .mcp_server import MCPServer
         MCPServer(a).serve()
+    return 0
+
+
+def _chunks(a: Assistant, args) -> int:
+    from .atlas.chunks import build_committed
+    from .atlas.store import _git_head
+    from .atlas.vectors import DEFAULT_MODEL, ollama_embedder
+    from .atlas.vectors import build as build_vectors
+    indexed = {r["name"]: Path(r["root"]) for r in a.atlas.repos()}
+    unknown = sorted(set(args.exclude) - set(indexed))
+    if unknown:
+        print(f"--exclude names no indexed repo: {', '.join(unknown)} (see `repos`)", file=sys.stderr)
+        return 2
+    repos = [(name, root) for name, root in indexed.items() if name not in args.exclude and _git_head(root)]
+    for name in sorted(set(indexed) - {n for n, _ in repos}):
+        print(f"skipped {name}: {'excluded' if name in args.exclude else 'not a git checkout'}")
+    if not repos:
+        print("no indexed git repos; run `index` first", file=sys.stderr)
+        return 1
+    out = Path(args.out) if args.out else a.home / "chunks" / "all"
+    out.mkdir(parents=True, exist_ok=True)
+    db_new, matrix_new = out / "all-repos.db.new", out / "all-repos.kgvm.new"
+    st = build_committed(repos, db_new)
+    for f in st["filtered"]:
+        print(f"filtered {f}")
+    print(f"{len(repos)} repos, {st['files']} files, {st['chunks']} chunks, {len(st['filtered'])} files filtered")
+    vec = build_vectors(db_new, matrix_new, ollama_embedder(DEFAULT_MODEL, cpu=not args.gpu), DEFAULT_MODEL,
+                        progress=lambda d, n: print(f"\rembedding {d}/{n}", end="", file=sys.stderr, flush=True),
+                        cache=a.home / "chunks" / "embed-cache.db")
+    # Swap both only once both exist: a new chunk DB beside an old matrix would map vectors to the wrong chunks.
+    db_new.replace(out / "all-repos.db")
+    matrix_new.replace(out / "all-repos.kgvm")
+    print(f"\nembedded {vec['embedded']} new chunks of {vec['count']}; wrote {out / 'all-repos.db'} "
+          f"and {out / 'all-repos.kgvm'}")
     return 0
 
 
