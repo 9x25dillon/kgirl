@@ -186,6 +186,22 @@ class MCPTests(unittest.TestCase):
         finally:
             os.environ.pop("KGIRL_VERIFY_ALLOWLIST")
 
+    def test_swarm_task_refusal_names_the_allowed_verifiers(self):
+        # The model can only match the allowlist exactly, so the refusal has to say what it may pass.
+        args = {"goal": "x", "repo_path": str(self.lib), "verify": "pytest"}
+        os.environ.pop("KGIRL_VERIFY_ALLOWLIST", None)
+        none = self.call("tools/call", {"name": "jev_swarm_task", "arguments": args})["result"]
+        self.assertTrue(none["isError"])
+        self.assertIn("allows no verify command", none["content"][0]["text"])
+        self.assertIn("ask the user to allow one", none["content"][0]["text"])
+        os.environ["KGIRL_VERIFY_ALLOWLIST"] = "python -m pytest -q; python3 -m pytest -q -k 'not slow'"
+        try:
+            some = self.call("tools/call", {"name": "jev_swarm_task", "arguments": args})["result"]
+        finally:
+            os.environ.pop("KGIRL_VERIFY_ALLOWLIST")
+        self.assertTrue(some["isError"])
+        self.assertIn('"python -m pytest -q", "python3 -m pytest -q -k \'not slow\'"', some["content"][0]["text"])
+
     def test_swarm_task_over_mcp_runs_with_mcp_origin(self):
         seen = {}
 
