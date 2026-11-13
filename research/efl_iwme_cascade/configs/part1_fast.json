@@ -1,0 +1,17 @@
+{
+ "name": "part1_fast",
+ "part": 1,
+ "stream": "chaos",
+ "depth": 10,
+ "sizes": [
+  200,
+  1600
+ ],
+ "replicates": 2,
+ "post_sizes": [
+  100,
+  400
+ ],
+ "post_replicates": 2,
+ "registered": false
+}

@@ -1,0 +1,164 @@
+PART 1  PARTIAL OBSERVABILITY  (part1_replication_pcg: registered design; streams pcg; depth 16, 12 replicates, 625.2 s)
+
+FAMILIES  B (1), MC1 (3), MC2 (7), MC3 (15), HMM2 (7), AM (3)   (free parameters)
+
+REGRET  mean over replicates, bits per symbol x 1e-4; * marks the family that contains the truth
+  G0  binomial, no memory:  p = 0.7000
+    family       N=50     N=100     N=200     N=400     N=800    N=1600    N=3200     floor
+    B*          12.65      4.58      4.42      1.09      0.41      0.30      0.09      0.00
+    MC1         48.83     16.03      8.44      3.36      1.62      0.96      0.42      0.00
+    MC2         89.29     35.03     15.46      7.46      3.94      2.10      0.94      0.00
+    MC3        154.98     66.62     30.31     16.01      8.65      4.78      2.32      0.00
+    HMM2        52.96     19.80     10.70      5.30      2.89      1.62      0.58      0.00
+    AM          29.79     11.06      6.58      3.32      1.61      0.66      0.25      0.00
+
+  G1  hidden Markov cascade:  p = (0.700, 0.400); P = 0.900, 0.300, 0.200, 0.600 (to state 0 from s,c = 00, 01, 10, 11); pi0 = 0.500
+    family       N=50     N=100     N=200     N=400     N=800    N=1600    N=3200     floor
+    B           59.20     50.88     48.22     47.52     46.52     46.32     46.11     46.04
+    MC1         34.95     20.07     15.27     13.70     12.33     10.96     10.64     10.27
+    MC2         78.01     41.12     18.24     10.56      6.56      3.94      3.23      2.18
+    MC3        140.77     74.98     36.46     19.68      9.03      4.24      2.53      0.46
+    HMM2*       37.76     15.63      9.90      5.93      3.88      1.55      0.81      0.00
+    AM          27.19     21.19     15.83     12.97     11.50     10.65     10.37      9.93
+
+  G2  attention-memory above threshold:  rho = 0.4000, T = 0.8000, bias = 0.3000
+    family       N=50     N=100     N=200     N=400     N=800    N=1600    N=3200     floor
+    B          812.17    812.62    802.87    802.01    799.23    798.50    797.98    797.60
+    MC1        279.20    261.68    248.87    242.52    239.16    238.27    237.83    237.23
+    MC2        145.26    110.71     92.07     83.78     78.37     76.47     75.82     74.77
+    MC3        169.17     92.23     58.52     42.17     31.58     27.63     25.94     23.98
+    HMM2        62.80     43.23     34.79     24.32     20.41     19.53     19.08     18.13
+    AM*         27.09     16.34      8.72      3.52      1.25      0.76      0.46      0.00
+
+  G3  attention-memory below threshold:  rho = 0.1500, T = 0.4000, bias = 0.0000
+    family       N=50     N=100     N=200     N=400     N=800    N=1600    N=3200     floor
+    B         1539.61   1483.67   1469.94   1461.90   1461.90   1460.57   1460.58   1460.26
+    MC1        859.26    809.18    792.37    784.55    783.09    781.53    781.17    780.77
+    MC2        542.51    492.15    461.73    452.81    449.78    447.24    446.32    445.17
+    MC3        428.12    348.46    296.09    276.83    269.58    265.44    263.72    261.60
+    HMM2       201.04    166.57    148.36    140.84    138.84    137.85    137.34    136.73
+    AM*         38.91     14.81      6.31      2.07      0.89      0.33      0.32      0.00
+
+  G4  delay window (order-3 Markov):  [0.500]; [0.600, 0.400]; [0.700, 0.500, 0.450, 0.350]; [0.800, 0.350, 0.600, 0.250, 0.700, 0.450, 0.300, 0.650]
+    family       N=50     N=100     N=200     N=400     N=800    N=1600    N=3200     floor
+    B         1144.06   1121.14   1114.27   1114.89   1112.44   1111.65   1111.30   1111.06
+    MC1        877.99    840.59    830.27    827.06    823.88    822.77    822.33    821.85
+    MC2        472.62    429.50    410.69    403.30    399.12    396.77    395.93    395.09
+    MC3*       151.23     71.29     32.71     15.89      8.47      3.86      1.96      0.00
+    HMM2       485.77    462.45    452.05    448.58    446.20    445.11    444.45    443.86
+    AM         710.18    681.57    672.44    670.59    668.47    667.47    667.13    666.79
+
+TOTAL DESCRIPTION LENGTH at N = 3200: data bits under the fit + (k/2) log2(symbols), mean over replicates, minus the smallest in the row
+    truth          B       MC1       MC2       MC3      HMM2        AM
+    G0           0.0      14.0      42.6      98.1      44.4      14.8
+    G1         179.2      14.6       7.5      57.8       0.0      14.0
+    G2        4071.1    1192.6     401.3     203.5     121.6       0.0
+    G3        7508.6    4000.0    2340.5    1437.3     735.4       0.0
+    G4        5546.6    4101.1    1949.2       0.0    2199.6    3315.9
+
+CLOSURE  defect D = abs(log2 R(1,16)) of the residual walk; fits at N = 3200, replicate 0
+    truth     raw R    raw D        B      MC1      MC2      MC3     HMM2       AM
+    G0       1.0000   0.0000   0.0000   0.0084   0.0320   0.0637   0.0139   0.0000
+    G1       0.6998   0.5150   0.5150   0.0140   0.0292   0.0530   0.0289   0.0260
+    G2       0.3990   1.3256   1.3256   0.0879   0.1462   0.1737   0.0889   0.0236
+    G3       0.6513   0.6185   0.6185   0.8610   1.1267   1.1184   0.0863   0.0350
+    G4       0.4227   1.2423   1.2423   0.3174   0.1304   0.0372   0.3127   0.0020
+  same, for the best member of each family (N = infinity projection)
+    G0                         0.0000   0.0000   0.0000   0.0000   0.0000   0.0000
+    G1                         0.5150   0.0751   0.0084   0.0000   0.0000   0.0093
+    G2                         1.3256   0.1147   0.1298   0.1603   0.1269   0.0000
+    G3                         0.6185   0.8360   1.0753   1.0977   0.1206   0.0000
+    G4                         1.2423   0.2807   0.1578   0.0000   0.3440   0.0348
+
+CHANGE OF CONDITIONS  regret against the changed generator, bits per symbol x 1e-4
+  I1 on G2: T 0.8 -> 0.4 (attention sharpened through the threshold).  Unchanged true model: 906.1
+    family          zero-shot   refit 25   refit 50  refit 100  refit 200  refit 400  refit 800  catch-up N
+    B                 3247.59    2407.78    2386.75    2339.32    2324.16    2318.71    2310.57       > 800
+    MC1               1661.32     618.24     540.67     506.97     495.06     491.81     485.11       > 800
+    MC2               1200.11     493.29     224.35     172.29     148.46     142.37     133.85       > 800
+    MC3               1036.03     470.02     206.16     119.94      71.48      59.45      46.69       > 800
+    HMM2              1068.44     274.70     135.78     108.51      96.02      94.77      87.06       > 800
+    AM (edited)          0.91      82.57      21.94       8.93       7.75       4.84       1.46       > 800
+    catch-up N: post-change strings a family needs, refitted from scratch, to match the edited model
+
+  I2 on G3: rho 0.15 -> 0.60 (memory shortened).  Unchanged true model: 1272.3
+    family          zero-shot   refit 25   refit 50  refit 100  refit 200  refit 400  refit 800  catch-up N
+    B                 4765.42    5029.84    4916.11    4866.17    4793.45    4788.35    4769.39       > 800
+    MC1               2099.21     417.14     366.08     342.62     325.08     319.81     315.92       > 800
+    MC2               1300.72     212.57     127.23      81.48      55.80      47.24      39.90       > 800
+    MC3               1065.88     249.43     153.68      86.31      43.28      24.62      13.20       > 800
+    HMM2              1454.33     160.30     112.35      74.39      62.37      53.71      47.21       > 800
+    AM (edited)          1.72      52.96      38.10      20.81      11.28       5.98       1.76       > 800
+    catch-up N: post-change strings a family needs, refitted from scratch, to match the edited model
+
+  I3 on G4: table entry LLL 0.80 -> 0.20.  Unchanged true model: 976.3
+    family          zero-shot   refit 25   refit 50  refit 100  refit 200  refit 400  refit 800  catch-up N
+    B                 1103.32     869.17     843.30     844.17     842.45     841.90     841.57       > 800
+    MC1               1242.80     893.77     847.42     842.22     837.90     834.10     833.22       > 800
+    MC2               1329.15     932.08     830.54     823.58     814.40     801.10     799.23       > 800
+    MC3 (edited)         2.03     290.28      93.66      68.19      40.85      13.94       7.44       > 800
+    HMM2              1296.38     886.40     830.68     827.62     801.26     768.43     755.66       > 800
+    AM                1332.40     875.77     843.19     845.09     839.14     837.74     837.23       > 800
+    catch-up N: post-change strings a family needs, refitted from scratch, to match the edited model
+
+  I4 on G2: memory actuation severed, coupling 1 -> 0.  Unchanged true model: 257.5
+    family          zero-shot   refit 25   refit 50  refit 100  refit 200  refit 400  refit 800  catch-up N
+    B                  417.79     399.64     384.17     384.23     382.43     381.33     380.09       > 800
+    MC1                 49.07      79.53      43.91      13.59       7.46       2.73       1.48       > 800
+    MC2                215.80     177.13      83.63      26.90      14.32       5.03       3.35       > 800
+    MC3                263.93     303.68     144.59      57.17      29.27      16.41       8.07       > 800
+    HMM2               253.40     103.55      51.27      21.62      12.81       3.85       2.69       > 800
+    AM (edited)          0.36      68.26      33.96       8.56       6.11       2.70       1.06       > 800
+    catch-up N: post-change strings a family needs, refitted from scratch, to match the edited model
+
+  I5 on G3: memory actuation severed, coupling 1 -> 0.  Unchanged true model: 581.0
+    family          zero-shot   refit 25   refit 50  refit 100  refit 200  refit 400  refit 800  catch-up N
+    B                  233.96     243.67     235.52     237.20     234.80     235.34     233.81       > 800
+    MC1                125.76      39.46      10.21      12.44       4.90       2.72       1.37       > 800
+    MC2                452.79     121.73      46.58      31.30      19.97       8.10       3.50       > 800
+    MC3                611.43     235.97     127.49      65.47      35.72      14.50       6.21       > 800
+    HMM2               673.00      80.67      38.23      22.23       9.88       5.59       2.22       > 800
+    AM (edited)          0.14      28.95      18.13       8.25       2.57       2.15       1.19       > 800
+    catch-up N: post-change strings a family needs, refitted from scratch, to match the edited model
+
+VERDICTS  (decision rules of PREREGISTRATION.md section 8 and Amendment 2d)
+  A1 recovery: MET
+      G0 B: mean regret 9.49e-06, bound 7.04e-05
+      G1 HMM2: mean regret 8.13e-05, bound 4.93e-04
+      G2 AM: mean regret 4.58e-05, bound 2.11e-04
+      G3 AM: mean regret 3.18e-05, bound 2.11e-04
+      G4 MC3: mean regret 1.96e-04, bound 1.06e-03
+  A2 specificity: MET
+      G0: lowest mean regret B (own family B); paired wins of B: MC1 12/12, MC2 12/12, MC3 12/12, HMM2 12/12, AM 12/12
+      G1: lowest mean regret HMM2 (own family HMM2); paired wins of HMM2: B 12/12, MC1 12/12, MC2 12/12, MC3 12/12, AM 12/12
+      G2: lowest mean regret AM (own family AM); paired wins of AM: B 12/12, MC1 12/12, MC2 12/12, MC3 12/12, HMM2 12/12
+      G3: lowest mean regret AM (own family AM); paired wins of AM: B 12/12, MC1 12/12, MC2 12/12, MC3 12/12, HMM2 12/12
+      G4: lowest mean regret MC3 (own family MC3); paired wins of MC3: B 12/12, MC1 12/12, MC2 12/12, HMM2 12/12, AM 12/12
+  A3 matched size: MET
+      G2: AM over MC1 (both 3 parameters) N=100: 12, N=200: 12, N=400: 12, N=800: 12, N=1600: 12, N=3200: 12; at N=3200 AM over MC2 12, over HMM2 12 (of 12)
+      G3: AM over MC1 (both 3 parameters) N=100: 12, N=200: 12, N=400: 12, N=800: 12, N=1600: 12, N=3200: 12; at N=3200 AM over MC2 12, over HMM2 12 (of 12)
+      G1: HMM2 over AM at N=3200: 12/12
+      G4: MC3 over AM at N=3200: 12/12
+  A4 sample efficiency: MET
+      G2: AM below MC2 at every N
+      G2: AM below MC3 at every N
+      G2: AM below HMM2 at every N
+      G3: AM below MC2 at every N
+      G3: AM below MC3 at every N
+      G3: AM below HMM2 at every N
+  A5 closure as memory sufficiency: NOT MET
+      (i) G0 raw defect 2.43e-14
+      (ii) G1: raw defect 0.515, own family HMM2 0.0289
+      (ii) G2: raw defect 1.326, own family AM 0.0236
+      (ii) G3: raw defect 0.619, own family AM 0.0350
+      (ii) G4: raw defect 1.242, own family MC3 0.0372
+      (iii) G2: residual defect B 1.326, MC1 0.088, AM 0.0236
+      (iii) G3: residual defect B 0.619, MC1 0.861, AM 0.0350
+  A6 change of conditions: MET
+      I1 on G2: edited AM mean regret 9.09e-05; best unedited rival 1.04e-01; rule met in 12/12 replicates
+      I2 on G3: edited AM mean regret 1.72e-04; best unedited rival 1.07e-01; rule met in 12/12 replicates
+      I3 on G4: edited MC3 mean regret 2.03e-04; best unedited rival 1.33e-01; rule met in 12/12 replicates
+  A7 memory-substrate intervention: MET
+      I4 on G2: edited AM mean regret 3.57e-05; best unedited rival 4.91e-03; rule met in 12/12 replicates
+      I5 on G3: edited AM mean regret 1.43e-05; best unedited rival 1.26e-02; rule met in 12/12 replicates
+  6 of 7 met

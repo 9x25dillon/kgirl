@@ -1,0 +1,26 @@
+{
+ "name": "part1_replication_pcg",
+ "part": 1,
+ "stream": "pcg",
+ "depth": 16,
+ "sizes": [
+  50,
+  100,
+  200,
+  400,
+  800,
+  1600,
+  3200
+ ],
+ "replicates": 12,
+ "post_sizes": [
+  25,
+  50,
+  100,
+  200,
+  400,
+  800
+ ],
+ "post_replicates": 6,
+ "registered": true
+}

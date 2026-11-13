@@ -1,0 +1,13 @@
+{
+ "name": "part2_fast",
+ "part": 2,
+ "stream": "chaos",
+ "sizes": [
+  80,
+  640
+ ],
+ "replicates": 2,
+ "surrogates": 40,
+ "welch_segments": 32,
+ "registered": false
+}

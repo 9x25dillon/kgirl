@@ -1,0 +1,98 @@
+PART 2  LAYERED COUPLING  (part2_replication_pcg: registered design; streams pcg; 12 replicates, 20.0 s)
+
+MODELS  chain (15), full (36), diagonal (8)   (free parameters)
+
+  ADJ  adjacent coupling
+    adjacent coherence, exact: 0.950, 0.900, 0.800, 0.970, 0.600, 0.850, 0.750
+    end-to-end coherence 0.2538;  closure ratio raw 1.0000, normal-score 1.0000;  defect raw 0.0000, normal-score 0.0000
+    regret, mean over replicates, bits per sample x 1e-3
+    model          N=20     N=40     N=80    N=160    N=320    N=640   N=1280   N=2560    floor
+    chain        584.78   300.07   131.29    71.05    31.99    16.61     9.03     4.39     0.00
+    full        3547.25   922.36   355.73   160.53    76.13    40.20    21.48    10.42     0.00
+    diagonal   10820.32 10670.34 10624.70 10577.40 10563.62 10552.03 10547.77 10544.02 10541.79
+    sample closure defect at N = 2560 against the 95 % point under the fitted chain
+     replicate    raw D     band   score D     band   classified
+             0    0.008    0.138     0.014    0.138   adjacent, linear
+             1    0.000    0.117     0.005    0.122   adjacent, linear
+             2    0.005    0.119     0.001    0.121   adjacent, linear
+             3    0.026    0.138     0.032    0.136   adjacent, linear
+             4    0.035    0.124     0.031    0.130   adjacent, linear
+             5    0.093    0.130     0.084    0.135   adjacent, linear
+             6    0.065    0.131     0.066    0.127   adjacent, linear
+             7    0.067    0.132     0.069    0.133   adjacent, linear
+             8    0.085    0.118     0.085    0.123   adjacent, linear
+             9    0.025    0.123     0.033    0.121   adjacent, linear
+            10    0.013    0.103     0.009    0.106   adjacent, linear
+            11    0.027    0.135     0.033    0.141   adjacent, linear
+
+  SKIP  skip coupling (0.6 from two scales up)
+    adjacent coherence, exact: 0.950, 0.935, 0.924, 0.981, 0.942, 0.982, 0.981
+    end-to-end coherence 0.8396;  closure ratio raw 1.1497, normal-score 1.1497;  defect raw 0.2012, normal-score 0.2012
+    regret, mean over replicates, bits per sample x 1e-3
+    model          N=20     N=40     N=80    N=160    N=320    N=640   N=1280   N=2560    floor
+    chain       2151.12  1826.17  1640.07  1563.62  1524.49  1504.89  1498.11  1493.93  1489.33
+    full        3216.16  1090.78   431.94   198.07    88.86    42.12    20.05    10.70     0.00
+    diagonal   18407.11 18311.02 18184.66 18189.19 18168.98 18159.39 18156.66 18154.80 18150.31
+    sample closure defect at N = 2560 against the 95 % point under the fitted chain
+     replicate    raw D     band   score D     band   classified
+             0    0.197    0.025     0.202    0.027   non-adjacent coupling
+             1    0.185    0.024     0.191    0.027   non-adjacent coupling
+             2    0.192    0.023     0.195    0.023   non-adjacent coupling
+             3    0.190    0.024     0.193    0.025   non-adjacent coupling
+             4    0.195    0.025     0.198    0.023   non-adjacent coupling
+             5    0.192    0.025     0.197    0.025   non-adjacent coupling
+             6    0.189    0.023     0.197    0.024   non-adjacent coupling
+             7    0.191    0.022     0.197    0.024   non-adjacent coupling
+             8    0.207    0.024     0.211    0.028   non-adjacent coupling
+             9    0.201    0.024     0.205    0.026   non-adjacent coupling
+            10    0.222    0.028     0.226    0.028   non-adjacent coupling
+            11    0.207    0.024     0.210    0.025   non-adjacent coupling
+
+  NL  nonlinear layers (odd layers cubed), adjacent coupling
+    adjacent coherence, exact: 0.570, 0.540, 0.480, 0.582, 0.360, 0.510, 0.450
+    end-to-end coherence 0.1523;  closure ratio raw 21.4335, normal-score 1.0000;  defect raw 4.4218, normal-score 0.0000
+    regret, mean over replicates, bits per sample x 1e-3
+    model          N=20     N=40     N=80    N=160    N=320    N=640   N=1280   N=2560    floor
+    chain      17406.53  8408.61  3398.92  3282.79  2668.86  2402.37  2345.24  2285.00  2229.78
+    full       35205.43  9432.60  1970.18  1176.84   459.03   216.55   132.69    61.97    -0.00
+    diagonal   10097.72  7751.99  6264.30  6216.07  5990.15  5850.92  5818.16  5792.89  5767.39
+    sample closure defect at N = 2560 against the 95 % point under the fitted chain
+     replicate    raw D     band   score D     band   classified
+             0    4.541    1.510     0.006    1.484   nonlinear layers, adjacent coupling
+             1    4.614    1.431     0.073    1.459   nonlinear layers, adjacent coupling
+             2    4.358    1.510     0.115    1.451   nonlinear layers, adjacent coupling
+             3    4.558    1.279     0.094    1.298   nonlinear layers, adjacent coupling
+             4    4.434    1.301     0.080    1.306   nonlinear layers, adjacent coupling
+             5    4.270    1.224     0.009    1.239   nonlinear layers, adjacent coupling
+             6    4.083    1.317     0.066    1.334   nonlinear layers, adjacent coupling
+             7    4.661    1.464     0.130    1.440   nonlinear layers, adjacent coupling
+             8    4.515    1.298     0.001    1.326   nonlinear layers, adjacent coupling
+             9    4.141    1.090     0.035    1.108   nonlinear layers, adjacent coupling
+            10    4.360    1.450     0.051    1.388   nonlinear layers, adjacent coupling
+            11    4.104    1.363     0.092    1.353   nonlinear layers, adjacent coupling
+
+PER-FREQUENCY AGAINST BROADBAND  (ADJ, one realization, 256 segments of 256)
+     link    true  band mean     min     max  debiased  broadband
+        1   0.950     0.9496   0.939   0.959    0.9494     0.9496
+        2   0.900     0.8995   0.881   0.919    0.8991     0.8998
+        3   0.800     0.8010   0.754   0.845    0.8002     0.8016
+        4   0.970     0.9697   0.964   0.975    0.9696     0.9701
+        5   0.600     0.6027   0.513   0.666    0.6011     0.6032
+        6   0.850     0.8488   0.811   0.870    0.8482     0.8512
+        7   0.750     0.7536   0.694   0.801    0.7526     0.7534
+
+VERDICTS  (decision rules of PREREGISTRATION_PART2.md section 5)
+  B1 adjacent coupling helps model selection: MET
+      chain below full at every N
+      paired wins of chain over full: N=80: 12/12, N=2560: 12/12
+      chain mean regret at N=2560: 4.39e-03, bound 2.11e-02
+  B2 a skip coupling is identified: MET
+      population defect raw 0.201, normal-score 0.201
+      classified 'non-adjacent coupling' in 12/12
+      mean regret at N=2560: full 1.07e-02, chain 1.49e+00
+  B3 a nonlinear layer is detected and attributed: MET
+      population defect raw 4.422, normal-score 0.0e+00
+      classified 'nonlinear layers, adjacent coupling' in 12/12
+  B4 no false alarm: MET
+      classified 'adjacent, linear' in 12/12
+  4 of 4 met
