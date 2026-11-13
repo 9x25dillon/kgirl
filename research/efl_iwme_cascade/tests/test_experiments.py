@@ -2,8 +2,11 @@
 
 A reduced configuration supports no claim (PREREGISTRATION.md section 10). These tests check the machinery."""
 
+import concurrent.futures
 import contextlib
+import functools
 import io
+import multiprocessing
 import tempfile
 import unittest
 from pathlib import Path
@@ -53,7 +56,15 @@ class Part1Machinery(unittest.TestCase):
         self.assertEqual(sorted(back["regret"]["G2"]["AM"]), ["40", "80"])
 
     def test_same_numbers_again_with_two_processes_and_through_the_cache(self):
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(part1, "RESULTS_DIR", Path(tmp)):
+        # The patched RESULTS_DIR reaches worker processes only if they are forked. Under forkserver
+        # (the Linux default from Python 3.14) or spawn, workers re-import the module, write the cache
+        # to the real results/.cache, and the existence check below fails.
+        if "fork" not in multiprocessing.get_all_start_methods():
+            self.skipTest("needs the fork start method so workers inherit the patched RESULTS_DIR")
+        fork_pool = functools.partial(concurrent.futures.ProcessPoolExecutor,
+                                      mp_context=multiprocessing.get_context("fork"))
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(part1, "RESULTS_DIR", Path(tmp)), \
+                mock.patch.object(concurrent.futures, "ProcessPoolExecutor", fork_pool):
             first = part1.run(TINY, jobs=2, use_cache=True)
             self.assertTrue((Path(tmp) / ".cache" / "unit_tiny" / "stage1_G2.pkl").exists())
             second = part1.run(TINY, jobs=1, use_cache=True)                     # served from the cache
