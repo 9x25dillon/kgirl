@@ -23,3 +23,18 @@ jobs:
           PYTHONPATH: src
         run: |
           KGIRL_HOME="$(mktemp -d)" python -m unittest discover -s tests/harness -t .
+
+  research-efl-iwme-cascade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install numpy
+      - name: Run efl_iwme_cascade unit tests and checks
+        working-directory: research
+        run: |
+          python -m unittest discover -s efl_iwme_cascade/tests -t .
+          python -m efl_iwme_cascade checks
