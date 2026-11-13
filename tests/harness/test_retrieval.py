@@ -237,6 +237,20 @@ class RetrieverTests(unittest.TestCase):
         self.assertEqual(r.info.keyword_backend, "router")
         self.assertEqual(hits[0].path, "a.py")
 
+    @unittest.skipUnless(shutil.which("sqlite3"), "needs the sqlite3 shell")
+    def test_a_router_holding_another_build_of_the_chunk_index_is_not_used(self):
+        # Chunk ids only line up within one build: a stale router copy would fuse its keyword ids with the
+        # local vector ids, then fetch the wrong text for both.
+        stale = self.dir / "stale.db"
+        shutil.copyfile(self.chunks, stale)
+        with sqlite3.connect(stale) as db:
+            db.execute("UPDATE meta SET value = '0' WHERE key = 'built_at'")
+            db.execute("UPDATE chunks SET path = 'stale.py'")
+        r = self.retriever(sql_cmd=["sqlite3", "-batch", "-readonly", "-json", str(stale)], retry_after=60)
+        hits = r.search("gzip")
+        self.assertEqual(r.info.keyword_backend, "local")
+        self.assertEqual(hits[0].path, "a.py")
+
 
 class AssistantIntegrationTests(unittest.TestCase):
     def setUp(self):

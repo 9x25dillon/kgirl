@@ -197,6 +197,8 @@ class Retriever:
                  vector_cmd: list[str] | None = None, sql_cmd: list[str] | None = None,
                  timeout: float = 0.5, retry_after: float = 30.0, shortlist: int = 400, candidates: int = 40):
         self.db = sqlite3.connect(f"file:{Path(chunks_db)}?mode=ro", uri=True, check_same_thread=False)
+        row = self.db.execute("SELECT value FROM meta WHERE key = 'built_at'").fetchone()
+        self.built_at = row[0] if row else None
         self.matrix = Matrix(matrix_path)
         self.embed = embed or ollama_embedder(self.matrix.model)
         self.vector_cmd, self.sql_cmd = vector_cmd, sql_cmd
@@ -275,7 +277,19 @@ class Retriever:
     def _sql_pipe(self) -> SqlPipe | None:
         if not self.sql_cmd:
             return None
-        return self._remote("sql", lambda: SqlPipe(self.sql_cmd), "_sql")
+        fresh = self._sql is None
+        pipe = self._remote("sql", lambda: SqlPipe(self.sql_cmd), "_sql")
+        if pipe is not None and fresh:
+            # Chunk ids only line up within one build, so a router copy from another build would mix its keyword
+            # ids with the local vector ids. Compare build stamps once per connection, as `_vector_pipe` does.
+            try:
+                rows = pipe.query("SELECT value FROM meta WHERE key = 'built_at'", self.timeout)
+            except (OSError, RemoteError):
+                rows = None
+            if rows is None or (rows[0].get("value") if rows else None) != self.built_at:
+                self._drop("sql", "_sql")
+                return None
+        return pipe
 
     def keyword_ids(self, query: str, limit: int) -> list[int]:
         fts = fts_query(query)
