@@ -25,6 +25,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--config", default="part2_registered")
     p.add_argument("--no-save", action="store_true")
 
+    p = sub.add_parser("limits", help="exploratory: where the registered tests stop working (not registered)")
+    p.add_argument("--no-save", action="store_true")
+
     p = sub.add_parser("data", help="measured points of [0, 1), one per line: the Part 1 comparison")
     p.add_argument("file")
     p.add_argument("--depth", type=int, default=16)
@@ -58,6 +61,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             part2.save(res)
         print(part2.render(res))
         return 0 if all(v["met"] for v in res["verdicts"].values()) else 1
+
+    if a.cmd == "limits":
+        from . import limits
+        res = limits.run(log=log)
+        if not a.no_save:
+            limits.save(res)
+        print(limits.render(res))
+        return 0
 
     import numpy as np
 
