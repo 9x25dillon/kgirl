@@ -124,3 +124,7 @@ build/router/
 /tqdm
 /ttx
 /uvicorn
+
+# Local service data, never source: the ChaosRAG Postgres cluster (pg_ctl -D .pgdata), CTH scratch root
+/.pgdata/
+/.cthroot/
