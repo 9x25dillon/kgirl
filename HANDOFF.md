@@ -4,7 +4,7 @@
 **Newest close:** 13 November 2026, 09:20 PST · Claude Code, Opus 5.5 · session `e0adf913`
 **Where things stand:** `main` is at `6802f8c` with 0 open PRs and CI green. Today merged #85–#89.
 - **/ask:** works end to end on local Ollama, with retrieval from the Julia ChaosRAG service (Postgres :5433). It answers instead of always escalating: the energy cutoff now calibrates to the serving embedder (#89). Answers are never token-capped (#89).
-- **Correction to the 19 Oct hand-off:** `80f8b85` is in main. The Atlas home is now `~/.kgirl-sync`, not `~/.kgirl`.
+- **Correction to the 19 Oct hand-off:** `80f8b85` is in main. On 13 Nov the Atlas home moved back to `~/.kgirl`: peer session `kgirl-f2` is re-indexing there. `~/.kgirl-sync` is the older home, which holds the taught Soup rules.
 - **Correction to the 11 Nov `~/Hand_off.md`:** kgirl had 3 more merged PRs (#83, #84 research) before today.
 
 **Decision needed:**
@@ -30,7 +30,12 @@
 | 2026-10-19 | Claude | `kgirl.life` + metabolism; this file's previous version | archived: `docs/handoff/HANDOFF-2026-10-19-claude-opus.md` |
 
 ## In flight
-- **Harness setup "at full capability"** by peer session `kgirl-f2` (cwd `~/kgirl`, maybe worktree `~/work/kgirl-run`): Atlas refresh, hybrid retrieval, the MCP server and a launcher. Not this session's work; its state is unknown. Ask it, or check `porter_brief`.
+- **Harness setup "at full capability"** by peer session `kgirl-f2` (its report, 13 Nov about 09:25; not verified here; no repo changes):
+  - **Runtime checkout:** `~/work/kgirl-run`, detached at `6802f8c`. Harness suite 146 OK.
+  - **Launcher:** `~/.local/bin/kgirl` with `KGIRL_HOME=~/.kgirl`. It does hybrid retrieval over `~/.kgirl/chunks/all` (24 repos, built 3 Nov) and uses the router only when `enp3s0` has carrier; there was none, so the local copies answer.
+  - **MCP:** `kgirl` server registered at user scope in Claude Code (`kgirl mcp`).
+  - **In progress:** a fresh Atlas index of the 39 own non-fork repos into `~/.kgirl`. Clones were reflink-copied from `~/.kgirl-sync/repos`; backup at `~/.kgirl/backup-20261113`.
+  - **Next:** an `ask`, plus one swarm on a throwaway fixture with qwen2.5-coder 7b/1.5b. This evicts the :8765 models from the GPU for a few minutes.
 - **Parked on purpose:** `feat/stronger-default-route` in `~/work/kgirl-sync`. Round-5 drills showed no gain (`~/kgirl-teach/route/RESULTS.md`).
 - **Superseded, not merged:**
   - `local/ask-gate-fix` (`15c1e72`): everything useful is in #61 and #87.
@@ -51,7 +56,7 @@
 ## Dead ends
 - Julia 1.13 precompiling LibPQ: `Memento` fails ("Method overwriting is not permitted during Module precompilation"). Workaround: `--compiled-modules=no` (slow first start, about 2 min).
 - `/ask` default energy on nomic before #89: always `escalate`, even when both models agreed and were right.
-- Harness `ask` with the current Atlas index found only `def ask(...)`, not its body, so the index is stale (13 Nov). Re-indexing writes into `~/.kgirl-sync/repos`; that's for `kgirl-f2` or the user to do.
+- Harness `ask` against the `~/.kgirl-sync` index found only `def ask(...)`, not its body, so that index was stale (13 Nov). Superseded by `kgirl-f2`'s re-index into `~/.kgirl`.
 
 ## Open questions
 - On nomic-embed-text, isotropic noise scores about 0.93 and the calibrated cutoff is 0.948, so the energy gate barely separates anything there. Is it worth keeping, or should coherence alone decide? To settle: log energy vs. answer quality over real questions.
@@ -94,7 +99,7 @@ To stop: `pg_ctl -D ~/Synaps/.pgdata stop`, then kill the processes listening on
 
 ## Next steps, in order
 1. Answer the two decisions above. Reply e.g. `delete the superseded kgirl branches` / `review the April files in Synaps`.
-2. Coordinate with `kgirl-f2`, then re-index Atlas so the harness `ask` sees current code.
+2. Check `kgirl-f2`'s re-index into `~/.kgirl` finished (`kgirl ask` should now find the body of `ask()` in `src/kgirl/main.py`). Decide whether the Soup rules in `~/.kgirl-sync/soup.db` should move to `~/.kgirl`.
 3. Log `/ask` energy and coherence against judged answers over about 30 real questions, then decide the energy gate's future.
 4. Optional: a `docs/` page or script for "Running the stack" (above), so it isn't only here.
 
