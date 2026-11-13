@@ -1,210 +1,117 @@
-# HANDOFF — kgirl harness, nihiline assay lab, evolve
+# Hand-off — kgirl
 
-_Session window: 2026-09-28 → 2026-10-01. Branch: `claude/dazzling-sagan-0uf4y7`. Written for whoever (human or agent) picks this up next._
+## Resume here
+**Newest close:** 13 November 2026, 09:20 PST · Claude Code, Opus 5.5 · session `e0adf913`
+**Where things stand:** `main` is at `6802f8c` with 0 open PRs and CI green. Today merged #85–#89.
+- **/ask:** works end to end on local Ollama, with retrieval from the Julia ChaosRAG service (Postgres :5433). It answers instead of always escalating: the energy cutoff now calibrates to the serving embedder (#89). Answers are never token-capped (#89).
+- **Correction to the 19 Oct hand-off:** `80f8b85` is in main. The Atlas home is now `~/.kgirl-sync`, not `~/.kgirl`.
+- **Correction to the 11 Nov `~/Hand_off.md`:** kgirl had 3 more merged PRs (#83, #84 research) before today.
 
-## 1. State at handoff
+**Decision needed:**
+1. Do the ~38 uncommitted April files in `~/Synaps` belong in the repo? They include `src/kgirl/blockchain/`, `metering/`, `coord/` and `quarantine/`.
+2. May the superseded local branches be deleted? These are `local/ask-gate-fix` and `feat/qincrs-soup-validator`.
 
-| item | state |
-|---|---|
-| PR [#54](https://github.com/9x25dillon/kgirl/pull/54) — harness (Atlas · Soup · Hermes · Jev) | **merged** (`8e9f421`) |
-| PR [#56](https://github.com/9x25dillon/kgirl/pull/56) — nihiline (CN121933729A assay lab) | **merged** (`e04e463`) |
-| commit `80f8b85` — evolve, Jev intuition, skill forge, `.claude/skills` | **pushed, not merged, no PR yet** |
-| this file | on the same branch as `80f8b85` |
-| tests | harness 43 · nihiline 23 · evolve 6 = **72**, all passing; `pyflakes` clean |
-| MCP server (`.mcp.json`, server name `kgirl`) | 15 tools, connected in Claude Code |
-| `~/.kgirl/atlas.db` (the index the MCP tools read) | **empty**: index again before relying on the `atlas_*` tools |
-| live model runs (Ollama / Claude) | **never done**: every model call was tested with `ScriptedBackend` |
+**Start with:**
+1. `cd ~/Synaps && git fetch && git branch -f main origin/main`: syncs local main (main is not checked out anywhere).
+2. Bring the stack up with the commands under "Running the stack", then ask `/ask` something with `"use_rag":true`.
+3. Check in with session `kgirl-f2` (cwd `~/kgirl`), which was doing harness work. See "In flight".
 
-## 2. What was built
+## Progress track (newest first)
+| Date | Session | Shipped (hash / PR) | State after |
+|---|---|---|---|
+| 2026-11-13 | Opus 5.5 `e0adf913` | #89 `6802f8c` /ask energy cutoff calibrated per embedder; no token cap; Ollama num_ctx 8192 | /ask answers on nomic-embed-text (auto ≤ 0.948) |
+| 2026-11-13 | Opus 5.5 `e0adf913` | #88 `7318a9f` ignore `/.pgdata/` `/.cthroot/` | local Postgres can't be staged by `git add -A` |
+| 2026-11-13 | Opus 5.5 `e0adf913` | #87 ChaosRAG over Ollama behind /ask (/index /query /telemetry, use_rag, concurrent generation); Julia `IPAddr` startup crash fixed | full stack runs locally |
+| 2026-11-13 | Opus 5.5 `e0adf913` | #86 `sydv.py` parses (paste moved to `docs/archive/`) | every `src/kgirl` file listed in quarantine parses |
+| 2026-11-13 | Opus 5.5 `e0adf913` | #85 efl_iwme_cascade test fixed for Py 3.14; research CI job | CI: `harness` + `research-efl-iwme-cascade` |
+| 2026-11-12/13 | Claude (cloud) | #83, #84 research/efl_iwme_cascade preregistered runs | 10/11 hypotheses replicate; A5 doesn't (RESULTS.md §4) |
+| 2026-11-11 | Opus 5.5 `7304eed2` | #82 untracks 75 root junk files; 20 merged branches deleted | `main` only |
+| 2026-11-03 | Claude (porter) | #80 embedding cache, #81 drill tests | stronger default route not shipped |
+| 2026-10-19 | Claude | `kgirl.life` + metabolism; this file's previous version | archived: `docs/handoff/HANDOFF-2026-10-19-claude-opus.md` |
 
-### 2.1 Harness — `src/kgirl/harness/` (PR #54)
+## In flight
+- **Harness setup "at full capability"** by peer session `kgirl-f2` (cwd `~/kgirl`, maybe worktree `~/work/kgirl-run`): Atlas refresh, hybrid retrieval, the MCP server and a launcher. Not this session's work; its state is unknown. Ask it, or check `porter_brief`.
+- **Parked on purpose:** `feat/stronger-default-route` in `~/work/kgirl-sync`. Round-5 drills showed no gain (`~/kgirl-teach/route/RESULTS.md`).
+- **Superseded, not merged:**
+  - `local/ask-gate-fix` (`15c1e72`): everything useful is in #61 and #87.
+  - `feat/qincrs-soup-validator` in `~/work/kgirl-harness`: already upstream via #77. Its 10 dirty files are older drafts.
+  - `feat/jev-blocked-gate`, `sync/harness-router-retrieval`, `test/*`, `feat/incremental-embeddings` (worktree `~/work/kgirl-vectors`): merged; their remote branches are gone.
+- **Uncommitted April work in `~/Synaps`** (branch `chore/claude-md-gitignore`):
+  - Parts already merged elsewhere: the Julia Ollama port and the `sydv.py` repair.
+  - Never committed: `src/kgirl/{blockchain,metering,api/services}/`, `core/marl_portfolio.py`, `coord/`, `quarantine/`, `tests/test_runtime_smoke.py`, and duplicate `qincrs_*` files at the root and in `docs/`. Don't sweep these into a commit; ask the user.
 
-- **Atlas.** A structural index across repos. It stores symbols, signatures, imports, refs and clone hashes; it never stores file bodies.
-  - It resolves bare-module imports across repos, computes blast radius over file, symbol and clone edges, ranks repo coupling, and builds architecture cards.
-  - Ingest is incremental and keyed by `PARSER_VERSION ‖ sha1`.
-  - It indexed 33 repos and about 34k symbols in roughly 15 s.
-- **Soup.** A memory pool with just-in-time recall under a token budget, Beta-posterior credit assignment, and a staged curator. The curator uses a support gate, LCB/UCB bounds, decay, a capacity cap, and a ledger with rollback.
-- **Hermes.** An envelope bus with a causal trace, plus a role router:
-  - `scout` goes to Claude Haiku 4.5.
-  - `smith` and `jev` go to Ollama.
-  - Each role has a fallback chain.
-- **Jev.** Meeseeks agents acting on a numbered action table:
-  - Decisions are one strictly parsed line.
-  - An edit only applies if its SEARCH text occurs exactly once.
-  - Agents work in sandbox copies and run as sacrificial swarms.
-  - Winners are verified independently, then distilled into Soup.
-  - There is a code world and a Playwright browser world.
-- **Interfaces.** A CLI (`python -m kgirl.harness …`), a stdio MCP server, and `docs/harness/ATLAS_REPORT.md`, which reports kgirl's coupling with 32 neighbour repos.
+## Decisions (why)
+- 2026-11-13 **Energy cutoffs calibrate per embedder:** `auto` ≤ mean + 1 SD and `needs_citations` ≤ mean + 2 SD of the fallback energy over 24 reference prompts (`ENERGY_CALIBRATION_PROMPTS`, `energy_cutoffs()` in `src/kgirl/main.py`). It's the same rule that produced the old 0.16 on the demo adapter. Rejected: a new constant, because the scale moves with the embedder (demo ≈ 0.11, nomic ≈ 0.88).
+- 2026-11-13 **No token caps:** the user hates truncation. Ollama gets no `num_predict`. Anthropic needs `max_tokens`, so it's 8192, the default model's output limit (`ANTHROPIC_MAX_TOKENS`). Ollama `num_ctx` = 8192 (`KGIRL_OLLAMA_NUM_CTX`), because Ollama silently drops prompt starts beyond 4096. 16384 evicted a model on the 8 GB GPU.
+- 2026-11-13 **Kept #61's coherence and energy math over the August local fix;** only the features #61 lacked were ported (#87).
+- 2026-11-13 **The efl test fix touched only the test,** so RESULTS.md §7 ("models/metrics/experiments unchanged since 8180617") stays true.
+- 2026-11-13 **Truncated paste moved, not deleted** (`docs/archive/sydv_appended_bundle.txt`; the two files concatenated equal the old one).
+- 2026-11-13 **`*.zip` not ignored:** `data/` tracks zips on purpose.
 
-### 2.2 nihiline — `src/kgirl/nihiline/` (PR #56)
+## Dead ends
+- Julia 1.13 precompiling LibPQ: `Memento` fails ("Method overwriting is not permitted during Module precompilation"). Workaround: `--compiled-modules=no` (slow first start, about 2 min).
+- `/ask` default energy on nomic before #89: always `escalate`, even when both models agreed and were right.
+- Harness `ask` with the current Atlas index found only `def ask(...)`, not its body, so the index is stale (13 Nov). Re-indexing writes into `~/.kgirl-sync/repos`; that's for `kgirl-f2` or the user to do.
 
-The user's lab scripts, re-aimed at **CN121933729A**: CEA/AFP detection on living MCF-7 cells with closed bipolar electrode (c-BPE) ECL. The originals are kept byte for byte in `research/nihiline/originals/`.
+## Open questions
+- On nomic-embed-text, isotropic noise scores about 0.93 and the calibrated cutoff is 0.948, so the energy gate barely separates anything there. Is it worth keeping, or should coherence alone decide? To settle: log energy vs. answer quality over real questions.
+- Coherence measures agreement, not truth: two models both saying "I don't know" scored 0.95. Is a correctness check wanted?
+- The `sydv.py` demo still crashes (autograd on a no-grad tensor; a 3-output Sequential unpacked into 2). Is TA-ULS v2 (`src/kgirl/tauls/`) the maintained one?
 
-| module | job |
-|---|---|
-| `patent` | the patent as data |
-| `calibration` | quantification and the scar on zero (blank + 3σ) |
-| `amplification` | per-cell antigen → photon chain and the LOD gap |
-| `protocol` | the transcript's nine levels run as the assay |
-| `pulse` | the optimal off ("nihil") duty of the drive |
-| `bloom` | viability sentinel |
-| `array` | BPE lattice: crosstalk, uniformity, defects |
-| `plots` | figures |
+## State (verified 09:05–09:20 PST)
+- **kgirl** `main` `6802f8c`; 0 open PRs; CI on #89 pass (harness + research). Public repo: pushes are publications.
+- **Local `main`** = origin/main. `~/work/kgirl-tests` is detached at origin/main and clean.
+- **Running (started this session):**
+  - Postgres :5433 (`~/Synaps/.pgdata`)
+  - Julia ChaosRAG :8001
+  - kgirl API :8765 with qwen2.5:3b and llama3.2:3b, on nomic-embed-text, num_ctx 8192, about 6.2 GB VRAM
+- **Data:** the `chaos` DB got one test doc (an "Omarchry" note) plus a TEST telemetry row.
+- **Machine:** Python 3.14.10 (multiprocessing default is forkserver), Julia 1.13.3 with packages in the v1.12 env, Ollama 0.12.11.
 
-**Findings.**
-- One shared blank lies behind three of the patent's four curves. The AFP concentration curve is the outlier at 592 a.u., and the printed AFP cell slope "44703 4473" must be 4473.
-- CEA is limited by probe packing; AFP is limited by antigen count.
-- The reported LODs need only about 2–3 × 10⁻⁴ of the bound MB to be electroactive.
-- The optimal off-fraction is about 0.4.
-- Phase variance warns 53–330 s before intensity collapses.
-- A real bug in the original `phase_topology_lab.py` was fixed: its winding-number sum always telescoped to 0.
-
-### 2.3 Unmerged (`80f8b85`)
-
-- **`kgirl.evolve`.** MAP-Elites driven by ChaosRNG, which maps the r = 4 logistic map onto U(0,1) through arcsin√x. There is no PRNG anywhere. Lineage is tracked, along with coverage, QD-score and stepping stones.
-  - The first problem evolves c-BPE designs inside the claim ranges.
-  - The patent default under continuous drive scores 0. The champion scores about 0.35: TPA 70 mM, Ru 2 mM, 5 V, an off-fraction of about 0.47, 0.5 s pulses, about 93 % viable.
-- **Jev intuition (System 1).** Replays routines, keyed by line-free targets, from accepted runs without calling a model. A failed intuitive step switches the agent back to the model ("surprise").
-  - Model calls dropped from 7 to 1 on a repeated task.
-  - Only half the swarm uses intuition, so the rest keeps exploring.
-- **Skill forge.** Turns verified routines into Soup skills and Claude Code `SKILL.md` exports. It never overwrites hand-written skills.
-- **`.claude/skills/`.** Three hand-written skills: `kgirl-blast-radius`, `nihiline-assay`, `evolve-designs`.
-
-## 3. User preferences learned (binding)
-
-1. **Never delete or "clean" the user's copies, vendored duplicates or originals.** The root clutter is intentional: venv shims, git internals, clones of numbskull. Leave it for future agents.
-2. **Noise and randomness come from deterministic chaos (logistic maps), never `random` or `np.random`.**
-3. **Model routing.** Claude handles retrieval and summaries; local models handle code edits.
-4. **Keep building.** The user wants features, not proofs or experiments, unless they ask. They value emergent and evolutionary mechanisms and their own vocabulary: nihil, scar on zero, Bloom, Meeseeks.
-5. **PR flow.** The user explicitly asks for PRs and merges. Do not open or merge on your own initiative.
-6. **Communication.** State confidence levels (0–3) on scientific claims. Never present a Level 2 model output as a measured result.
-
-## 4. Critique — three places I could have operated more efficiently
-
-1. **Repo discovery before asking.** "Jev", "Hermes" and "soup" did not appear in kgirl.
-   - I then cloned about 30 repos (583 MB in the scratchpad, including two over 150 MB) and grepped them in three rounds before asking the user what the names meant.
-   - One clarifying question after the first miss would have saved about ten minutes and most of that disk.
-   - The user's later reply ("I just need their architecture and blast radius") showed full clones were never needed. Metadata or shallow sparse checkouts would have done.
-2. **Writing test assertions before looking at real output.** Several red-green cycles came from wrong expectations, not wrong code:
-   - the dilution flag at 100 cells/mL
-   - the vortex sign convention
-   - the test decider matching `test_calc.py` instead of `calc.py`
-   - the seeded table not containing a bare `calc.py` row
-   - a fixture that dedented badly and broke clone hashing
-   
-   Running the function once and *then* pinning behaviour in a test would have removed four or five extra test runs.
-3. **Indexing into a scratch `KGIRL_HOME`.**
-   - The Atlas was built twice in scratch homes (`kh`, `kh2`), so the MCP server, which reads `~/.kgirl`, started empty and still is.
-   - Each `ingest` also calls `resolve_imports()` over *all* imports, which is O(repos × imports). It should resolve once after a batch.
-   - Indexing the default home, with one deferred resolve, would have made the MCP tools useful immediately and the run faster.
-
-## 5. Critique — three things I could have improved
-
-1. **No live model validation.**
-   - Jev's prompt and decision grammar, the smith SEARCH/REPLACE format, distillation, and Claude scout answers have only met scripted backends.
-   - Small local models (1.5B–7B) are exactly where format drift happens.
-   - The "7 → 1 model calls" intuition result comes from a scripted agent, not a real one.
-2. **Level 2 assumptions drive the headline numbers.** Several conclusions rest on response curves I chose, not on data:
-   - the evolved champion
-   - the optimal off-fraction
-   - "probe at 25 µg/mL"
-   
-   Those curves are fouling and healing rates, V² stress, background ∝ probe, binding saturation and ECL yield. I documented the levels but added no **robustness check**: re-scoring the elites under perturbed or alternative assumptions to see which designs stay elite. The fitness function also bakes in a product of yield, reproducibility, viability and sensitivity whose weights are a choice.
-3. **Engineering hygiene gaps.**
-   - No CI workflow, so the 72 tests never run on PRs. kgirl's only workflows are Docker publishing and a stale-issue bot.
-   - Dependencies are undeclared: numpy and matplotlib for nihiline/evolve; anthropic and playwright as optional extras.
-   - PRs #54 and #56 were merged without review.
-   - The harness MCP server now imports nihiline and evolve lazily. That works, but it couples the generic harness to one domain. A plugin registry for MCP tools would scale better.
-
-## 6. Next session — three strategies
-
-1. **Boot sequence (first five minutes).**
-   ```bash
-   git fetch origin && git log --oneline -3 origin/main          # was 80f8b85 merged? if not, ask whether to PR it
-   PYTHONPATH=src python -m kgirl.harness index . 9x25dillon/numbskull 9x25dillon/Eopiez 9x25dillon/LiMp
-   for s in harness nihiline evolve; do python -m unittest discover -s tests/$s -t .; done
-   PYTHONPATH=src python -m kgirl.harness route                  # which backends are actually up
-   ```
-   - Index into the **default** home so the `atlas_*` MCP tools work.
-   - Read `.claude/skills/*` and sections 3–5 of this file before touching anything.
-2. **Close the live-model loop before adding features.**
-   - With Ollama (`qwen2.5-coder:7b` and `:1.5b`) and an Anthropic key, run one real Jev swarm on a small failing kgirl test.
-   - Record success, model calls, intuition steps and surprises, then run `skills forge --export .claude/skills`.
-   - Fix whatever format drift shows up in `parse_decision` or the smith block parser.
-   - Only then tune `intuition_threshold` and the curator policy, ideally by evolving them with `kgirl.evolve`, which closes the self-improvement loop.
-3. **Harden what exists, in small reviewed PRs.**
-   - (a) A GitHub Actions workflow running the three suites plus pyflakes.
-   - (b) Declared dependencies (`requirements-harness.txt` or `pyproject` extras).
-   - (c) A robustness ensemble in `evolve/problems/assay.py`: score each elite under N chaos-perturbed assumption sets and report designs that stay in the top decile.
-   - (d) Defer `resolve_imports` to once per `index` batch.
-   - (e) An MCP tool registry so domain packages register their own tools.
-   - Keep each PR focused, and let the user decide merges.
-
-## 7. Map of the repo additions
-
+## Running the stack
+```bash
+pg_ctl -D ~/Synaps/.pgdata -l /tmp/pg.log -o "-p 5433" start
+cd ~/work/kgirl-tests   # any checkout of main
+DATABASE_URL=postgresql://127.0.0.1:5433/chaos julia --compiled-modules=no \
+  --project=$HOME/.julia/environments/v1.12 src/julia/server.jl &          # :8001
+PYTHONPATH=src MODELS='ollama:chat=qwen2.5:3b,embed=nomic-embed-text|ollama:chat=llama3.2:3b,embed=nomic-embed-text' \
+  ~/Synaps/.venv/bin/python -m uvicorn kgirl.main:app --host 127.0.0.1 --port 8765 &
+curl -s 127.0.0.1:8765/ask -H 'content-type: application/json' -d '{"prompt":"…","use_rag":true,"return_all":true}'
 ```
-src/kgirl/harness/      atlas/ soup/ hermes/ llm/ jev/ (agent, intuition, swarm, code_env, browser_env) skills.py mcp_server.py cli.py report.py
-src/kgirl/nihiline/     patent calibration amplification protocol pulse bloom array plots __main__
-src/kgirl/evolve/       chaos space mapelites pareto plots problems/assay __main__
-research/nihiline/      originals/ (verbatim uploads) + README (provenance, patent data)
-docs/harness/ docs/nihiline/ docs/evolve/   guides, figures, ATLAS_REPORT.md
-.claude/skills/         kgirl-blast-radius, nihiline-assay, evolve-designs
-tests/harness/ tests/nihiline/ tests/evolve/
-.mcp.json               registers the kgirl MCP server for Claude Code
-```
+To stop: `pg_ctl -D ~/Synaps/.pgdata stop`, then kill the processes listening on :8001 and :8765. The user's shell is fish, so wrap these lines in `bash -c '…'`.
 
-## 8. Addendum (2026-10-17): `kgirl.vessel`
+## Project health
+- Tests:
+  - `tests/integration/test_consensus.py`: 12 pass
+  - `tests/iwme/test_sources.py` and `tests/harness/test_privacy.py`: pass
+  - harness: 146 OK (2 skipped)
+  - research: 119 tests, 30/30 checks
+- CI: both jobs green on #89.
+- Fragile:
+  - `/ask` calibration runs on the first request per adapter (24 embeddings, about 1–2 s).
+  - The Julia server's DB default is `postgresql://127.0.0.1:5433/chaos`.
+  - A stray file named `main` in `~/Synaps` makes a bare `main` ambiguous; use `refs/heads/main`.
 
-Branch `claude/kgirl-consciousness-container-hqhwiv`. This adds `src/kgirl/vessel/` (identity container), `tests/vessel/` (37
-tests, about 25 s; the 4 AURIC tests skip without torch) and `docs/vessel/README.md` (theory, evidence table,
-negative results). It also adds three harness MCP tools: `vessel_status`, `vessel_verify` and `vessel_demo`.
+## Next steps, in order
+1. Answer the two decisions above. Reply e.g. `delete the superseded kgirl branches` / `review the April files in Synaps`.
+2. Coordinate with `kgirl-f2`, then re-index Atlas so the harness `ask` sees current code.
+3. Log `/ask` energy and coherence against judged answers over about 30 real questions, then decide the energy gate's future.
+4. Optional: a `docs/` page or script for "Running the stack" (above), so it isn't only here.
 
-- It uses **patern-coding** (AURIC) through `vessel/torch_substrate.py` (`auric_substrate`, found via
-  `kgirl.paths`). It adapts substrate-comm's **group-sampling invariance check** in `vessel/invariance.py`.
-  Neither of those repos was modified.
-- Torch is not installed in kgirl's environment. The AURIC tests passed under torch 2.14 in a scratch venv.
-- Everything runs on numpy plus the standard library, and all randomness comes from ChaosRNG (preference 2).
-- Start with `PYTHONPATH=src python -m kgirl.vessel demo`, then read docs/vessel "Future evolution". The first
-  item is to measure sibling distances and steering cost on a *trained* AURIC checkpoint and recalibrate the
-  engage and release thresholds from them.
+## One-shot check
+    bash ~/.claude/skills/hanoffed/scripts/scan.sh --root ~/Synaps --fetch
+    bash ~/.claude/skills/hanoffed/scripts/checks.sh ~/work/kgirl-tests --run
 
-## 9. Addendum (2026-10-17): `kgirl.resonance`
+## Rules that still apply
+- PR flow. The user asks for PRs and merges; don't merge on your own initiative.
+- Never delete or "clean" the user's copies, originals or vendored duplicates. Root clutter was untracked (#82) but the files stay on disk.
+- Randomness comes from ChaosRNG (logistic map), never `random` or `np.random`, in kgirl modules. Tests may use numpy RNG for fixtures.
+- State confidence levels on scientific claims. Never present Level 2 output as measured.
+- Tithe material never goes into this repo, `~/.kgirl-sync` or the router index.
+- Never print credentials. Mask URL userinfo.
 
-The user's RVSE v2.1 / Quaternary Hyperspatial Engine is kept verbatim in `research/resonance/originals/`,
-with a triage table in `research/resonance/README.md`.
-- The real parts became `src/kgirl/resonance/`, numpy only and validated: DFA/MF-DFA, H₀ homology, the PLL
-  and the resonate-and-fire bank.
-- `src/kgirl/vessel/landscape.py` adds population families, topological drift and voice dynamics.
-- There is a new MCP tool, `resonance_analyze`.
-- 14 new tests. Existing vessel numbers are unchanged; the demo only gained lines.
+## Vocabulary so far
+squash merge, dangling commit (11-11) · preregistration, Goodhart's law (11-02/03) · superseded, calibration (11-13). Full ledger: `~/.claude/skills/hanoffed/vocabulary.md`.
 
-## 10. Addendum (2026-10-17): autopilot and the RSI slider
-
-`vessel/autopilot.py` adds an unattended loop with a recursive-self-improvement slider: 0 observe, 1 steer,
-2 learn, 3 consolidate, 4 self-tune. The scenario lives in `vessel/rsi_demo.py`. The CLI command is
-`python -m kgirl.vessel autopilot --rsi N | --sweep`, and the MCP tool is `vessel_autopilot`. The guards
-(fidelity gate, experience replay, watchdog, breaker from RSI 1, fresh steering moments) each came from a
-measured failure, recorded in `docs/vessel/AUTOPILOT.md`. `SteerConfig.fresh_optimizer` and
-`reset_optimizer()` are additive, and their defaults leave every earlier number unchanged.
-
-## 11. Addendum (2026-10-19): `kgirl.life` and the harness metabolism
-
-The user's *Thermodynamics of Being*, *Minimal Algorithmic Life Equation* (tex/pdf), its mathematical appendix
-and `life_simulator.py` are kept verbatim in `research/life/originals/`, with a triage table in
-`research/life/README.md`.
-- `src/kgirl/life/` (standard library only) holds the pure map, closed forms and E_crit, the ODE with a
-  corrected barrier, replica availability and swarm sizing, and the five experimental axes.
-  `python -m kgirl.life …` runs them.
-- `src/kgirl/harness/metabolism.py` runs the harness as an organism. It sizes and staggers swarms when no size
-  is given, and sets Soup's forgetting factor. It adds the CLI command `vitals` and the MCP tools `life_vitals`
-  and `life_experiment`. Everything it changes is gated by `KGIRL_LIFE` (default on; 0 restores the old
-  behaviour).
-- Harness changes are additive:
-  - `SwarmConfig.stagger_s` (default 0), `SwarmResult.unspawned`, `elapsed` in `jev.done`
-  - `Curator(gamma_fn=…)`, `CurationReport.gamma`
-  - `task -n` defaults to the metabolism
-  - blast and architecture answers now publish `assistant.answer` with backend `atlas`
-- `kgirl.evolve life` adds a MAP-Elites problem.
-- 46 new tests. Findings and open questions are in `docs/life/README.md`. R and C have no causal role in these
-  equations yet; that is open question 1.
-
+## Opening prompt for next session (edit the brackets)
+> Read kgirl's `HANDOFF.md` on main (`git -C ~/Synaps show origin/main:HANDOFF.md`, or `~/work/kgirl-tests/HANDOFF.md` after `git -C ~/work/kgirl-tests checkout --detach origin/main`) and run its one-shot check. Then [next step 1 or 3]. Done means [truth condition]. Live work; open PRs for changes and merge when CI is green. When we wrap up: /hanoffed kgirl.
