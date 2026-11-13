@@ -53,7 +53,8 @@ def resolve_source(spec: str, cache_dir: Path | None = None, refresh: bool = Fal
             raise
     elif refresh:
         _git(["-C", str(dest), "fetch", "--quiet", "--depth", "1", "origin"], timeout=600)
-        _git(["-C", str(dest), "reset", "--quiet", "--hard", "FETCH_HEAD"], timeout=60)
+        # "--" pins FETCH_HEAD as a revision even when the clone's tree has a file of that name.
+        _git(["-C", str(dest), "reset", "--quiet", "--hard", "FETCH_HEAD", "--"], timeout=60)
     return Source(name, dest, url)
 
 
