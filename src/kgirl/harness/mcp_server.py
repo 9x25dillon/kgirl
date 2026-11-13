@@ -34,6 +34,14 @@ def verify_allowlist() -> list[list[str]]:
     return [shlex.split(c) for c in os.environ.get("KGIRL_VERIFY_ALLOWLIST", "").split(";") if c.strip()]
 
 
+def verify_refusal(allowed: list[list[str]]) -> str:
+    if not allowed:
+        return ("verify command refused: KGIRL_VERIFY_ALLOWLIST allows no verify command over MCP, and without one "
+                "the swarm rejects every unverified DONE; ask the user to allow one (commands separated by ';')")
+    choices = ", ".join(json.dumps(shlex.join(c)) for c in allowed)
+    return f"verify command is not in KGIRL_VERIFY_ALLOWLIST; pass verify exactly as one of: {choices}"
+
+
 def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
     def search(p):
         hits = a.atlas.search(p["query"], int(p.get("limit", 12)), p.get("repo"))
@@ -79,8 +87,9 @@ def _tools(a: Assistant) -> dict[str, tuple[dict, Callable[[dict], str]]]:
         verify = p.get("verify")
         cmd = shlex.split(verify) if isinstance(verify, str) else verify
         # The model may only pick a verifier the user allowed; it never chooses a program to run.
-        if cmd and cmd not in verify_allowlist():
-            raise PermissionError("verify command is not in KGIRL_VERIFY_ALLOWLIST (commands separated by ';')")
+        allowed = verify_allowlist()
+        if cmd and cmd not in allowed:
+            raise PermissionError(verify_refusal(allowed))
         apply = bool(p.get("apply", False))
         if apply:
             roots = {Path(r["root"]).resolve() for r in a.atlas.repos()}
