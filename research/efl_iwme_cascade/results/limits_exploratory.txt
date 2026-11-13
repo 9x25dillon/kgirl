@@ -1,0 +1,77 @@
+LIMITS  exploratory, not registered: no hypothesis, no pass or fail
+
+1. CLOSURE MARGIN  residual closure defect D of fits at the largest N, every replicate
+  run part1_registered
+    G1: raw D 0.515; own family HMM2 restores closure (D < 0.10 and < raw/5) in 12 of 12 replicates
+      family        min   median      max
+      AM         0.0161   0.0371   0.1148
+      B          0.5150   0.5150   0.5150
+      HMM2       0.0015   0.0292   0.0908
+      MC1        0.0419   0.0978   0.1804
+    G2: raw D 1.326; own family AM restores closure (D < 0.10 and < raw/5) in 12 of 12 replicates
+      family        min   median      max
+      AM         0.0005   0.0242   0.0500
+      B          1.3256   1.3256   1.3256
+      MC1        0.0756   0.1196   0.1741
+      rule A5 (iii), B and MC1 each above 5 x AM: holds in 6 of 12 replicates; MC1 / AM ranges 2.7 to 257.6
+    G3: raw D 0.619; own family AM restores closure (D < 0.10 and < raw/5) in 11 of 12 replicates
+      family        min   median      max
+      AM         0.0165   0.0289   0.1097
+      B          0.6185   0.6185   0.6185
+      MC1        0.7720   0.8337   0.9102
+      rule A5 (iii), B and MC1 each above 5 x AM: holds in 12 of 12 replicates; MC1 / AM ranges 7.8 to 53.5
+    G4: raw D 1.242; own family MC3 restores closure (D < 0.10 and < raw/5) in 11 of 12 replicates
+      family        min   median      max
+      AM         0.0079   0.0399   0.0848
+      B          1.2423   1.2423   1.2423
+      MC1        0.2236   0.2849   0.3459
+      MC3        0.0039   0.0344   0.1073
+  run part1_replication_pcg
+    G1: raw D 0.515; own family HMM2 restores closure (D < 0.10 and < raw/5) in 12 of 12 replicates
+      family        min   median      max
+      AM         0.0114   0.0452   0.1043
+      B          0.5150   0.5150   0.5150
+      HMM2       0.0005   0.0335   0.0950
+      MC1        0.0140   0.0865   0.1260
+    G2: raw D 1.326; own family AM restores closure (D < 0.10 and < raw/5) in 12 of 12 replicates
+      family        min   median      max
+      AM         0.0079   0.0376   0.0936
+      B          1.3256   1.3256   1.3256
+      MC1        0.0229   0.0990   0.1610
+      rule A5 (iii), B and MC1 each above 5 x AM: holds in 4 of 12 replicates; MC1 / AM ranges 0.2 to 15.2
+    G3: raw D 0.619; own family AM restores closure (D < 0.10 and < raw/5) in 11 of 12 replicates
+      family        min   median      max
+      AM         0.0071   0.0368   0.1029
+      B          0.6185   0.6185   0.6185
+      MC1        0.7972   0.8511   0.9002
+      rule A5 (iii), B and MC1 each above 5 x AM: holds in 12 of 12 replicates; MC1 / AM ranges 8.2 to 124.0
+    G4: raw D 1.242; own family MC3 restores closure (D < 0.10 and < raw/5) in 11 of 12 replicates
+      family        min   median      max
+      AM         0.0020   0.0308   0.0876
+      B          1.2423   1.2423   1.2423
+      MC1        0.2287   0.2846   0.3460
+      MC3        0.0033   0.0330   0.1252
+
+2. CLASSIFIER CASES  N = 2560, 12 replicates, 200 surrogates; large-sample values from 1,000,000 rows
+  QUAD  adjacent coupling, link 4 is v + 0.7 (v^2 - 1)
+    large-sample closure ratio raw 1.0057, normal-score 1.5260; defect raw 0.0082, normal-score 0.6098
+    labels: 'adjacent, linear' 0, 'nonlinear layers, adjacent coupling' 0, 'non-adjacent coupling' 12
+    coupling here is adjacent only: 'non-adjacent coupling' is a wrong label, given in 12 of 12
+  CUBE  adjacent coupling, link 4 is v^3 / sqrt(15), fresh noise after it
+    large-sample closure ratio raw 0.9982, normal-score 1.2987; defect raw 0.0026, normal-score 0.3770
+    labels: 'adjacent, linear' 0, 'nonlinear layers, adjacent coupling' 1, 'non-adjacent coupling' 11
+    coupling here is adjacent only: 'non-adjacent coupling' is a wrong label, given in 11 of 12
+  HEAVY  linear adjacent chain, Laplace innovations
+    large-sample closure ratio raw 1.0048, normal-score 1.0225; defect raw 0.0069, normal-score 0.0321
+    labels: 'adjacent, linear' 12, 'nonlinear layers, adjacent coupling' 0, 'non-adjacent coupling' 0
+    coupling here is adjacent only: 'non-adjacent coupling' is a wrong label, given in 0 of 12
+  NEGSKIP  skip coupling -0.6 from two scales up
+    large-sample closure ratio raw 8.2012, normal-score 8.2020; defect raw 3.0358, normal-score 3.0360
+    labels: 'adjacent, linear' 12, 'nonlinear layers, adjacent coupling' 0, 'non-adjacent coupling' 0
+    a skip coupling is present: 'non-adjacent coupling' is the right label, given in 0 of 12
+  NLSKIP  registered skip chain (+0.6), odd layers cubed
+    large-sample closure ratio raw 24.6613, normal-score 1.1491; defect raw 4.6242, normal-score 0.2005
+    labels: 'adjacent, linear' 0, 'nonlinear layers, adjacent coupling' 12, 'non-adjacent coupling' 0
+    a skip coupling is present: 'non-adjacent coupling' is the right label, given in 0 of 12
+
+(57.2 s)
