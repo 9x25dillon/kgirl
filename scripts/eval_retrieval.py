@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import json
 import random
+import shutil
 import sqlite3
 import statistics
 import sys
@@ -51,17 +52,31 @@ def generate(model: str, prompt: str) -> str:
         return " ".join(json.load(resp)["response"].split())
 
 
-def make_queries(args) -> None:
-    db = sqlite3.connect(args.chunks)
-    rows = db.execute("SELECT id, symbol, text FROM chunks WHERE kind IN ('function','method','class') AND lang='python'"
-                      " AND path LIKE 'src/kgirl/%' AND length(text) BETWEEN 200 AND 4000 ORDER BY id").fetchall()
-    seen, unique = set(), []
-    for row in rows:
-        h = text_hash(row[2])
+def candidates(db: sqlite3.Connection, all_repos: bool, seed: int) -> list[tuple[int, str, str]]:
+    """Unique source chunks in question order. --all-repos: any language, repos interleaved round-robin."""
+    where = "kind IN ('function','method','class') AND length(text) BETWEEN 200 AND 4000"
+    if not all_repos:
+        where += " AND lang='python' AND path LIKE 'src/kgirl/%'"
+    seen, unique, by_repo = set(), [], {}
+    for cid, repo, symbol, text in db.execute(f"SELECT id, repo, symbol, text FROM chunks WHERE {where} ORDER BY id"):
+        h = text_hash(text)
         if h not in seen:
             seen.add(h)
-            unique.append(row)
-    random.Random(args.seed).shuffle(unique)
+            unique.append((cid, symbol, text))
+            by_repo.setdefault(repo, []).append((cid, symbol, text))
+    rng = random.Random(seed)
+    if not all_repos:
+        rng.shuffle(unique)
+        return unique
+    groups = [by_repo[r] for r in sorted(by_repo)]
+    for g in groups:
+        rng.shuffle(g)
+    return [g[i] for i in range(max(map(len, groups), default=0)) for g in groups if i < len(g)]
+
+
+def make_queries(args) -> None:
+    db = sqlite3.connect(args.chunks)
+    unique = candidates(db, args.all_repos, args.seed)
     kept = rejected = 0
     with open(args.queries, "w") as f:
         for cid, symbol, text in unique:
@@ -72,7 +87,7 @@ def make_queries(args) -> None:
             if len(q) < 15 or (len(leaf) > 2 and leaf in q.lower()):
                 rejected += 1
                 continue
-            f.write(json.dumps({"id": cid, "query": q}) + "\n")
+            f.write(json.dumps({"id": cid, "query": q, "hash": text_hash(text)}) + "\n")
             f.flush()
             kept += 1
             print(f"\r{kept}/{args.n}", end="", flush=True)
@@ -106,41 +121,55 @@ def percentile(values: list[float], p: float) -> float:
 def run(args) -> None:
     queries = [json.loads(line) for line in open(args.queries)]
     db = sqlite3.connect(args.chunks)
-    all_rows = {r[0]: r for r in db.execute("SELECT id, path, start_line, end_line, text FROM chunks")}
+    all_rows = {r[0]: r for r in db.execute("SELECT id, repo, path, start_line, end_line, text FROM chunks")}
     by_hash: dict[str, set[int]] = {}
     for cid, row in all_rows.items():
-        by_hash.setdefault(text_hash(row[4]), set()).add(cid)
+        by_hash.setdefault(text_hash(row[5]), set()).add(cid)
     matrix = Matrix(args.matrix)
     embed = ollama_embedder(matrix.model)
+    cite = lambda c: f"{all_rows[c][1]}:{all_rows[c][2]}:{all_rows[c][3]}"
 
-    def scored(ranking: list[int], gold: set[int], score: Score) -> None:
+    def scored(ranking: list[int], gold: set[int], score: Score) -> int | None:
         rank = next((i for i, c in enumerate(ranking[:10]) if c in gold), None)
-        tokens = None if rank is None else sum(estimate_tokens(all_rows[c][4]) for c in ranking[:rank + 1])
+        tokens = None if rank is None else sum(estimate_tokens(all_rows[c][5]) for c in ranking[:rank + 1])
         score.add(rank, tokens)
+        return rank
 
     methods = {name: Score() for name in ("keyword", "vector_full", "vector_s100", "vector_s400", "vector_s1000",
                                           "hybrid_s400", "atlas_current")}
     tmp = tempfile.TemporaryDirectory()
-    atlas = Atlas(Path(tmp.name) / "atlas.db")
-    atlas.ingest(args.repo_root, "kgirl", None)
+    if args.atlas:  # score against an existing Atlas, through a copy so the original is never written
+        shutil.copyfile(args.atlas, Path(tmp.name) / "atlas.db")
+        atlas = Atlas(Path(tmp.name) / "atlas.db")
+    else:
+        atlas = Atlas(Path(tmp.name) / "atlas.db")
+        atlas.ingest(args.repo_root, "kgirl", None)
+    details = open(args.details, "w") if args.details else None
     for q in queries:
-        gold = by_hash[text_hash(all_rows[q["id"]][4])]
+        gold = by_hash[q.get("hash") or text_hash(all_rows[q["id"]][5])]
         text = q["query"]
         kw = [r for r in db.execute(
             "SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ? ORDER BY bm25(chunks_fts, 4.0, 0.7, 1.0, 0.3)"
             " LIMIT 40", (fts_or_empty(text),))] if fts_or_empty(text) else []
         kw = [r[0] for r in kw]
-        scored(kw, gold, methods["keyword"])
+        ranks = {"keyword": scored(kw, gold, methods["keyword"])}
         bits, vals = matrix.encode_query(embed([QUERY_PREFIX + text])[0])
         for name, shortlist in (("vector_full", matrix.count), ("vector_s100", 100), ("vector_s400", 400),
                                 ("vector_s1000", 1000)):
-            scored([h[0] for h in matrix.search(bits, vals, 40, shortlist)], gold, methods[name])
+            ranks[name] = scored([h[0] for h in matrix.search(bits, vals, 40, shortlist)], gold, methods[name])
         vec = [h[0] for h in matrix.search(bits, vals, 40, 400)]
-        scored([i for i, _ in reciprocal_rank_fusion([kw, vec])], gold, methods["hybrid_s400"])
-        spans = [(all_rows[c][1], all_rows[c][2], all_rows[c][3]) for c in gold]
+        hybrid = [i for i, _ in reciprocal_rank_fusion([kw, vec])]
+        ranks["hybrid_s400"] = scored(hybrid, gold, methods["hybrid_s400"])
+        spans = [(all_rows[c][1], all_rows[c][2], all_rows[c][3], all_rows[c][4]) for c in gold]
         hits = atlas.search(text, 10, None)
-        methods["atlas_current"].add(next((i for i, h in enumerate(hits)
-                                           if any(h.path == p and a <= h.line <= b for p, a, b in spans)), None))
+        ranks["atlas_current"] = next((i for i, h in enumerate(hits) if any(
+            h.repo == r and h.path == p and a <= h.line <= b for r, p, a, b in spans)), None)
+        methods["atlas_current"].add(ranks["atlas_current"])
+        if details:
+            details.write(json.dumps({"id": q["id"], "query": text, "gold": sorted(cite(c) for c in gold),
+                                      "ranks": ranks, "hybrid_top3": [cite(c) for c in hybrid[:3]]}) + "\n")
+    if details:
+        details.close()
     atlas.close()
     tmp.cleanup()
     print(json.dumps({"queries": len(queries), "chunks": matrix.count,
@@ -200,12 +229,17 @@ def main() -> None:
     m.add_argument("--model", default="qwen2.5:3b")
     m.add_argument("--n", type=int, default=100)
     m.add_argument("--seed", type=int, default=1729)
+    m.add_argument("--all-repos", action="store_true",
+                   help="sample every repo and language, round-robin by repo (default: kgirl's src/kgirl Python)")
     m.set_defaults(fn=make_queries)
     r = sub.add_parser("run")
     r.add_argument("chunks")
     r.add_argument("matrix")
     r.add_argument("queries")
     r.add_argument("--repo-root", default=str(ROOT))
+    r.add_argument("--atlas", help="score atlas_current against this existing atlas.db (read through a copy)"
+                                   " instead of indexing --repo-root")
+    r.add_argument("--details", help="write one JSON line per query: gold, rank per method, hybrid top 3")
     r.add_argument("--router-ssh")
     r.add_argument("--router-dir", default="/mnt/kgirl")
     r.set_defaults(fn=run)

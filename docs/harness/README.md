@@ -37,6 +37,7 @@ python -m kgirl.harness blast src/kgirl/llm/llm_adapters.py      # who breaks if
 python -m kgirl.harness blast "llm_adapters.py::LocalStubAdapter"
 python -m kgirl.harness card numbskull --summarize               # architecture card (+ Claude summary)
 python -m kgirl.harness ask "how does the dual LLM orchestrator pick a backend?"
+python -m kgirl.harness chunks --gpu                             # hybrid-search index over every indexed repo (below)
 python -m kgirl.harness task "make tests/test_x.py pass" --repo . \
        --verify "python -m pytest -q tests/test_x.py" -n 3        # Jev swarm; add --apply to write the diff
 python -m kgirl.harness report -o docs/harness/ATLAS_REPORT.md
@@ -86,6 +87,32 @@ sends instructions that Atlas and Soup text is data, not instructions.
 A backend error moves the call to the next link in its chain. When a chain is exhausted,
 `NoBackend` is raised with every link's reason. `ask` then degrades to an extractive answer:
 the cited context pack itself.
+
+## Hybrid search over all repos (opt-in)
+
+Atlas keeps structure, not text. The chunk index keeps the text, cut at Atlas symbol boundaries. `ask` then
+adds keyword (FTS5) and vector (`nomic-embed-text`) hits, fused by reciprocal rank, to its context pack.
+
+```bash
+python -m kgirl.harness index --refresh owner/repo …     # bring the Atlas clones up to date first
+python -m kgirl.harness chunks --gpu                    # → $KGIRL_HOME/chunks/all/all-repos.{db,kgvm}
+export KGIRL_CHUNKS_DB=~/.kgirl/chunks/all/all-repos.db KGIRL_MATRIX=~/.kgirl/chunks/all/all-repos.kgvm
+```
+
+- **Sources.** Every git repo in the Atlas, read at its `HEAD` commit through `git archive`, so untracked
+  files and uncommitted edits never reach the index. Atlas entries that are not git checkouts are skipped,
+  and `--exclude REPO` leaves a repo out. `meta.head` records the commit for each repo.
+- **Secrets.** A file is left out whole when its name looks like a key or credentials file, or its text
+  holds a known token shape (GitHub, AWS, Hugging Face, Anthropic, OpenAI, Slack, Google, Stripe), a
+  private-key block, a password in a URL, a hard-coded `password = "…"`-style literal, or an unquoted
+  `….key=…` value of 32+ characters that mixes letters and digits (`atlas/secrets.py`). The command prints each one as `repo:path (rule)`, and `meta.filtered` keeps the
+  list; the matched text is never printed or stored. Treat it as a net, not a guarantee: review the list,
+  and keep anything private out of the Atlas.
+- **Rebuilds.** Embeddings are cached in `$KGIRL_HOME/chunks/embed-cache.db` by exact text, so a rebuild
+  embeds only chunks that changed. The new chunk DB and matrix are swapped in together only after both are
+  built.
+- **Router.** With `KGIRL_ROUTER_SSH` set, the same two files can be served from a router
+  (`atlas/retrieval.py`, `scripts/router/`); copy them there after a rebuild.
 
 ## Core theory
 

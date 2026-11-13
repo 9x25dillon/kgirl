@@ -1,9 +1,11 @@
+import json
 import sqlite3
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
-from kgirl.harness.atlas.chunks import MAX_LINES, OVERLAP, build, chunk_file, search
+from kgirl.harness.atlas.chunks import MAX_LINES, OVERLAP, build, build_committed, chunk_file, search
 from kgirl.harness.atlas.parse import extract
 
 
@@ -74,3 +76,54 @@ class BuildTests(unittest.TestCase):
         db = self.conn()
         self.assertEqual(search(db, "gzip"), [])
         self.assertFalse(self.db.with_name(self.db.name + ".tmp").exists())
+
+    def test_working_tree_build_drops_files_holding_secrets(self):
+        (self.root / "leak.py").write_text('TOKEN = "' + "gh" + "p_" + "Q" * 36 + '"\n')
+        stats = build(self.root, self.db, "demo")
+        self.assertEqual(stats["filtered"], ["demo:leak.py (GitHub token)"])
+        self.assertEqual(search(self.conn(), "TOKEN"), [])
+
+
+def leaky_line() -> str:
+    return 'API_TOKEN = "' + "gh" + "p_" + "Q" * 36 + '"\n'  # assembled here so no token sits in this file
+
+
+class CommittedBuildTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.repo = self.tmp / "proj"
+        self.repo.mkdir()
+        self.git("init", "-q")
+        (self.repo / "app.py").write_text("def committed_version():\n    return 1\n")
+        (self.repo / "leak.py").write_text(leaky_line())
+        self.git("add", "app.py", "leak.py")
+        self.git("commit", "-qm", "init")
+        (self.repo / "app.py").write_text("def uncommitted_edit():\n    return 2\n")
+        (self.repo / "scratch.py").write_text("def untracked_helper():\n    return 3\n")
+
+    def git(self, *args: str) -> str:
+        out = subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                             check=True, capture_output=True, text=True)
+        return out.stdout.strip()
+
+    def test_only_committed_text_is_indexed_and_secrets_are_dropped(self):
+        out = self.tmp / "all.db"
+        stats = build_committed([("proj", self.repo)], out)
+        db = sqlite3.connect(out)
+        self.addCleanup(db.close)
+        rows = db.execute("SELECT repo, path, symbol FROM chunks").fetchall()
+        self.assertEqual({(r, p) for r, p, _ in rows}, {("proj", "app.py")})
+        self.assertIn("committed_version", {s for _, _, s in rows})
+        self.assertEqual(stats["filtered"], ["proj:leak.py (GitHub token)"])
+        meta = dict(db.execute("SELECT key, value FROM meta"))
+        self.assertEqual(meta["repo"], "all")
+        self.assertEqual(json.loads(meta["head"]), {"proj": self.git("rev-parse", "HEAD")})
+        self.assertEqual(json.loads(meta["filtered"]), ["proj:leak.py (GitHub token)"])
+
+    def test_a_directory_without_commits_is_refused(self):
+        plain = self.tmp / "plain"
+        plain.mkdir()
+        with self.assertRaises(ValueError):
+            build_committed([("proj", self.repo), ("plain", plain)], self.tmp / "x.db")
