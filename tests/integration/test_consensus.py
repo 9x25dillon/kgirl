@@ -87,3 +87,67 @@ class FallbackEnergyTests(unittest.TestCase):
         ce = CardyEnergy()
         if not ce.use_cth:
             self.assertGreater(ce.default_max, cal["mean"])
+
+
+@unittest.skipIf(spectral_coherence is None, "kgirl.main not importable")
+class AskRagAndTokenCapTests(unittest.TestCase):
+    """use_rag is best-effort and max_tokens reaches every adapter."""
+
+    def _client_with(self, pool):
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from fastapi.testclient import TestClient
+        import kgirl.main as M
+        saved = list(M.g_model_pool)
+        M.g_model_pool[:] = pool
+        self.addCleanup(lambda: M.g_model_pool.__setitem__(slice(None), saved))
+        return M, TestClient(M.app)
+
+    def _recording_pool(self, seen):
+        from kgirl.main import BaseAdapter
+
+        class Recording(BaseAdapter):
+            def __init__(self, name):
+                self.name = name
+
+            def generate(self, prompt, max_tokens=None):
+                seen.append((self.name, prompt, max_tokens))
+                return "the same answer"
+
+            def embed(self, text):
+                return np.array([1.0, 0.5, 0.25])
+
+            def get_hidden_states(self, text):
+                return np.array([1.0, 0.0, 0.0])
+
+        return [Recording("a"), Recording("b")]
+
+    def test_rag_server_down_still_answers_without_context(self):
+        from unittest import mock
+        seen = []
+        M, client = self._client_with(self._recording_pool(seen))
+        with mock.patch.object(M, "CHAOS_RAG_URL", "http://127.0.0.1:9"):   # nothing listens on port 9
+            r = client.post("/ask", json={"prompt": "q?", "use_rag": True, "max_energy": 1.0})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["rag_hits"], [])
+        self.assertEqual({p for _, p, _ in seen}, {"q?"})                  # prompt left unaugmented
+        self.assertEqual(r.json()["decision"], "auto")
+
+    def test_rag_context_is_prepended_when_hits_come_back(self):
+        from unittest import mock
+        seen = []
+        M, client = self._client_with(self._recording_pool(seen))
+        with mock.patch.object(M, "_fetch_rag_context", return_value=("CTX-LINE", ["CTX-LINE"], {"top_k": 1})):
+            r = client.post("/ask", json={"prompt": "q?", "use_rag": True})
+        self.assertEqual(r.json()["rag_hits"], ["CTX-LINE"])
+        self.assertEqual(r.json()["rag_router"], {"top_k": 1})
+        for _, prompt, _ in seen:
+            self.assertIn("CTX-LINE", prompt)
+            self.assertTrue(prompt.endswith("Question: q?"))
+
+    def test_max_tokens_reaches_every_adapter(self):
+        seen = []
+        _, client = self._client_with(self._recording_pool(seen))
+        client.post("/ask", json={"prompt": "q?", "max_tokens": 32})
+        self.assertEqual(sorted((n, t) for n, _, t in seen), [("a", 32), ("b", 32)])

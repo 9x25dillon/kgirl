@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
@@ -37,7 +39,7 @@ except Exception:  # optional dependency
 class BaseAdapter:
     name: str = "base"
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, max_tokens: Optional[int] = None) -> str:
         raise NotImplementedError
 
     def embed(self, text: str) -> np.ndarray:
@@ -57,11 +59,12 @@ class OpenAIAdapter(BaseAdapter):
         self.embed_model = embed_model
         self.name = f"openai:{chat_model}"
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, max_tokens: Optional[int] = None) -> str:
         r = self.client.chat.completions.create(
             model=self.chat_model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
+            **({"max_tokens": max_tokens} if max_tokens else {}),
         )
         return r.choices[0].message.content or ""
 
@@ -86,10 +89,10 @@ class AnthropicAdapter(BaseAdapter):
         self.openai_embed_fallback = openai_embed_fallback
         self.name = f"anthropic:{chat_model}"
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, max_tokens: Optional[int] = None) -> str:
         msg = self.client.messages.create(
             model=self.chat_model,
-            max_tokens=1024,
+            max_tokens=max_tokens or 1024,
             messages=[{"role": "user", "content": prompt}],
         )
         # anthropic returns content blocks
@@ -127,12 +130,17 @@ class OllamaAdapter(BaseAdapter):
             import os
             os.environ["OLLAMA_HOST"] = host
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, max_tokens: Optional[int] = None) -> str:
         try:
+            # num_predict caps generated tokens. Without it a local model runs until it decides to stop,
+            # which made /ask latency unbounded (measured 6m36s for two 3B models on one prompt).
+            options = {"temperature": 0.2}
+            if max_tokens:
+                options["num_predict"] = int(max_tokens)
             response = ollama.chat(
                 model=self.chat_model,
                 messages=[{"role": "user", "content": prompt}],
-                options={"temperature": 0.2}
+                options=options,
             )
             return response["message"]["content"]
         except Exception as e:
@@ -175,7 +183,9 @@ def spectral_weights(embs: np.ndarray) -> np.ndarray:
         w = -w
     w = np.clip(w, 0, None)
     s = w.sum()
-    return w / (s + 1e-12)
+    if s <= 1e-12:  # degenerate kernel: fall back to a uniform vote
+        return np.full(K.shape[0], 1.0 / K.shape[0])
+    return w / s
 
 
 def spectral_coherence(embs: np.ndarray) -> float:
@@ -325,6 +335,13 @@ settings = Settings()
 
 app = FastAPI(title="Topological Consensus API", version="0.1.0")
 
+# CORS for a local browser frontend. Off unless KGIRL_CORS_ORIGINS lists origins (comma-separated),
+# e.g. KGIRL_CORS_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
+_cors_origins = [o.strip() for o in os.getenv("KGIRL_CORS_ORIGINS", "").split(",") if o.strip()]
+if _cors_origins:
+    app.add_middleware(CORSMiddleware, allow_origins=_cors_origins, allow_credentials=True,
+                       allow_methods=["*"], allow_headers=["*"])
+
 # ----- Build model pool at startup -----
 g_model_pool: List[BaseAdapter] = []
 
@@ -434,6 +451,11 @@ class AskRequest(BaseModel):
     min_coherence: float = 0.80
     max_energy: Optional[float] = None    # None: the energy source's default (CardyEnergy.default_max)
     return_all: bool = False
+    use_rag: bool = False
+    rag_k: int = 5
+    # Cap on generated tokens per model. None lets each model run until it stops on its own, which
+    # makes /ask latency unbounded; callers on a timeout should always set this.
+    max_tokens: Optional[int] = None
 
 
 class AskResponse(BaseModel):
@@ -444,6 +466,8 @@ class AskResponse(BaseModel):
     weights: List[float]
     model_names: List[str]
     all_outputs: Optional[List[str]] = None
+    rag_hits: Optional[List[str]] = None
+    rag_router: Optional[dict] = None
 
 
 class Doc(BaseModel):
@@ -484,15 +508,133 @@ def config() -> dict:
     }
 
 
+CHAOS_RAG_URL = os.getenv("CHAOS_RAG_URL", "http://127.0.0.1:8001")
+
+
+class IndexDoc(BaseModel):
+    source: Optional[str] = None
+    kind: Optional[str] = None
+    content: str
+    meta: Optional[dict] = None
+
+
+class IndexRequest(BaseModel):
+    docs: List[IndexDoc]
+
+
+@app.post("/index")
+def index(req: IndexRequest) -> dict:
+    """Proxy to ChaosRAG /chaos/rag/index so the frontend has one base URL."""
+    import httpx
+    payload = {"docs": [d.model_dump(exclude_none=True) for d in req.docs]}
+    try:
+        r = httpx.post(f"{CHAOS_RAG_URL}/chaos/rag/index", json=payload, timeout=120.0)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"error": str(e), "upstream": CHAOS_RAG_URL}
+
+
+class QueryRequest(BaseModel):
+    q: str
+    k: int = 5
+
+
+@app.post("/query")
+def query(req: QueryRequest) -> dict:
+    """Proxy to ChaosRAG /chaos/rag/query — raw retrieval without consensus."""
+    import httpx
+    try:
+        r = httpx.post(
+            f"{CHAOS_RAG_URL}/chaos/rag/query",
+            json={"q": req.q, "k": req.k},
+            timeout=120.0,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"error": str(e), "upstream": CHAOS_RAG_URL}
+
+
+class TelemetryRequest(BaseModel):
+    asset: str
+    realized_vol: float
+    entropy: float
+    mod_intensity_grad: float = 0.0
+    router_noise: float = 0.0
+
+
+@app.post("/telemetry")
+def telemetry(req: TelemetryRequest) -> dict:
+    """Proxy to ChaosRAG /chaos/telemetry."""
+    import httpx
+    try:
+        r = httpx.post(
+            f"{CHAOS_RAG_URL}/chaos/telemetry",
+            json=req.model_dump(),
+            timeout=30.0,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"error": str(e), "upstream": CHAOS_RAG_URL}
+
+
+def _fetch_rag_context(query: str, k: int) -> tuple[str, List[str], Optional[dict]]:
+    """Pull retrieval context from the ChaosRAG Julia service. Best-effort."""
+    import httpx
+    try:
+        r = httpx.post(
+            f"{CHAOS_RAG_URL}/chaos/rag/query",
+            json={"q": query, "k": k},
+            timeout=120.0,
+        )
+        r.raise_for_status()
+        data = r.json()
+        hits = list(data.get("hits") or [])
+        router = data.get("router")
+        ctx = "\n---\n".join(hits) if hits else ""
+        return ctx, hits, router
+    except Exception as e:
+        print(f"⚠ ChaosRAG retrieval failed: {e}")
+        return "", [], None
+
+
 @app.post("/ask", response_model=AskResponse)
 def ask(req: AskRequest) -> AskResponse:
     assert g_model_pool, "no models configured"
 
-    # 1) generate outputs
-    outputs: List[str] = [m.generate(req.prompt) for m in g_model_pool]
+    # 0) optional RAG augmentation
+    rag_hits: Optional[List[str]] = None
+    rag_router: Optional[dict] = None
+    effective_prompt = req.prompt
+    if req.use_rag:
+        ctx, rag_hits, rag_router = _fetch_rag_context(req.prompt, req.rag_k)
+        if ctx:
+            effective_prompt = (
+                "Use the following context to answer faithfully. "
+                "If the context is irrelevant, say so.\n\n"
+                f"Context:\n{ctx}\n\nQuestion: {req.prompt}"
+            )
+
+    # 1) generate outputs — concurrently. The model calls are independent
+    # network round-trips, so running them serially made /ask latency the SUM
+    # of every model's generation time (measured: 8m34s for two local 3B models
+    # on an 8.7k-char prompt, which blows past any sane client timeout).
+    # Fan out and it becomes the MAX instead.
+    with ThreadPoolExecutor(max_workers=len(g_model_pool)) as pool:
+        outputs: List[str] = list(
+            # max_tokens is passed only when set, so adapters whose generate() takes just a prompt still work.
+            pool.map(lambda m: m.generate(effective_prompt, req.max_tokens) if req.max_tokens
+                     else m.generate(effective_prompt), g_model_pool)
+        )
 
     # 2) embed outputs (consensus on semantics of answers)
-    embs = np.stack([m.embed(o) for m, o in zip(g_model_pool, outputs)], axis=0)   # m was undefined (NameError)
+    with ThreadPoolExecutor(max_workers=len(g_model_pool)) as pool:
+        embs = np.stack(
+            list(pool.map(lambda pair: pair[0].embed(pair[1]), zip(g_model_pool, outputs))),
+            axis=0,
+        )
 
     # 3) phase coherence
     pc = PhaseCoherence(
@@ -529,6 +671,8 @@ def ask(req: AskRequest) -> AskResponse:
         weights=[float(x) for x in w.tolist()],
         model_names=[m.name for m in g_model_pool],
         all_outputs=outputs if req.return_all else None,
+        rag_hits=rag_hits,
+        rag_router=rag_router,
     )
 
 

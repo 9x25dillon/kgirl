@@ -15,7 +15,7 @@ class DemoAdapter:
         self.name = f"demo:{name}"
         self.response_style = response_style
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, max_tokens: int | None = None) -> str:  # max_tokens ignored
         """Generate a deterministic mock response."""
         # Create different response styles to test coherence
         if self.response_style == "factual":
