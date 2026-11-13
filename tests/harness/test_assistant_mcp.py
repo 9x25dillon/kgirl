@@ -92,6 +92,27 @@ class AssistantTests(unittest.TestCase):
             sources.resolve_source(f"file://{repo}", cache_dir=Path(self.tmp.name) / "c2")
         self.assertEqual(seen["env"]["GIT_LFS_SKIP_SMUDGE"], "1")
 
+    def test_refresh_resets_a_clone_whose_tree_has_a_file_named_fetch_head(self):
+        # kgirl itself tracked a root file named FETCH_HEAD until PR #82; a bare `reset --hard FETCH_HEAD`
+        # is then ambiguous between the revision and the file, and every refresh of that clone failed.
+        repo = Path(self.tmp.name) / "junkrepo"
+        repo.mkdir()
+        git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+        subprocess.run([*git, "init", "-q"], check=True)
+        (repo / "a.py").write_text("x = 1\n")
+        (repo / "FETCH_HEAD").write_text("junk\n")
+        subprocess.run([*git, "add", "a.py", "FETCH_HEAD"], check=True)
+        subprocess.run([*git, "commit", "-qm", "track junk"], check=True)
+        from kgirl.harness.atlas import sources
+        cache = Path(self.tmp.name) / "c3"
+        src = sources.resolve_source(f"file://{repo}", cache_dir=cache)
+        subprocess.run([*git, "rm", "-q", "FETCH_HEAD"], check=True)
+        (repo / "a.py").write_text("x = 2\n")
+        subprocess.run([*git, "commit", "-qam", "untrack junk"], check=True)
+        sources.resolve_source(f"file://{repo}", cache_dir=cache, refresh=True)
+        self.assertEqual((src.root / "a.py").read_text(), "x = 2\n")
+        self.assertFalse((src.root / "FETCH_HEAD").exists())
+
     def test_index_writes_repo_facts_and_report(self):
         facts = self.a.soup.all(kind="fact")
         self.assertEqual({f.scope for f in facts}, {"lib", "hub"})
