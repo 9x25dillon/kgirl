@@ -1,0 +1,19 @@
+{
+ "name": "part2_replication_pcg",
+ "part": 2,
+ "stream": "pcg",
+ "sizes": [
+  20,
+  40,
+  80,
+  160,
+  320,
+  640,
+  1280,
+  2560
+ ],
+ "replicates": 12,
+ "surrogates": 200,
+ "welch_segments": 256,
+ "registered": true
+}
