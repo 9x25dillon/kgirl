@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
@@ -39,7 +40,7 @@ except Exception:  # optional dependency
 class BaseAdapter:
     name: str = "base"
 
-    def generate(self, prompt: str, max_tokens: Optional[int] = None) -> str:
+    def generate(self, prompt: str) -> str:
         raise NotImplementedError
 
     def embed(self, text: str) -> np.ndarray:
@@ -59,12 +60,11 @@ class OpenAIAdapter(BaseAdapter):
         self.embed_model = embed_model
         self.name = f"openai:{chat_model}"
 
-    def generate(self, prompt: str, max_tokens: Optional[int] = None) -> str:
+    def generate(self, prompt: str) -> str:
         r = self.client.chat.completions.create(
             model=self.chat_model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            **({"max_tokens": max_tokens} if max_tokens else {}),
         )
         return r.choices[0].message.content or ""
 
@@ -89,10 +89,12 @@ class AnthropicAdapter(BaseAdapter):
         self.openai_embed_fallback = openai_embed_fallback
         self.name = f"anthropic:{chat_model}"
 
-    def generate(self, prompt: str, max_tokens: Optional[int] = None) -> str:
+    def generate(self, prompt: str) -> str:
         msg = self.client.messages.create(
             model=self.chat_model,
-            max_tokens=max_tokens or 1024,
+            # The Messages API requires max_tokens. 8192 is the output limit of the default model, so answers
+            # are not cut short by this setting. ANTHROPIC_MAX_TOKENS overrides (raise it for larger models).
+            max_tokens=int(os.getenv("ANTHROPIC_MAX_TOKENS", "8192")),
             messages=[{"role": "user", "content": prompt}],
         )
         # anthropic returns content blocks
@@ -130,13 +132,17 @@ class OllamaAdapter(BaseAdapter):
             import os
             os.environ["OLLAMA_HOST"] = host
 
-    def generate(self, prompt: str, max_tokens: Optional[int] = None) -> str:
+    def generate(self, prompt: str) -> str:
         try:
-            # num_predict caps generated tokens. Without it a local model runs until it decides to stop,
-            # which made /ask latency unbounded (measured 6m36s for two 3B models on one prompt).
-            options = {"temperature": 0.2}
-            if max_tokens:
-                options["num_predict"] = int(max_tokens)
+            # No num_predict: the answer is never cut off (Ollama's default is -1, generate until the model
+            # stops). num_ctx is raised because Ollama silently drops the start of any prompt longer than
+            # the context window (4096 by default), which would cut RAG context. 8192 keeps two 3B models
+            # on an 8 GB GPU together (16384 does not). KGIRL_OLLAMA_NUM_CTX
+            # overrides; 0 keeps Ollama's own setting.
+            options: Dict[str, Any] = {"temperature": 0.2}
+            num_ctx = int(os.getenv("KGIRL_OLLAMA_NUM_CTX", "8192"))
+            if num_ctx > 0:
+                options["num_ctx"] = num_ctx
             response = ollama.chat(
                 model=self.chat_model,
                 messages=[{"role": "user", "content": prompt}],
@@ -281,6 +287,68 @@ def fallback_energy(state: Any) -> float:
         return 0.0
     pr = 1.0 / max(float((s ** 4).sum()), 1e-300)
     return float(min(1.0, pr / ((d + 2) / 3.0)))
+
+
+# Reference prompts for calibrating the fallback-energy cutoffs to whichever embedder serves /ask.
+# The fallback energy's scale depends on the embedder: the demo adapter gives about 0.11 on ordinary text,
+# nomic-embed-text about 0.84 (isotropic noise scores about 0.93 to 0.98 for both). A single constant
+# therefore either passes everything or, as the old 0.16 did on nomic-embed-text, escalates every request.
+ENERGY_CALIBRATION_PROMPTS = [
+    "What is the capital of France?",
+    "Explain how a hash map handles collisions.",
+    "Summarize the causes of the First World War in three sentences.",
+    "How do I bake sourdough bread at home?",
+    "Write a haiku about autumn rain.",
+    "What does the principal eigenvalue of a cosine kernel measure?",
+    "List three uses for a router running OpenWrt.",
+    "Why is the sky blue?",
+    "Translate 'good morning' into Spanish and Japanese.",
+    "What are the side effects of ibuprofen?",
+    "How does compound interest work?",
+    "Describe the plot of a typical heist movie.",
+    "What is the difference between TCP and UDP?",
+    "Give me a workout plan for beginners.",
+    "How do I fix a merge conflict in git?",
+    "What is 17 times 23?",
+    "Explain photosynthesis to a ten year old.",
+    "Who wrote Pride and Prejudice?",
+    "How should I structure a cover letter?",
+    "What makes a good bass line in trap music?",
+    "Compare Python lists and tuples.",
+    "What is retrieval augmented generation?",
+    "How long should I boil an egg?",
+    "What is the Big O complexity of binary search?",
+]
+
+_energy_cutoffs: Dict[str, Dict[str, float]] = {}
+_energy_cutoffs_lock = threading.Lock()
+
+
+def energy_cutoffs(adapter: Any, ce: "CardyEnergy") -> Dict[str, float]:
+    """Cutoffs for /ask: `auto` at mean + 1 SD and `needs_citations` at mean + 2 SD of the fallback energy
+    over ENERGY_CALIBRATION_PROMPTS, embedded by this adapter. Computed once per adapter name and cached.
+
+    The CTH energy keeps its historical 0.30 / 0.50. If calibration fails (embedder down), the old constants
+    are used for this request and calibration is retried on the next one.
+    """
+    if ce.use_cth:
+        return {"auto": ce.CTH_DEFAULT_MAX, "citations": 0.5, "source": "cth"}
+    key = getattr(adapter, "name", type(adapter).__name__)
+    with _energy_cutoffs_lock:
+        if key in _energy_cutoffs:
+            return _energy_cutoffs[key]
+    try:
+        cal = calibrate_energy([adapter.get_hidden_states(p) for p in ENERGY_CALIBRATION_PROMPTS])
+    except Exception as e:
+        print(f"⚠ energy calibration failed for {key}: {e}; using fixed cutoffs")
+        return {"auto": ce.FALLBACK_DEFAULT_MAX, "citations": 0.5, "source": "fixed"}
+    cut = {"auto": min(1.0, cal["mean"] + cal["sd"]), "citations": min(1.0, cal["mean"] + 2 * cal["sd"]),
+           "mean": cal["mean"], "sd": cal["sd"], "source": f"calibrated:{key}"}
+    with _energy_cutoffs_lock:
+        _energy_cutoffs[key] = cut
+    print(f"✓ energy cutoffs for {key}: auto ≤ {cut['auto']:.3f}, needs_citations ≤ {cut['citations']:.3f} "
+          f"(mean {cal['mean']:.3f}, SD {cal['sd']:.3f} over {cal['n']} reference prompts)")
+    return cut
 
 
 def calibrate_energy(states: Any, k_sigma: float = 1.0) -> Dict[str, float]:
@@ -449,13 +517,10 @@ def _startup() -> None:
 class AskRequest(BaseModel):
     prompt: str
     min_coherence: float = 0.80
-    max_energy: Optional[float] = None    # None: the energy source's default (CardyEnergy.default_max)
+    max_energy: Optional[float] = None    # None: calibrated for the serving embedder (energy_cutoffs)
     return_all: bool = False
     use_rag: bool = False
     rag_k: int = 5
-    # Cap on generated tokens per model. None lets each model run until it stops on its own, which
-    # makes /ask latency unbounded; callers on a timeout should always set this.
-    max_tokens: Optional[int] = None
 
 
 class AskResponse(BaseModel):
@@ -463,6 +528,7 @@ class AskResponse(BaseModel):
     decision: str
     coherence: float
     energy: float
+    max_energy: Optional[float] = None    # the auto cutoff this request was judged against
     weights: List[float]
     model_names: List[str]
     all_outputs: Optional[List[str]] = None
@@ -624,9 +690,7 @@ def ask(req: AskRequest) -> AskResponse:
     # Fan out and it becomes the MAX instead.
     with ThreadPoolExecutor(max_workers=len(g_model_pool)) as pool:
         outputs: List[str] = list(
-            # max_tokens is passed only when set, so adapters whose generate() takes just a prompt still work.
-            pool.map(lambda m: m.generate(effective_prompt, req.max_tokens) if req.max_tokens
-                     else m.generate(effective_prompt), g_model_pool)
+            pool.map(lambda m: m.generate(effective_prompt), g_model_pool)
         )
 
     # 2) embed outputs (consensus on semantics of answers)
@@ -647,7 +711,9 @@ def ask(req: AskRequest) -> AskResponse:
     # 4) energy (hallucination risk) — use first model's hidden state as proxy
     ce = CardyEnergy(n_anyons=27, central_charge=settings.central_charge)
     energy = ce.boundary(g_model_pool[0].get_hidden_states(req.prompt))
-    max_energy = ce.default_max if req.max_energy is None else req.max_energy
+    cut = energy_cutoffs(g_model_pool[0], ce)
+    max_energy = cut["auto"] if req.max_energy is None else req.max_energy
+    citations_energy = max(cut["citations"], max_energy)
 
     # 5) decision logic
     decision: str
@@ -656,7 +722,7 @@ def ask(req: AskRequest) -> AskResponse:
     if coh >= req.min_coherence and energy <= max_energy:
         decision = "auto"
         answer = outputs[best]
-    elif coh >= 0.5 and energy <= 0.5:
+    elif coh >= 0.5 and energy <= citations_energy:
         decision = "needs_citations"
         answer = outputs[best]
     else:
@@ -668,6 +734,7 @@ def ask(req: AskRequest) -> AskResponse:
         decision=decision,
         coherence=float(coh),
         energy=float(energy),
+        max_energy=float(max_energy),
         weights=[float(x) for x in w.tolist()],
         model_names=[m.name for m in g_model_pool],
         all_outputs=outputs if req.return_all else None,
