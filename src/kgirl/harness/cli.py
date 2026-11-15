@@ -96,6 +96,8 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("trace", help="tail the Hermes trace")
     p.add_argument("-n", type=int, default=40)
     sub.add_parser("mcp", help="serve the harness over MCP (stdio)")
+    from .cli_mind import add_parsers as add_mind_parsers
+    add_mind_parsers(sub)
 
     args = ap.parse_args(argv)
     a = _assistant(args)
@@ -107,6 +109,10 @@ def main(argv: list[str] | None = None) -> int:
 
 def _run(a: Assistant, args) -> int:
     cmd = args.cmd
+    from .cli_mind import run as run_mind
+    rc = run_mind(a, args)
+    if rc is not None:
+        return rc
     if cmd == "index":
         for st in a.index(args.sources, refresh=args.refresh):
             print(f"{st.repo:<40} files={st.scanned:<5} changed={st.changed:<5} removed={st.removed:<4} "

@@ -1,0 +1,64 @@
+# kgirl's mind: conversation, memory that learns, spec → code, writing
+
+Everything runs on local models through the Hermes router (`chat` role for talking and writing, `smith`
+for code). Nothing leaves the machine unless `KGIRL_CHAT_CLOUD=1` and local-only mode is off.
+
+## Talk to it
+
+    kgirl chat                 # resume the latest conversation (interactive; /help for commands)
+    kgirl chat --new           # start a new one
+    kgirl chat "one question"  # one turn, then exit
+    kgirl convo list | show ID | search QUERY | delete ID
+
+Each turn kgirl builds its prompt from:
+
+| Block | Source |
+|---|---|
+| WHO THE USER IS | the profile `kgirl evolve` maintains |
+| WHAT THE USER WANTS | active `preference` fragments relevant to the message |
+| MEMORY | facts, lessons, skills, antipatterns and episodes (summaries of other conversations) |
+| EARLIER CONVERSATIONS | full-text matches over every stored turn |
+| THIS CONVERSATION SO FAR | the rolling summary and open threads |
+| messages | the most recent turns that fit the history budget |
+
+It can call tools in the middle of an answer: `search_code`, `read_file`, `recall`, `remember`, `repos`,
+`build`, `write`.
+
+## How it learns (and why it stays sane)
+
+1. **Feedback**: "thanks, that works" or "no, that's wrong" credits or debits every memory the previous
+   answer was built from. Useful memories rise in recall; misleading ones sink and are retired.
+2. **Explicit memory**: "remember that …" is stored at once as your own words.
+3. **Reflection** (every 3 user turns, and on exit): the model rewrites the conversation summary and
+   *proposes* facts, preferences and lessons. A proposal is staged. The same thing observed again in
+   another reflection reinforces it, and the curator promotes it to an active habit only when its support
+   is ≥ 2 and its utility lower bound clears the policy. One conversation can suggest a habit; only
+   repetition makes it one.
+4. **Evolve** (`kgirl evolve`, run between sessions): reflects on anything pending, runs the curator
+   (decay, promote, retire, capacity), rewrites the user profile, forges skills, and with `--dataset`
+   exports approved exchanges as chat JSONL for a later local fine-tune.
+
+Every transition is in the Soup ledger (`kgirl soup ledger`) and can be rolled back.
+
+## Spec → code
+
+    kgirl build spec.md -o lru.py      # writes lru.py and test_lru.py
+    kgirl build spec.md --accept       # also keep the result as an active exemplar
+
+The builder writes K test suites from the spec alone, samples N implementations, runs every
+implementation against every test in a sandbox, picks the largest group of implementations that agree,
+and repairs toward tests some other implementation passes. Accepted results become `exemplar` memories
+recalled into later builds as worked examples. Over MCP the tool is `kgirl_build`; its exemplars stay
+staged until a person promotes them.
+
+## Writing
+
+    kgirl write "a design note on X for the team" -w 900 -o note.md
+
+The writer plans a JSON outline (using your preferences and relevant facts), drafts one section at a time,
+critiques the draft against the brief, and revises only the sections the critique names.
+
+## State
+
+`$KGIRL_HOME/conversations.db` holds conversations and turns. Memory stays in `soup.db`. Both are private
+(the home is created 0700).

@@ -63,3 +63,30 @@ class OllamaBackend:
             raise BackendError(f"ollama: {out['error']}")
         return Completion(out.get("message", {}).get("content", ""), self.model, self.name,
                           out.get("prompt_eval_count", 0), out.get("eval_count", 0), out.get("done_reason", ""))
+
+    def stream(self, system: str, messages: list[Message], max_tokens: int = 1024, temperature: float = 0.2):
+        """Yield the reply as it is generated (Ollama's newline-delimited JSON stream)."""
+        payload = {
+            "model": self.model, "stream": True, "keep_alive": self.keep_alive,
+            "messages": [{"role": "system", "content": system}] +
+                        [{"role": m.role, "content": m.content} for m in messages],
+            "options": {"temperature": temperature, "num_predict": max_tokens},
+        }
+        req = urllib.request.Request(self.host + "/api/chat", data=json.dumps(payload).encode(),
+                                     headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # noqa: S310 - local, configured host
+                for raw in resp:
+                    if not raw.strip():
+                        continue
+                    chunk = json.loads(raw.decode("utf-8"))
+                    if "error" in chunk:
+                        raise BackendError(f"ollama: {chunk['error']}")
+                    piece = chunk.get("message", {}).get("content", "")
+                    if piece:
+                        yield piece
+                    if chunk.get("done"):
+                        return
+        except (OSError, urllib.error.URLError, ValueError) as exc:
+            self._ok = False
+            raise BackendError(f"ollama stream failed at {self.host}: {exc}") from exc

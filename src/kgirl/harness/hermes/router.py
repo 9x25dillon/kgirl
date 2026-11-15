@@ -8,6 +8,9 @@ Roles (the only thing callers name — never a vendor):
            -> local Ollama coder; Claude only if KGIRL_ALLOW_CLOUD_CODE=1
     jev    one-token-ish per-step decisions for Meeseeks agents
            -> smallest local model, then the local coder
+    chat   conversation, reflection and long-form writing (mind/)
+           -> KGIRL_CHAT_MODEL (default: the smith model, so one model stays resident on the GPU),
+              then the local coder; Claude first only if KGIRL_CHAT_CLOUD=1 and not local-only
 
 Each role is an ordered fallback chain. A BackendError moves to the next link;
 exhausting the chain raises NoBackend with every link's reason, so failures are
@@ -24,7 +27,7 @@ from enum import Enum
 
 from ..llm import AnthropicBackend, Backend, BackendError, Completion, Message, OllamaBackend
 
-SCOUT, SMITH, JEV = "scout", "smith", "jev"
+SCOUT, SMITH, JEV, CHAT = "scout", "smith", "jev", "chat"
 
 
 class NoBackend(BackendError):
@@ -77,11 +80,15 @@ class Router:
         smith = OllamaBackend(smith_model)
         jev = OllamaBackend(jev_model, timeout=60.0)
         smith_chain: list[Backend] = [smith]
+        chat_model = os.environ.get("KGIRL_CHAT_MODEL", smith_model)
+        chat_chain: list[Backend] = [smith] if chat_model == smith_model else [OllamaBackend(chat_model), smith]
         if os.environ.get("KGIRL_LOCAL_ONLY") == "1":  # no cloud model in any chain, see docs/PRIVACY.md
-            return cls({SCOUT: [smith], SMITH: smith_chain, JEV: [jev, smith]})
+            return cls({SCOUT: [smith], SMITH: smith_chain, JEV: [jev, smith], CHAT: chat_chain})
         if os.environ.get("KGIRL_ALLOW_CLOUD_CODE") == "1":
             smith_chain.append(AnthropicBackend(os.environ.get("KGIRL_CLOUD_CODE_MODEL", "claude-opus-5")))
-        return cls({SCOUT: [scout, smith], SMITH: smith_chain, JEV: [jev, smith]})
+        if os.environ.get("KGIRL_CHAT_CLOUD") == "1":
+            chat_chain = [scout, *chat_chain]
+        return cls({SCOUT: [scout, smith], SMITH: smith_chain, JEV: [jev, smith], CHAT: chat_chain})
 
     def pick(self, role: str) -> Backend | None:
         for b in self.chains.get(role, []):
@@ -114,6 +121,24 @@ class Router:
                 u.output_tokens += out.output_tokens
             return out
         raise NoBackend(f"no backend could serve role {role!r}: " + "; ".join(reasons or ["empty chain"]))
+
+    def stream(self, role: str, system: str, messages: list[Message], max_tokens: int = 1024,
+               temperature: float = 0.2):
+        """Yield text pieces from the first backend that can stream; otherwise one piece from `complete`."""
+        backend = self.pick(role)
+        if backend is not None and hasattr(backend, "stream"):
+            try:
+                n = 0
+                for piece in backend.stream(system, messages, max_tokens=max_tokens, temperature=temperature):
+                    n += 1
+                    yield piece
+                with self._lock:
+                    self.usage.setdefault(role, Usage()).calls += 1
+                return
+            except BackendError:
+                if n:          # half an answer was already shown: don't start a second one
+                    raise
+        yield self.complete(role, system, messages, max_tokens, temperature).text
 
     def as_service(self):
         """Adapter for `bus.serve('llm.complete', router.as_service())`."""

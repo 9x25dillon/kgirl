@@ -8,6 +8,9 @@ A Fragment is a small, self-contained unit of knowledge:
     preference   "user wants Claude for summaries, local models for code"
     antipattern  "editing tests to make them pass was rejected"
     note         anything else
+    skill        a forged, named routine (skills.py)
+    episode      the rolling summary of one conversation (mind/reflect.py)
+    exemplar     a spec, its accepted code and the tests that agreed on it (mind/builder.py)
 
 Recall is *just-in-time*: at task arrival, fragments are ranked by
 relevance x utility x recency and packed greedily into a token budget with a
@@ -32,7 +35,8 @@ from pathlib import Path
 
 from ..util import estimate_tokens, fts_query, harness_home, jaccard, now, search_terms, sha1, shingles
 
-KINDS = ("fact", "abstraction", "trajectory", "preference", "antipattern", "note", "skill")
+KINDS = ("fact", "abstraction", "trajectory", "preference", "antipattern", "note", "skill", "episode",
+         "exemplar")
 STATUSES = ("staged", "active", "retired")
 
 SCHEMA = """
@@ -127,7 +131,7 @@ class Soup:
             raise ValueError(f"kind must be one of {KINDS}")
         if status not in STATUSES:
             raise ValueError(f"status must be one of {STATUSES}")
-        text = " ".join(text.split()) if kind != "trajectory" else text.strip()
+        text = " ".join(text.split()) if kind not in ("trajectory", "exemplar") else text.strip()
         if not text:
             raise ValueError("empty fragment")
         tags = ",".join(tags) if isinstance(tags, (list, tuple)) else tags
