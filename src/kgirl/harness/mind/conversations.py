@@ -1,8 +1,17 @@
 """Conversation memory: every turn kgirl has, stored, searchable and summarized.
 
-    conversations  one row per thread: title, rolling summary, open threads, timestamps
-    turns          every message (user, assistant, tool) in order, with the memory ids it was answered from
-    turn_fts       full-text index over turns, so a new conversation can recall what was said in old ones
+    conversations  one row per thread: title, rolling summary, open threads, scope, timestamps
+    turns          every message in order, with the memory ids it was answered from and a small `meta` record
+    turn_fts       full-text index over what was said, so a new conversation can recall old ones
+    contexts       the system prompt each answer was generated from (for a faithful fine-tune export)
+
+Roles, in the order one exchange stores them:
+
+    user        what the person typed
+    assistant   meta.partial = true: text the model wrote before a tool call, and the call itself
+    tool        the tool's result
+    assistant   the final answer; `recalled` lists the memory it was built from, and meta.feedback records
+                the person's verdict once there is one
 
 The rolling summary is what lets a small model "understand" a long conversation: the prompt carries the
 summary plus the most recent turns that fit a token budget, instead of the whole transcript.
@@ -15,6 +24,7 @@ import json
 import os
 import sqlite3
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -29,6 +39,7 @@ CREATE TABLE IF NOT EXISTS turns (
   ts REAL, recalled TEXT DEFAULT '[]', meta TEXT DEFAULT '{}');
 CREATE INDEX IF NOT EXISTS ix_turns_conv ON turns(conv_id, id);
 CREATE VIRTUAL TABLE IF NOT EXISTS turn_fts USING fts5(terms, content, tokenize='unicode61 remove_diacritics 2');
+CREATE TABLE IF NOT EXISTS contexts (turn_id INTEGER PRIMARY KEY, system TEXT NOT NULL);
 """
 
 ROLES = ("user", "assistant", "tool", "system")
@@ -47,6 +58,29 @@ class Turn:
     @property
     def tokens(self) -> int:
         return estimate_tokens(self.content)
+
+    @property
+    def partial(self) -> bool:
+        """An assistant turn that ended in a tool call, not the answer."""
+        return bool(self.meta.get("partial"))
+
+    @property
+    def is_answer(self) -> bool:
+        return self.role == "assistant" and not self.partial
+
+    @property
+    def verdict(self) -> str:
+        """The person's verdict on this answer: "positive", "negative" or "" when there is none yet."""
+        fb = self.meta.get("feedback")
+        return fb.get("verdict", "") if isinstance(fb, dict) else ""
+
+
+@dataclass(frozen=True)
+class Exchange:
+    """One user message and everything kgirl did about it."""
+    user: Turn
+    steps: tuple[Turn, ...]          # partial assistant turns and tool results, in order
+    answer: Turn | None              # None while unanswered (or when the answer was interrupted)
 
 
 @dataclass(frozen=True)
@@ -81,24 +115,30 @@ class ConversationStore:
         t = now()
         with self._lock, self.db:
             return self.db.execute("INSERT INTO conversations(title, scope, started, updated) VALUES (?,?,?,?)",
-                                   (title, scope, t, t)).lastrowid
+                                   (title, scope or "*", t, t)).lastrowid
 
     def get(self, conv_id: int) -> Conversation | None:
         r = self.db.execute("SELECT * FROM conversations WHERE id=?", (conv_id,)).fetchone()
         return _conv(r) if r else None
 
-    def latest(self) -> Conversation | None:
-        r = self.db.execute("SELECT * FROM conversations ORDER BY updated DESC LIMIT 1").fetchone()
+    def latest(self, scope: str | None = None) -> Conversation | None:
+        """The most recently used conversation, optionally only among those of one scope."""
+        if scope is None:
+            r = self.db.execute("SELECT * FROM conversations ORDER BY updated DESC, id DESC LIMIT 1").fetchone()
+        else:
+            r = self.db.execute("SELECT * FROM conversations WHERE scope=? ORDER BY updated DESC, id DESC LIMIT 1",
+                                (scope,)).fetchone()
         return _conv(r) if r else None
 
     def list(self, limit: int = 20) -> list[Conversation]:
-        return [_conv(r) for r in self.db.execute("SELECT * FROM conversations ORDER BY updated DESC LIMIT ?",
-                                                  (limit,))]
+        return [_conv(r) for r in self.db.execute(
+            "SELECT * FROM conversations ORDER BY updated DESC, id DESC LIMIT ?", (limit,))]
 
     def update(self, conv_id: int, *, title: str | None = None, summary: str | None = None,
-               threads: list[str] | None = None, reflected_turn: int | None = None) -> None:
+               threads: list[str] | None = None, reflected_turn: int | None = None,
+               scope: str | None = None) -> None:
         sets, args = [], []
-        for col, val in (("title", title), ("summary", summary), ("reflected_turn", reflected_turn)):
+        for col, val in (("title", title), ("summary", summary), ("reflected_turn", reflected_turn), ("scope", scope)):
             if val is not None:
                 sets.append(f"{col}=?")
                 args.append(val)
@@ -110,29 +150,54 @@ class ConversationStore:
         with self._lock, self.db:
             self.db.execute(f"UPDATE conversations SET {', '.join(sets)} WHERE id=?", (*args, conv_id))
 
-    def delete(self, conv_id: int) -> None:
+    def delete(self, conv_id: int) -> int:
+        """Remove a conversation and everything stored about its turns. Returns how many turns it had."""
         with self._lock, self.db:
             ids = [r["id"] for r in self.db.execute("SELECT id FROM turns WHERE conv_id=?", (conv_id,))]
             self.db.executemany("DELETE FROM turn_fts WHERE rowid=?", [(i,) for i in ids])
+            self.db.executemany("DELETE FROM contexts WHERE turn_id=?", [(i,) for i in ids])
             self.db.execute("DELETE FROM turns WHERE conv_id=?", (conv_id,))
             self.db.execute("DELETE FROM conversations WHERE id=?", (conv_id,))
+        return len(ids)
 
     # ------------------------------------------------------------------ turns
 
     def append(self, conv_id: int, role: str, content: str, recalled: list[int] | None = None,
-               meta: dict | None = None) -> int:
+               meta: dict | None = None, searchable: bool | None = None) -> int:
+        """Store one turn. By default what the user said and what kgirl finally answered are searchable;
+        tool results and the half-turns that end in a tool call are not."""
         if role not in ROLES:
             raise ValueError(f"role must be one of {ROLES}")
+        meta = meta or {}
+        if searchable is None:
+            searchable = role in ("user", "assistant") and not meta.get("partial")
         t = now()
         with self._lock, self.db:
             tid = self.db.execute("INSERT INTO turns(conv_id, role, content, ts, recalled, meta) VALUES (?,?,?,?,?,?)",
                                   (conv_id, role, content, t, json.dumps(recalled or []),
-                                   json.dumps(meta or {}, ensure_ascii=False))).lastrowid
-            if role in ("user", "assistant"):
+                                   json.dumps(meta, ensure_ascii=False))).lastrowid
+            if searchable:
                 self.db.execute("INSERT INTO turn_fts(rowid, terms, content) VALUES (?,?,?)",
                                 (tid, search_terms(content), content))
             self.db.execute("UPDATE conversations SET updated=? WHERE id=?", (t, conv_id))
         return tid
+
+    def turn(self, turn_id: int) -> Turn | None:
+        r = self.db.execute("SELECT * FROM turns WHERE id=?", (turn_id,)).fetchone()
+        return _turn(r) if r else None
+
+    def set_meta(self, turn_id: int, **updates) -> None:
+        """Merge keys into a turn's meta record (for example the verdict on an answer)."""
+        with self._lock, self.db:
+            row = self.db.execute("SELECT meta FROM turns WHERE id=?", (turn_id,)).fetchone()
+            if row is None:
+                return
+            try:
+                meta = json.loads(row["meta"] or "{}")
+            except ValueError:
+                meta = {}
+            meta.update(updates)
+            self.db.execute("UPDATE turns SET meta=? WHERE id=?", (json.dumps(meta, ensure_ascii=False), turn_id))
 
     def turns(self, conv_id: int, since_id: int = 0, roles: tuple[str, ...] | None = None) -> list[Turn]:
         sql, args = "SELECT * FROM turns WHERE conv_id=? AND id>?", [conv_id, since_id]
@@ -147,6 +212,38 @@ class ConversationStore:
             sql, args = sql + " AND role=?", args + [role]
         r = self.db.execute(sql + " ORDER BY id DESC LIMIT 1", args).fetchone()
         return _turn(r) if r else None
+
+    def last_answer(self, conv_id: int, before_id: int | None = None) -> Turn | None:
+        """The newest final answer in a conversation (optionally the newest one stored before `before_id`)."""
+        sql, args = "SELECT * FROM turns WHERE conv_id=? AND role='assistant'", [conv_id]
+        if before_id is not None:
+            sql, args = sql + " AND id<?", args + [before_id]
+        for r in self.db.execute(sql + " ORDER BY id DESC LIMIT 12", args):
+            t = _turn(r)
+            if not t.partial:
+                return t
+        return None
+
+    def exchanges(self, conv_id: int, since_id: int = 0) -> list[Exchange]:
+        """The conversation as exchanges: each user message with its tool steps and its final answer."""
+        out: list[Exchange] = []
+        user: Turn | None = None
+        steps: list[Turn] = []
+        for t in self.turns(conv_id, since_id):
+            if t.role == "user":
+                if user is not None:
+                    out.append(Exchange(user, tuple(steps), None))
+                user, steps = t, []
+            elif user is None:
+                continue                      # output of a slash command, or the tail of an older exchange
+            elif t.is_answer:
+                out.append(Exchange(user, tuple(steps), t))
+                user, steps = None, []
+            else:
+                steps.append(t)
+        if user is not None:
+            out.append(Exchange(user, tuple(steps), None))
+        return out
 
     def window(self, conv_id: int, budget_tokens: int, roles: tuple[str, ...] = ("user", "assistant", "tool")
                ) -> list[Turn]:
@@ -181,14 +278,49 @@ class ConversationStore:
             f"SELECT * FROM turns WHERE ts>=? AND role IN ({','.join('?' * len(roles))}) ORDER BY id",
             (ts, *roles))]
 
+    # ------------------------------------------------------------------ contexts and export
+
+    def save_context(self, turn_id: int, system: str) -> None:
+        """Keep the system prompt an answer was generated from: with it, the exchange is a training example
+        in the exact form the model was used in."""
+        with self._lock, self.db:
+            self.db.execute("INSERT OR REPLACE INTO contexts(turn_id, system) VALUES (?,?)", (turn_id, system))
+
+    def context(self, turn_id: int) -> str | None:
+        r = self.db.execute("SELECT system FROM contexts WHERE turn_id=?", (turn_id,)).fetchone()
+        return r["system"] if r else None
+
+    def transcript(self, conv_id: int) -> str:
+        """The whole conversation as Markdown (the person's own export of their data)."""
+        conv = self.get(conv_id)
+        if not conv:
+            return ""
+        lines = [f"# {conv.title or f'Conversation {conv.id}'}", "",
+                 f"Started {_stamp(conv.started)}; last message {_stamp(conv.updated)}; scope `{conv.scope}`."]
+        if conv.summary:
+            lines += ["", f"**Summary:** {conv.summary}"]
+        if conv.threads:
+            lines += ["", "**Open threads:**", *(f"- {t}" for t in conv.threads)]
+        for t in self.turns(conv_id):
+            label = {"user": "You", "assistant": "kgirl", "tool": "Tool result", "system": "System"}[t.role]
+            if t.partial:
+                label = "kgirl (calling a tool)"
+            lines += ["", f"## {label} · {_stamp(t.ts)}", ""]
+            lines.append(f"```\n{t.content}\n```" if t.role == "tool" else t.content)
+        return "\n".join(lines) + "\n"
+
+
+def _stamp(ts: float | None) -> str:
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else "?"
+
 
 def _conv(r: sqlite3.Row) -> Conversation:
     try:
         threads = json.loads(r["threads"] or "[]")
     except ValueError:
         threads = []
-    return Conversation(r["id"], r["title"] or "", r["summary"] or "", threads, r["scope"] or "*",
-                        r["started"], r["updated"], r["reflected_turn"] or 0)
+    return Conversation(r["id"], r["title"] or "", r["summary"] or "", threads if isinstance(threads, list) else [],
+                        r["scope"] or "*", r["started"], r["updated"], r["reflected_turn"] or 0)
 
 
 def _turn(r: sqlite3.Row) -> Turn:
@@ -197,4 +329,5 @@ def _turn(r: sqlite3.Row) -> Turn:
         meta = json.loads(r["meta"] or "{}")
     except ValueError:
         recalled, meta = [], {}
-    return Turn(r["id"], r["conv_id"], r["role"], r["content"], r["ts"], recalled, meta)
+    return Turn(r["id"], r["conv_id"], r["role"], r["content"], r["ts"], recalled if isinstance(recalled, list) else [],
+                meta if isinstance(meta, dict) else {})

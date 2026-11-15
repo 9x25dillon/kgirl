@@ -334,18 +334,32 @@ class Swarm:
         return dest
 
     def _apply(self, res: SwarmResult, repo: Path) -> None:
-        for path, (orig, new) in sorted(res.winner.edited.items()):
-            target = repo / path
-            try:
-                current = target.read_text(encoding="utf-8")
-            except OSError:
-                res.conflicts.append(path)
-                continue
-            if current != orig:
-                res.conflicts.append(path)
-                continue
-            target.write_text(new, encoding="utf-8")
-            res.applied.append(path)
+        applied, conflicts = apply_edits(res.winner.edited, repo)
+        res.applied.extend(applied)
+        res.conflicts.extend(conflicts)
+
+
+def apply_edits(edited: dict[str, tuple[str, str]], repo: Path) -> tuple[list[str], list[str]]:
+    """Write a winner's edits (path -> (original, new)) into the real repo. Returns (applied, conflicts).
+
+    A file that no longer matches the text the agent started from is left alone and reported as a conflict.
+    Also used by the chat's /apply, where the person accepts a swarm's diff after reading it.
+    """
+    applied: list[str] = []
+    conflicts: list[str] = []
+    for path, (orig, new) in sorted(edited.items()):
+        target = repo / path
+        try:
+            current = target.read_text(encoding="utf-8")
+        except OSError:
+            conflicts.append(path)
+            continue
+        if current != orig:
+            conflicts.append(path)
+            continue
+        target.write_text(new, encoding="utf-8")
+        applied.append(path)
+    return applied, conflicts
 
 
 def _slice(recall: Recall | None, i: int, n: int, budget: int):

@@ -210,11 +210,16 @@ class Soup:
 
     def recall(self, query: str, budget_tokens: int = 600, kinds: tuple[str, ...] | None = None,
                scope: str | None = None, statuses: tuple[str, ...] = ("active",), exclude: tuple[int, ...] = (),
-               candidates: int = 40, diversity: float = 0.6, offset: int = 0) -> Recall:
+               candidates: int = 40, diversity: float = 0.6, offset: int = 0, fallback: bool = True) -> Recall:
         """Just-in-time recall under a hard token budget.
 
         `offset` rotates the candidate list so parallel agents can be given
         different (diverse) memory slices of the same pool.
+
+        `fallback=False` returns only fragments that match the query's words. The default also fills a
+        sparse result with the most useful fragments in scope, which suits a task that always wants its
+        best lessons and does not suit a conversation, where unrelated memory is noise (and would then
+        be credited or blamed for an answer it had nothing to do with).
         """
         clauses = [f"f.status IN ({','.join('?' * len(statuses))})"]
         args: list = list(statuses)
@@ -232,7 +237,7 @@ class Soup:
                     f"SELECT f.*, bm25(frag_fts) AS rank FROM frag_fts JOIN fragments f ON f.id=frag_fts.rowid"
                     f" WHERE frag_fts MATCH ? AND {where} ORDER BY rank LIMIT ?", [q, *args, candidates]):
                 rows.append((r, -float(r["rank"])))
-        if len(rows) < 3:  # sparse query: fall back to the most useful fragments in scope
+        if fallback and len(rows) < 3:  # sparse query: fall back to the most useful fragments in scope
             seen = {r["id"] for r, _ in rows}
             for r in self.db.execute(
                     f"SELECT f.* FROM fragments f WHERE {where} ORDER BY (f.wins+1.0)/(f.wins+f.losses+2.0) DESC,"

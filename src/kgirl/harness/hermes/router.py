@@ -8,9 +8,17 @@ Roles (the only thing callers name — never a vendor):
            -> local Ollama coder; Claude only if KGIRL_ALLOW_CLOUD_CODE=1
     jev    one-token-ish per-step decisions for Meeseeks agents
            -> smallest local model, then the local coder
+    build  whole modules and test suites written from a spec (mind/builder.py)
+           -> KGIRL_BUILD_MODEL (default: the smith model); Claude only if KGIRL_ALLOW_CLOUD_CODE=1
     chat   conversation, reflection and long-form writing (mind/)
-           -> KGIRL_CHAT_MODEL (default: the smith model, so one model stays resident on the GPU),
-              then the local coder; Claude first only if KGIRL_CHAT_CLOUD=1 and not local-only
+           -> KGIRL_CHAT_MODEL (default: the build model, so one model stays resident on the GPU),
+              then the build model; Claude first only if KGIRL_CHAT_CLOUD=1 and not local-only
+
+`build` and `chat` load their model with a larger context window (KGIRL_MIND_CTX, default 8192 tokens;
+0 keeps the server's default): a conversation prompt carries memory, summaries and tool results, and the
+server would cut a longer prompt from the front without saying so. `smith` and `jev` keep the server's
+default window, so swarm behaviour is unchanged. Ollama reloads a model when its window changes, which
+costs a few seconds each time a swarm starts or ends inside a chat session.
 
 Each role is an ordered fallback chain. A BackendError moves to the next link;
 exhausting the chain raises NoBackend with every link's reason, so failures are
@@ -27,7 +35,18 @@ from enum import Enum
 
 from ..llm import AnthropicBackend, Backend, BackendError, Completion, Message, OllamaBackend
 
-SCOUT, SMITH, JEV, CHAT = "scout", "smith", "jev", "chat"
+SCOUT, SMITH, JEV, CHAT, BUILD = "scout", "smith", "jev", "chat", "build"
+DEFAULT_MIND_CTX = 8192
+
+
+def mind_ctx() -> int | None:
+    """Context window for the `chat` and `build` roles: KGIRL_MIND_CTX, default 8192; 0 means the server's."""
+    raw = os.environ.get("KGIRL_MIND_CTX", "").strip()
+    try:
+        value = int(raw) if raw else DEFAULT_MIND_CTX
+    except ValueError:
+        value = DEFAULT_MIND_CTX
+    return value if value > 0 else None
 
 
 class NoBackend(BackendError):
@@ -80,15 +99,28 @@ class Router:
         smith = OllamaBackend(smith_model)
         jev = OllamaBackend(jev_model, timeout=60.0)
         smith_chain: list[Backend] = [smith]
-        chat_model = os.environ.get("KGIRL_CHAT_MODEL", smith_model)
-        chat_chain: list[Backend] = [smith] if chat_model == smith_model else [OllamaBackend(chat_model), smith]
+        ctx = mind_ctx()
+        build = OllamaBackend(os.environ.get("KGIRL_BUILD_MODEL", smith_model), timeout=600.0, num_ctx=ctx)
+        build_chain: list[Backend] = [build]
+        chat_model = os.environ.get("KGIRL_CHAT_MODEL", build.model)
+        chat_chain: list[Backend] = [build] if chat_model == build.model else \
+            [OllamaBackend(chat_model, timeout=600.0, num_ctx=ctx), build]
         if os.environ.get("KGIRL_LOCAL_ONLY") == "1":  # no cloud model in any chain, see docs/PRIVACY.md
-            return cls({SCOUT: [smith], SMITH: smith_chain, JEV: [jev, smith], CHAT: chat_chain})
+            return cls({SCOUT: [smith], SMITH: smith_chain, JEV: [jev, smith], CHAT: chat_chain, BUILD: build_chain})
         if os.environ.get("KGIRL_ALLOW_CLOUD_CODE") == "1":
-            smith_chain.append(AnthropicBackend(os.environ.get("KGIRL_CLOUD_CODE_MODEL", "claude-opus-5")))
+            cloud = AnthropicBackend(os.environ.get("KGIRL_CLOUD_CODE_MODEL", "claude-opus-5"))
+            smith_chain.append(cloud)
+            build_chain.append(cloud)
         if os.environ.get("KGIRL_CHAT_CLOUD") == "1":
             chat_chain = [scout, *chat_chain]
-        return cls({SCOUT: [scout, smith], SMITH: smith_chain, JEV: [jev, smith], CHAT: chat_chain})
+        return cls({SCOUT: [scout, smith], SMITH: smith_chain, JEV: [jev, smith], CHAT: chat_chain,
+                    BUILD: build_chain})
+
+    def context_tokens(self, role: str) -> int | None:
+        """The context window the first backend of `role` asks for (None: the server's default, or no chain)."""
+        for b in self.chains.get(role, []):
+            return getattr(b, "num_ctx", None)
+        return None
 
     def pick(self, role: str) -> Backend | None:
         for b in self.chains.get(role, []):
@@ -123,13 +155,14 @@ class Router:
         raise NoBackend(f"no backend could serve role {role!r}: " + "; ".join(reasons or ["empty chain"]))
 
     def stream(self, role: str, system: str, messages: list[Message], max_tokens: int = 1024,
-               temperature: float = 0.2):
+               temperature: float = 0.2, stop: list[str] | None = None):
         """Yield text pieces from the first backend that can stream; otherwise one piece from `complete`."""
         backend = self.pick(role)
         if backend is not None and hasattr(backend, "stream"):
+            n = 0
             try:
-                n = 0
-                for piece in backend.stream(system, messages, max_tokens=max_tokens, temperature=temperature):
+                for piece in backend.stream(system, messages, max_tokens=max_tokens, temperature=temperature,
+                                            stop=stop):
                     n += 1
                     yield piece
                 with self._lock:
@@ -138,7 +171,7 @@ class Router:
             except BackendError:
                 if n:          # half an answer was already shown: don't start a second one
                     raise
-        yield self.complete(role, system, messages, max_tokens, temperature).text
+        yield self.complete(role, system, messages, max_tokens, temperature, stop).text
 
     def as_service(self):
         """Adapter for `bus.serve('llm.complete', router.as_service())`."""
