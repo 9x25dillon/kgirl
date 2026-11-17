@@ -54,7 +54,8 @@ class Run(HelixCase):
         self.assertIsNone(r["bypass"])
         self.assertEqual(r["experts"], ["ARCHIVIST"])                 # ASK intent, one expert by default
         self.assertEqual((len(gen.calls), len(critic.calls)), (2, 1))
-        self.assertEqual(r["models"], {"generator": "qwen-fake:7b", "critic": "llama-fake:3b", "decorrelated": True})
+        self.assertEqual(r["models"], {"generator": "qwen-fake:7b", "critic": "llama-fake:3b", "critic_backend": "fake",
+                                       "critics_skipped": [], "decorrelated": True})
         self.assertEqual(r["answer"], "Return the local answer when both small models agree; otherwise escalate.")
 
     def test_the_static_prefix_is_byte_identical_and_holds_no_vector(self):
@@ -300,7 +301,44 @@ class Review(HelixCase):
         import os
         os.environ["KGIRL_HELIX_CRITIC_MODEL"] = "llama3.2:3b"
         h = Helix(Router({CHAT: [Fake([])]}), store=self.store())
-        self.assertEqual((h.critic.name, h.critic.model), ("ollama", "llama3.2:3b"))
+        self.assertEqual([(c.name, c.model, c.host) for c in h.critics], [("ollama", "llama3.2:3b", "http://localhost:11434")])
+        os.environ["KGIRL_HELIX_CRITIC_HOST"] = "http://127.0.0.1:11435"
+        os.environ["KGIRL_HELIX_CRITIC_LABEL"] = "pocket"
+        h = Helix(Router({CHAT: [Fake([])]}), store=self.store("two"))
+        self.assertEqual([(c.name, c.host) for c in h.critics],
+                         [("ollama@pocket", "http://127.0.0.1:11435"), ("ollama", "http://localhost:11434")])
+
+    def test_a_critic_on_another_device_answers_first(self):
+        gen = Fake([expert(), synth()])
+        pocket, local = Fake([defect()], model="llama-fake:3b"), Fake([defect()], model="llama-fake:3b")
+        pocket.name = "fake@pocket"
+        r = Helix(Router({CHAT: [gen]}), store=self.store(), critic=[pocket, local]).run(TASK, 4000)
+        self.assertEqual((r["models"]["critic_backend"], r["models"]["critics_skipped"]), ("fake@pocket", []))
+        self.assertEqual((len(pocket.calls), len(local.calls)), (1, 0))
+        self.assertIn("--- CRITIC | v1 | fake@pocket:llama-fake:3b ---", r["log"][-1])
+
+    def test_a_device_that_is_away_or_fails_is_passed_over_and_named(self):
+        class Away(Fake):
+            def available(self) -> bool:
+                return False
+        away, broken = Away([], model="llama-fake:3b"), Fake([], model="llama-fake:3b")     # empty: raises BackendError
+        away.name, broken.name = "fake@pocket", "fake@tablet"
+        local = Fake([defect()], model="llama-fake:3b")
+        gen = Fake([expert(), synth()])
+        r = Helix(Router({CHAT: [gen]}), store=self.store(), critic=[away, broken, local]).run(TASK, 4000)
+        self.assertEqual(r["models"]["critic_backend"], "fake")
+        self.assertEqual([s["critic"] for s in r["models"]["critics_skipped"]],
+                         ["fake@pocket:llama-fake:3b", "fake@tablet:llama-fake:3b"])
+        self.assertEqual(r["models"]["critics_skipped"][0]["why"], "unavailable")
+        self.assertTrue(r["models"]["decorrelated"])
+        self.assertEqual(r["open_conflicts"], [])
+
+    def test_when_no_critic_answers_the_writer_reviews_and_says_so(self):
+        gen = Fake([expert(), defect(), synth()])
+        r = Helix(Router({CHAT: [gen]}), store=self.store(), critic=[Fake([], model="llama-fake:3b")]).run(TASK, 4000)
+        self.assertEqual(len(r["models"]["critics_skipped"]), 1)
+        self.assertFalse(r["models"]["decorrelated"])
+        self.assertEqual(r["open_conflicts"], [SAME_FAMILY])
 
     def test_families(self):
         self.assertEqual([family(m) for m in ("qwen2.5-coder:7b", "someone/Llama3.2:3b", "claude-haiku-4-5",

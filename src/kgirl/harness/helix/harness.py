@@ -20,7 +20,7 @@ import os
 import re
 
 from ..hermes.router import CHAT, Intent, classify, mind_ctx
-from ..llm import Message, OllamaBackend
+from ..llm import BackendError, Message, OllamaBackend
 from . import ledger as L
 from .prompt import (BYPASS_SYSTEM, GENERATORS, STATIC, assemble, compact_turn, critic_turn, expert_turn, header,
                      oracle_turn, synth_turn)
@@ -48,10 +48,23 @@ def route(task: str, k: int = 1) -> tuple[str, ...]:
     return ROUTES[classify(task)][:max(1, k)]
 
 
-def critic_from_env():
-    """The backend named by KGIRL_HELIX_CRITIC_MODEL (an Ollama model), or None."""
-    model = os.environ.get("KGIRL_HELIX_CRITIC_MODEL", "").strip()
-    return OllamaBackend(model, timeout=600.0, num_ctx=mind_ctx()) if model else None
+def critic_chain(model: str | None = None, host: str | None = None, label: str | None = None) -> list:
+    """The review backends to try, in order; empty when no critic model is named.
+
+    `model` is an Ollama model (default $KGIRL_HELIX_CRITIC_MODEL). With `host` (default
+    $KGIRL_HELIX_CRITIC_HOST) it is tried on that host first: a second device, so the review costs this
+    machine's card nothing. The same model on this machine follows, for when that device is away."""
+    model = (model or os.environ.get("KGIRL_HELIX_CRITIC_MODEL", "")).strip()
+    host = (host or os.environ.get("KGIRL_HELIX_CRITIC_HOST", "")).strip()
+    if not model:
+        return []
+    chain = []
+    if host:
+        remote = OllamaBackend(model, host=host, timeout=900.0, num_ctx=mind_ctx())
+        remote.name = "ollama@" + ((label or os.environ.get("KGIRL_HELIX_CRITIC_LABEL", "")).strip() or "remote")
+        chain.append(remote)
+    chain.append(OllamaBackend(model, timeout=600.0, num_ctx=mind_ctx()))
+    return chain
 
 
 def _totals(led: L.Ledger) -> dict:
@@ -70,12 +83,14 @@ def _conflict(text: str) -> str:
 class Helix:
     def __init__(self, router, *, home=None, store: StateStore | None = None, bus=None, session: str = "main",
                  role: str = CHAT, critic=None, log_limit: int | None = None):
-        """`critic` is a Backend for the review stage; None reads KGIRL_HELIX_CRITIC_MODEL, and with neither
-        the generator reviews itself and the result says so. `log_limit` is the flight-log size, in estimated
+        """`critic` is a Backend, or a list of them tried in order, for the review stage; None reads the
+        environment (`critic_chain`). When none is named or none answers, the generator reviews itself and the
+        result says so. `log_limit` is the flight-log size, in estimated
         tokens, past which it is compacted (default: half the role's context window)."""
         self.router, self.bus, self.session, self.role = router, bus, session, role
         self.store = store or StateStore(home)
-        self.critic = critic if critic is not None else critic_from_env()
+        given = critic if critic is not None else critic_chain()
+        self.critics = list(given) if isinstance(given, (list, tuple)) else [given]
         self.log_limit = log_limit or (router.context_tokens(role) or 8192) // 2
 
     # ------------------------------------------------------------------------------------------- plumbing
@@ -186,9 +201,10 @@ class Helix:
 
         # the critic: another model family when one is configured
         target = led.target("CRITIC")
-        out = self._complete(STATIC, assemble(task, log, state, critic_turn(target, len(conflicts))), ceiling,
-                             state.vector["temp"], backend=self.critic)
+        out, skipped = self._review(assemble(task, log, state, critic_turn(target, len(conflicts))), ceiling,
+                                    state.vector["temp"])
         critic_model = out.model
+        critic_backend = out.backend
         decorrelated = family(critic_model) != family(generator)
         _, trailers, _ = split(out.text)
         self._charge(led, "CRITIC", L.CRITIC, out.text, out, target)
@@ -225,9 +241,25 @@ class Helix:
 
         return self._close(led, task, answer, floor=floor, experts=names, first=first, tunes=tunes, log=log,
                            open_conflicts=open_now[:MAX_CONFLICTS], raised=len(conflicts), stated=stated,
-                           models={"generator": generator, "critic": critic_model, "decorrelated": decorrelated})
+                           models={"generator": generator, "critic": critic_model, "critic_backend": critic_backend,
+                                   "critics_skipped": skipped, "decorrelated": decorrelated})
 
     # ------------------------------------------------------------------------------------------- stages
+
+    def _review(self, user: str, ceiling: int, temperature: float):
+        """The critique from the first critic that answers, and the ones passed over with the reason. When no
+        critic is named or none answers, the writer's own chain reviews."""
+        skipped = []
+        for backend in self.critics:
+            label = f"{backend.name}:{backend.model}"
+            if not backend.available():
+                skipped.append({"critic": label, "why": "unavailable"})
+                continue
+            try:
+                return self._complete(STATIC, user, ceiling, temperature, backend=backend), skipped
+            except BackendError as exc:
+                skipped.append({"critic": label, "why": str(exc)[:200]})
+        return self._complete(STATIC, user, ceiling, temperature), skipped
 
     def _calibrate(self, led: L.Ledger, task: str, log: list[str], state, probes: list, conflicts: list,
                    ceiling: int) -> None:

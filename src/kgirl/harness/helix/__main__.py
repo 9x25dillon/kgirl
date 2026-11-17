@@ -7,10 +7,10 @@ import json
 import sys
 from pathlib import Path
 
-from ..hermes.router import Router, mind_ctx
-from ..llm import BackendError, OllamaBackend
+from ..hermes.router import Router
+from ..llm import BackendError
 from .evaluate import evaluate
-from .harness import Helix
+from .harness import Helix, critic_chain
 from .store import HelixError, StateStore
 
 
@@ -24,8 +24,9 @@ def render(r: dict) -> str:
         m = r["models"]
         out.append(f"experts {' + '.join(r['experts'])} -> CRITIC -> SYNTHESIST   state v{r['versions'][0]} -> "
                    f"v{r['versions'][1]}")
-        out.append(f"models  generator {m['generator']}, critic {m['critic']}"
+        out.append(f"models  generator {m['generator']}, critic {m['critic']} on {m['critic_backend']}"
                    + ("" if m["decorrelated"] else "  (same family)"))
+        out.extend(f"        passed over {s['critic']}: {s['why']}" for s in m["critics_skipped"])
     out.append(f"{'node':<11}{'kind':<11}{'target':>7}{'ext':>7}{'est':>7}{'in':>7}  stop")
     for n in led["nodes"]:
         ext = "-" if n["ext"] is None else n["ext"]
@@ -57,6 +58,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--lattice", action="store_true", help="two experts instead of one")
     p.add_argument("--expect", type=int, help="expected size of the answer in tokens, for the BYPASS predicate")
     p.add_argument("--critic-model", help="Ollama model for the critic (default $KGIRL_HELIX_CRITIC_MODEL)")
+    p.add_argument("--critic-host", help="try the critic on this Ollama host first, e.g. a phone "
+                                         "(default $KGIRL_HELIX_CRITIC_HOST); this machine is the fallback")
     p.add_argument("--json", action="store_true", help="the whole result, log included")
     p = sub.add_parser("state", help="the current STATE, or one version of it")
     p.add_argument("-v", type=int, dest="version")
@@ -80,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if report["verdict"] == "PASS" else 1
         with StateStore(args.home) as store:
             if args.cmd == "run":
-                critic = OllamaBackend(args.critic_model, timeout=600.0, num_ctx=mind_ctx()) if args.critic_model else None
+                critic = critic_chain(args.critic_model, args.critic_host) if args.critic_model or args.critic_host else None
                 r = Helix(Router.from_env(), store=store, session=args.session, critic=critic).run(
                     args.task, args.budget, experts=args.expert, lattice=args.lattice, expect=args.expect)
                 print(json.dumps(r, indent=1, ensure_ascii=False) if args.json else render(r))
