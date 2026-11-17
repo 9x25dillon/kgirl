@@ -29,8 +29,11 @@ MAX_PASSES = 2               # tuning passes per block
 MAX_DEFECTS = 5
 MALFORMED = object()
 _TAG = re.compile(r"^[ \t>*`#-]*(" + "|".join(TAGS) + r")\**[ \t]*:\**[ \t]*", re.M)
-# what a trailer leaves behind once it is cut out: an empty code fence, a bare emphasis mark, a heading for it
-_LEFTOVER = re.compile(r"^[ \t]*(?:```\w*|[*_`]+|[#*\s]*(?:" + "|".join(TAGS) + r"|Trailers?)[*:\s]*)[ \t]*$\n?",
+# What a trailer leaves behind once it is cut out. Each pattern is narrow on purpose: a reply's own code
+# blocks and horizontal rules must survive.
+_FENCE = re.compile(r"^[ \t]*```\w*[ \t]*$", re.M)
+_EMPTY_FENCES = re.compile(r"^[ \t]*```\w*[ \t]*\n(?:[ \t]*\n)*[ \t]*```[ \t]*$\n?", re.M)
+_LEFTOVER = re.compile(r"^[ \t]*(?:\*{1,2}|`{1,2}|[#*]+[ \t]*(?:" + "|".join(TAGS) + r"|Trailers?)[*: \t]*)[ \t]*$\n?",
                        re.M | re.I)
 _PLUS = re.compile(r"(:\s*)\+(?=[\d.])")
 _DROP = str.maketrans({"*": None, "`": None, "“": '"', "”": '"', "‘": "'", "’": "'"})
@@ -146,7 +149,13 @@ def split(text: str) -> tuple[str, list[Trailer], int]:
         body.append(text[pos:a])
         pos = b
     body.append(text[pos:])
-    clean = _LEFTOVER.sub("", "".join(body))
+    clean = "".join(body)
+    if spans:
+        clean = _LEFTOVER.sub("", _EMPTY_FENCES.sub("", clean))
+        fences = list(_FENCE.finditer(clean))
+        if len(fences) % 2:                        # the fence a trailer's JSON sat in lost its partner
+            last = fences[-1]
+            clean = clean[:last.start()] + clean[last.end():]
     return clean.strip(), trailers, sum(b - a for a, b in spans)
 
 

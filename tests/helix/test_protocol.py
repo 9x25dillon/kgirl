@@ -60,6 +60,13 @@ class Split(unittest.TestCase):
         _, trailers, _ = split('DEFECT: {"quote": "x\\nTUNE: none y", "repair": "r"}')
         self.assertEqual(len(trailers), 1)
 
+    def test_the_replys_own_code_blocks_and_rules_survive(self):
+        answer = "Use this:\n\n```python\nprint(1)\n```\n\n***\n\nDone."
+        self.assertEqual(split(answer)[0], answer)                              # no trailer: untouched
+        self.assertEqual(split(answer + "\nUNRESOLVED: []")[0], answer)
+        self.assertEqual(split(answer + "\n\nUNRESOLVED:\n```json\n[]\n```")[0], answer)
+        self.assertEqual(split(answer + "\n\n### UNRESOLVED\n**UNRESOLVED:** [1]\n**")[0], answer)
+
     def test_a_reply_with_no_trailer_is_all_body(self):
         self.assertEqual(split(BLOCK), (BLOCK, [], 0))
 
