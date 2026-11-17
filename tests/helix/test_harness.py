@@ -305,8 +305,8 @@ class Review(HelixCase):
         os.environ["KGIRL_HELIX_CRITIC_HOST"] = "http://127.0.0.1:11435"
         os.environ["KGIRL_HELIX_CRITIC_LABEL"] = "pocket"
         h = Helix(Router({CHAT: [Fake([])]}), store=self.store("two"))
-        self.assertEqual([(c.name, c.host) for c in h.critics],
-                         [("ollama@pocket", "http://127.0.0.1:11435"), ("ollama", "http://localhost:11434")])
+        self.assertEqual([(c.name, c.host, c.num_ctx) for c in h.critics],
+                         [("ollama@pocket", "http://127.0.0.1:11435", 4096), ("ollama", "http://localhost:11434", 8192)])
 
     def test_a_critic_on_another_device_answers_first(self):
         gen = Fake([expert(), synth()])
@@ -332,6 +332,18 @@ class Review(HelixCase):
         self.assertEqual(r["models"]["critics_skipped"][0]["why"], "unavailable")
         self.assertTrue(r["models"]["decorrelated"])
         self.assertEqual(r["open_conflicts"], [])
+
+    def test_a_review_too_long_for_a_small_window_goes_to_the_next_critic(self):
+        pocket, local = Fake([defect()], model="llama-fake:3b"), Fake([defect()], model="llama-fake:3b")
+        pocket.name, pocket.num_ctx = "fake@pocket", 4096
+        gen = Fake([expert("word " * 2600), synth()])
+        r = Helix(Router({CHAT: [gen]}), store=self.store(), critic=[pocket, local], log_limit=10 ** 6).run(TASK, 4000)
+        self.assertEqual((len(pocket.calls), len(local.calls)), (0, 1))
+        self.assertIn("exceeds its 4096 window", r["models"]["critics_skipped"][0]["why"])
+        small = Fake([defect()], model="llama-fake:3b")
+        small.name, small.num_ctx = "fake@pocket", 4096
+        r = Helix(Router({CHAT: [Fake([expert(), synth()])]}), store=self.store("b"), critic=[small]).run(TASK, 4000)
+        self.assertEqual((len(small.calls), r["models"]["critics_skipped"]), (1, []))
 
     def test_when_no_critic_answers_the_writer_reviews_and_says_so(self):
         gen = Fake([expert(), defect(), synth()])

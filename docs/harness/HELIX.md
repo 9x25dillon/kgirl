@@ -42,7 +42,7 @@ BUDGET and LEDGER tags, the L2 and L3 fractal split) is not.
 | F7 | static prefix, task, append-only log, STATE tail | `prompt.py`; system message is `STATIC`, never restates the vector |
 | F7 | compact the log into STATE periodically and count it | `Helix._compact`, past `log_limit` estimated tokens |
 | F7 | ASCII tags | every tag and trailer is ASCII |
-| F8 | CRITIC on a different model family | `critic=` or `KGIRL_HELIX_CRITIC_MODEL`; `family()` compares; a same-family review is stated as an open conflict |
+| F8 | CRITIC on a different model family | `critic=` or `KGIRL_HELIX_CRITIC_MODEL`; `family()` compares; a same-family review is stated as an open conflict. With `--critic-host` / `KGIRL_HELIX_CRITIC_HOST` the critic is tried on another device first (see below) |
 | F8 | CRITIC quotes a defect span with a repair; no concurrence without new evidence | `protocol.parse_review`; a review with neither is void, and the draft is reported as unreviewed |
 | F8 | SYNTHESIST carries the unresolved-conflicts list, never smoothed | `UNRESOLVED: [...]` trailer; missing or malformed means every conflict stays open |
 
@@ -57,6 +57,17 @@ BUDGET and LEDGER tags, the L2 and L3 fractal split) is not.
 
 The answer is the only part a person needs to read. `render()` prints it first and the flight recorder under
 it: per-call targets against provider counts, accepted and rejected tunes, the open conflicts.
+
+## A critic on another device
+
+    helix run "..." --critic-model llama3.2:3b --critic-host http://127.0.0.1:11435
+
+The critic is a chain (`harness.critic_chain`): the model on the named host, then the same model on this
+machine, then the writer. A critic that is unavailable, fails, or whose context window
+(`KGIRL_HELIX_CRITIC_CTX`, default 4096) is smaller than the review is passed over, and the result lists
+each one with the reason under `models.critics_skipped`. `KGIRL_HELIX_CRITIC_LABEL` names the device in the
+log (`ollama@pocket:llama3.2:3b`). The host in use on this machine is a Pixel reached through an adb
+forward; `~/work/kgirl-pocket` sets it up.
 
 ## STATE
 

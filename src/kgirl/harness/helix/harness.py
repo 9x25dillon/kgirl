@@ -29,6 +29,7 @@ from .state import CONFLICT_CHARS, DEFAULT_VECTOR, MAX_CONFLICTS, capsule
 from .store import E_CALL, E_RUN, HelixError, StateStore
 
 CRITIC_WEIGHT = 0.25         # the critic's share of the content pool; the expert blocks split the rest
+REMOTE_CTX = 4096            # context window asked of a critic on another device
 MIN_CEILING = 2048           # a hard stop far above any target: targets are stated, replies are not cut to them
 ROUTES = {Intent.TASK: ("ENGINEER", "LOGICIAN"), Intent.ARCH: ("ENGINEER", "ARCHIVIST"),
           Intent.BLAST: ("LOGICIAN", "ENGINEER"), Intent.RECALL: ("ARCHIVIST", "ORACLE"),
@@ -53,14 +54,20 @@ def critic_chain(model: str | None = None, host: str | None = None, label: str |
 
     `model` is an Ollama model (default $KGIRL_HELIX_CRITIC_MODEL). With `host` (default
     $KGIRL_HELIX_CRITIC_HOST) it is tried on that host first: a second device, so the review costs this
-    machine's card nothing. The same model on this machine follows, for when that device is away."""
+    machine's card nothing. The same model on this machine follows, for when that device is away. The
+    remote's context window is $KGIRL_HELIX_CRITIC_CTX (default 4096: a phone has little memory); a review
+    too long for it goes to the next critic instead of being cut from the front."""
     model = (model or os.environ.get("KGIRL_HELIX_CRITIC_MODEL", "")).strip()
     host = (host or os.environ.get("KGIRL_HELIX_CRITIC_HOST", "")).strip()
     if not model:
         return []
     chain = []
     if host:
-        remote = OllamaBackend(model, host=host, timeout=900.0, num_ctx=mind_ctx())
+        try:
+            window = int(os.environ.get("KGIRL_HELIX_CRITIC_CTX", "").strip() or REMOTE_CTX)
+        except ValueError:
+            window = REMOTE_CTX
+        remote = OllamaBackend(model, host=host, timeout=900.0, num_ctx=window)
         remote.name = "ollama@" + ((label or os.environ.get("KGIRL_HELIX_CRITIC_LABEL", "")).strip() or "remote")
         chain.append(remote)
     chain.append(OllamaBackend(model, timeout=600.0, num_ctx=mind_ctx()))
@@ -202,7 +209,7 @@ class Helix:
         # the critic: another model family when one is configured
         target = led.target("CRITIC")
         out, skipped = self._review(assemble(task, log, state, critic_turn(target, len(conflicts))), ceiling,
-                                    state.vector["temp"])
+                                    state.vector["temp"], reply=min(target, 400))
         critic_model = out.model
         critic_backend = out.backend
         decorrelated = family(critic_model) != family(generator)
@@ -246,7 +253,7 @@ class Helix:
 
     # ------------------------------------------------------------------------------------------- stages
 
-    def _review(self, user: str, ceiling: int, temperature: float):
+    def _review(self, user: str, ceiling: int, temperature: float, reply: int = 0):
         """The critique from the first critic that answers, and the ones passed over with the reason. When no
         critic is named or none answers, the writer's own chain reviews."""
         skipped = []
@@ -254,6 +261,10 @@ class Helix:
             label = f"{backend.name}:{backend.model}"
             if not backend.available():
                 skipped.append({"critic": label, "why": "unavailable"})
+                continue
+            window, need = getattr(backend, "num_ctx", None), L.estimate(STATIC + user) + reply
+            if window and need > window:           # Ollama would silently drop the start of the prompt
+                skipped.append({"critic": label, "why": f"review of about {need} tokens exceeds its {window} window"})
                 continue
             try:
                 return self._complete(STATIC, user, ceiling, temperature, backend=backend), skipped
