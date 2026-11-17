@@ -13,8 +13,9 @@ branches that are not on GitHub: mind, holo, console, mind-tests (all 15 Nov, ot
 - **Backups exist now.** A second session built `kgirl-vault` today: every local branch here is mirrored to
   two other disks nightly. See `~/.claude/plans/kgirl-vault-and-two-path-link.md`.
 
-**Decision needed:** publish or hold. `feat/kgirl-helix` carries six commits that are not on GitHub (two
-helix, one holo, three mind). The repo is public. Reply `push helix` to publish all six, or leave them local.
+**Decision needed:** none. The owner chose to hold on 16 Nov, 19:30: `feat/kgirl-helix` stays local. It carries
+seven commits that are not on GitHub (three helix, one holo, three mind) and the repo is public. Do not push
+it until the owner says `push helix`. The vault backs it up nightly.
 **Start with:**
 1. `cd ~/work/kgirl-helix && PYTHONPATH=src ~/.kgirl/venv/bin/python -m unittest discover -s tests/helix -t .`:
    118 tests, about a second. Confirms the lane is intact.
