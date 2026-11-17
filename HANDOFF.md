@@ -1,122 +1,135 @@
 # Hand-off — kgirl
 
 ## Resume here
-**Newest close:** 13 November 2026, 09:20 PST · Claude Code, Opus 5.5 · session `e0adf913`
-**Where things stand:** `main` is at `6802f8c` with 0 open PRs and CI green. Today merged #85–#89.
-- **/ask:** works end to end on local Ollama, with retrieval from the Julia ChaosRAG service (Postgres :5433). It answers instead of always escalating: the energy cutoff now calibrates to the serving embedder (#89). Answers are never token-capped (#89).
-- **Correction to the 19 Oct hand-off:** `80f8b85` is in main. On 13 Nov the Atlas home moved back to `~/.kgirl`: peer session `kgirl-f2` is re-indexing there. `~/.kgirl-sync` is the older home, which holds the taught Soup rules.
-- **Correction to the 11 Nov `~/Hand_off.md`:** kgirl had 3 more merged PRs (#83, #84 research) before today.
+**Newest close:** 16 November 2026, 19:20 PST · Claude Code, Fable 5.2 · session `2e0e8c56`
+**Where things stand:** `main` is still `afd666e` (PR #95). Five feature lanes sit on top of it as local
+branches that are not on GitHub: mind, holo, console, mind-tests (all 15 Nov, other sessions) and **helix**
+(today). This file lives on `feat/kgirl-helix`; `main`'s copy is the 13 Nov one.
+- **helix** (`src/kgirl/harness/helix/`, 118 tests): the HELIX-9 prompt review built as code. Code counts
+  tokens from the provider, keeps a versioned STATE, and only accepts a re-steer or a defect that quotes its
+  target. Runs end to end on local Ollama. Whether it gives better answers than a plain call is not measured.
+- **Correction to the 13 Nov hand-off:** `main` moved from `6802f8c` to `afd666e` (#90–#95 merged). The
+  "kgirl-f2" harness set-up it lists as in flight is done: `~/.kgirl` is the live home.
+- **Backups exist now.** A second session built `kgirl-vault` today: every local branch here is mirrored to
+  two other disks nightly. See `~/.claude/plans/kgirl-vault-and-two-path-link.md`.
 
-**Decision needed:**
-1. Do the ~38 uncommitted April files in `~/Synaps` belong in the repo? They include `src/kgirl/blockchain/`, `metering/`, `coord/` and `quarantine/`.
-2. May the superseded local branches be deleted? These are `local/ask-gate-fix` and `feat/qincrs-soup-validator`.
-
+**Decision needed:** publish or hold. `feat/kgirl-helix` carries six commits that are not on GitHub (two
+helix, one holo, three mind). The repo is public. Reply `push helix` to publish all six, or leave them local.
 **Start with:**
-1. `cd ~/Synaps && git fetch && git branch -f main origin/main`: syncs local main (main is not checked out anywhere).
-2. Bring the stack up with the commands under "Running the stack", then ask `/ask` something with `"use_rag":true`.
-3. Check in with session `kgirl-f2` (cwd `~/kgirl`), which was doing harness work. See "In flight".
+1. `cd ~/work/kgirl-helix && PYTHONPATH=src ~/.kgirl/venv/bin/python -m unittest discover -s tests/helix -t .`:
+   118 tests, about a second. Confirms the lane is intact.
+2. Read `docs/harness/HELIX.md`: the table mapping each review finding to its code, and "Decisions that are
+   yours" (seven items).
+3. First task: measure helix against a direct call on about 10 real questions (next step 1).
 
 ## Progress track (newest first)
 | Date | Session | Shipped (hash / PR) | State after |
 |---|---|---|---|
-| 2026-11-13 | Opus 5.5 `e0adf913` | #89 `6802f8c` /ask energy cutoff calibrated per embedder; no token cap; Ollama num_ctx 8192 | /ask answers on nomic-embed-text (auto ≤ 0.948) |
-| 2026-11-13 | Opus 5.5 `e0adf913` | #88 `7318a9f` ignore `/.pgdata/` `/.cthroot/` | local Postgres can't be staged by `git add -A` |
-| 2026-11-13 | Opus 5.5 `e0adf913` | #87 ChaosRAG over Ollama behind /ask (/index /query /telemetry, use_rag, concurrent generation); Julia `IPAddr` startup crash fixed | full stack runs locally |
-| 2026-11-13 | Opus 5.5 `e0adf913` | #86 `sydv.py` parses (paste moved to `docs/archive/`) | every `src/kgirl` file listed in quarantine parses |
-| 2026-11-13 | Opus 5.5 `e0adf913` | #85 efl_iwme_cascade test fixed for Py 3.14; research CI job | CI: `harness` + `research-efl-iwme-cascade` |
-| 2026-11-12/13 | Claude (cloud) | #83, #84 research/efl_iwme_cascade preregistered runs | 10/11 hypotheses replicate; A5 doesn't (RESULTS.md §4) |
-| 2026-11-11 | Opus 5.5 `7304eed2` | #82 untracks 75 root junk files; 20 merged branches deleted | `main` only |
+| 2026-11-16 | Fable 5.2 `2e0e8c56` | `31d2a97` fix: answers keep their code fences | helix 118 tests OK; local only |
+| 2026-11-16 | Fable 5.2 `2e0e8c56` | `1249f0d` helix lane: state, store, ledger, protocol, prompt, harness, evaluate, CLI | runs on Ollama; 2 live runs in a scratch home |
+| 2026-11-16 | Opus `185e9e77` | `kgirl-vault` tool, vault on two disks (not in this repo) | restore drill passed; daily 03:30 timer |
+| 2026-11-15 | other sessions | `b6f6973` holo; `31bbc3f` console; `eb8bdb7` mind tests; `c04ad72` `0e560d4` `e05143d` mind | all local branches, none pushed |
+| 2026-11-14 | Opus 5.5 `bacd` | #92–#95 merged (index refresh, verify hint, all-repo chunk index, eval flags) | `main` = `afd666e` |
+| 2026-11-13 | Opus 5.5 `e0adf913` | #85–#91 (/ask on Ollama + ChaosRAG, energy calibration, hand-off) | /ask answers locally |
+| 2026-11-12/13 | Claude (cloud) | #83, #84 research/efl_iwme_cascade | 10/11 hypotheses replicate |
+| 2026-11-11 | Opus 5.5 `7304eed2` | #82 untracks 75 root junk files | `main` only |
 | 2026-11-03 | Claude (porter) | #80 embedding cache, #81 drill tests | stronger default route not shipped |
-| 2026-10-19 | Claude | `kgirl.life` + metabolism; this file's previous version | archived: `docs/handoff/HANDOFF-2026-10-19-claude-opus.md` |
+| 2026-10-19 | Claude | `kgirl.life` + metabolism | archived: `docs/handoff/HANDOFF-2026-10-19-claude-opus.md` |
 
 ## In flight
-- **Harness setup "at full capability"** by peer session `kgirl-f2` (its report, 13 Nov about 09:25; not verified here; no repo changes):
-  - **Runtime checkout:** `~/work/kgirl-run`, detached at `6802f8c`. Harness suite 146 OK.
-  - **Launcher:** `~/.local/bin/kgirl` with `KGIRL_HOME=~/.kgirl`. It does hybrid retrieval over `~/.kgirl/chunks/all` (24 repos, built 3 Nov) and uses the router only when `enp3s0` has carrier; there was none, so the local copies answer.
-  - **MCP:** `kgirl` server registered at user scope in Claude Code (`kgirl mcp`).
-  - **In progress:** a fresh Atlas index of the 39 own non-fork repos into `~/.kgirl`. Clones were reflink-copied from `~/.kgirl-sync/repos`; backup at `~/.kgirl/backup-20261113`.
-  - **Next:** an `ask`, plus one swarm on a throwaway fixture with qwen2.5-coder 7b/1.5b. This evicts the :8765 models from the GPU for a few minutes.
-- **Parked on purpose:** `feat/stronger-default-route` in `~/work/kgirl-sync`. Round-5 drills showed no gain (`~/kgirl-teach/route/RESULTS.md`).
-- **Superseded, not merged:**
-  - `local/ask-gate-fix` (`15c1e72`): everything useful is in #61 and #87.
-  - `feat/qincrs-soup-validator` in `~/work/kgirl-harness`: already upstream via #77. Its 10 dirty files are older drafts.
-  - `feat/jev-blocked-gate`, `sync/harness-router-retrieval`, `test/*`, `feat/incremental-embeddings` (worktree `~/work/kgirl-vectors`): merged; their remote branches are gone.
-- **Uncommitted April work in `~/Synaps`** (branch `chore/claude-md-gitignore`):
-  - Parts already merged elsewhere: the Julia Ollama port and the `sydv.py` repair.
-  - Never committed: `src/kgirl/{blockchain,metering,api/services}/`, `core/marl_portfolio.py`, `coord/`, `quarantine/`, `tests/test_runtime_smoke.py`, and duplicate `qincrs_*` files at the root and in `docs/`. Don't sweep these into a commit; ask the user.
+- **helix** on `feat/kgirl-helix` (local only, worktree `~/work/kgirl-helix`): done: the lane, its doc, 118
+  tests, the transcript audit ported from `~/work/helix_kernel`. Left: quality measurement, CI coverage,
+  the seven decisions in HELIX.md. Verify: start-with step 1.
+- **The branch stack.** `main` ← mind (3 commits) ← holo (1) ← helix (2). Console and mind-tests also branch
+  from mind. Helix needs mind: it uses the `chat` role and `mind_ctx`, which are not on `main`. So helix
+  cannot merge before mind does.
+- **kgirl-vault** (session `185e9e77`, tool at `~/.local/bin/kgirl-vault`, not in this repo): stage 1 passed
+  its gate at 19:15 by that session's report. Next there: router index refresh over the cable, then a search
+  page and a restricted chat on the home Wi-Fi. Its plan file has a Trajectory section; trust that over this.
+- **Still parked from 13 Nov:** `feat/stronger-default-route` (no gain in round-5 drills); about 38 uncommitted
+  April files in `~/Synaps` (`blockchain/`, `metering/`, `coord/`, `quarantine/`). Don't sweep them into a
+  commit; ask.
 
 ## Decisions (why)
-- 2026-11-13 **Energy cutoffs calibrate per embedder:** `auto` ≤ mean + 1 SD and `needs_citations` ≤ mean + 2 SD of the fallback energy over 24 reference prompts (`ENERGY_CALIBRATION_PROMPTS`, `energy_cutoffs()` in `src/kgirl/main.py`). It's the same rule that produced the old 0.16 on the demo adapter. Rejected: a new constant, because the scale moves with the embedder (demo ≈ 0.11, nomic ≈ 0.88).
-- 2026-11-13 **No token caps:** the user hates truncation. Ollama gets no `num_predict`. Anthropic needs `max_tokens`, so it's 8192, the default model's output limit (`ANTHROPIC_MAX_TOKENS`). Ollama `num_ctx` = 8192 (`KGIRL_OLLAMA_NUM_CTX`), because Ollama silently drops prompt starts beyond 4096. 16384 evicted a model on the 8 GB GPU.
-- 2026-11-13 **Kept #61's coherence and energy math over the August local fix;** only the features #61 lacked were ported (#87).
-- 2026-11-13 **The efl test fix touched only the test,** so RESULTS.md §7 ("models/metrics/experiments unchanged since 8180617") stays true.
-- 2026-11-13 **Truncated paste moved, not deleted** (`docs/archive/sydv_appended_bundle.txt`; the two files concatenated equal the old one).
-- 2026-11-13 **`*.zip` not ignored:** `data/` tracks zips on purpose.
+- 2026-11-16 **helix is code, not a prompt.** The review's point was that a model cannot count its own tokens
+  or audit itself. Rejected: shipping the patched prompt, because every ledger in it stays a self-report.
+- 2026-11-16 **Only the review's enhancements were built** (the owner's instruction). The prompt's
+  model-written ROUTE/SEED/BUDGET tags and the L2/L3 budget split are not implemented.
+- 2026-11-16 **An out-of-range axis value is adjusted into range, not rejected** (owner: "since they're out of
+  range we should adjust them to within range of the axis"). A non-number is still rejected. The kernel at
+  `~/work/helix_kernel` was changed to match (20/20).
+- 2026-11-16 **Budget B counts generated tokens.** Prompt tokens are measured and reported, not charged.
+- 2026-11-16 **Replies are not cut to their targets.** The hard stop is max(B, 2048); a reply that reaches it
+  becomes an open conflict. Follows the 13 Nov "no token caps" rule as far as Ollama's API allows.
+- 2026-11-16 **Lane rule kept:** helix edits only its package, `tests/helix/` and `docs/harness/HELIX.md`,
+  like holo. That is why there is no `kgirl helix` verb in `cli.py` yet.
+- 2026-11-16 **Committed locally, not pushed:** the branch would publish four commits other sessions made.
+- Earlier decisions (energy cutoffs per embedder, no token caps, `*.zip` not ignored) are in
+  `docs/handoff/HANDOFF-2026-11-13-claude-opus.md`.
 
 ## Dead ends
-- Julia 1.13 precompiling LibPQ: `Memento` fails ("Method overwriting is not permitted during Module precompilation"). Workaround: `--compiled-modules=no` (slow first start, about 2 min).
-- `/ask` default energy on nomic before #89: always `escalate`, even when both models agreed and were right.
-- Harness `ask` against the `~/.kgirl-sync` index found only `def ask(...)`, not its body, so that index was stale (13 Nov). Superseded by `kgirl-f2`'s re-index into `~/.kgirl`.
+- Matching a critic's quote against the whole flight log: the first live run accepted a defect whose "quote"
+  was the harness's own log line. Quotes are checked against the expert blocks only.
+- Copying the critic's prose into the log: llama3.2:3b echoed the entire prompt back (842 tokens). Only
+  checked trailer lines enter the log now.
+- A broad "clean up after trailers" pattern: it stripped code fences from every answer (`31d2a97`).
+- From 13 Nov, still true: Julia 1.13 cannot precompile LibPQ (use `--compiled-modules=no`).
 
 ## Open questions
-- On nomic-embed-text, isotropic noise scores about 0.93 and the calibrated cutoff is 0.948, so the energy gate barely separates anything there. Is it worth keeping, or should coherence alone decide? To settle: log energy vs. answer quality over real questions.
-- Coherence measures agreement, not truth: two models both saying "I don't know" scored 0.95. Is a correctness check wanted?
-- The `sydv.py` demo still crashes (autograd on a no-grad tensor; a 3-output Sequential unpacked into 2). Is TA-ULS v2 (`src/kgirl/tauls/`) the maintained one?
+- Does helix beat a direct call? Both live answers were generic; in run 2 the synthesis mostly copied the
+  draft. Settle with next step 1.
+- Is llama3.2:3b a usable critic? In run 2 it produced no quoted defect, so the draft was reported as
+  unreviewed. Try `deepseek-r1-distill-7b` or `qwen2.5:3b` as `--critic-model` on the same questions.
+- The token proxy overestimated Ollama's count by 26% and 41% (two samples). Not a calibration.
+- From 13 Nov: is the /ask energy gate worth keeping on nomic-embed-text; is a correctness check wanted.
 
-## State (verified 09:05–09:20 PST)
-- **kgirl** `main` `6802f8c`; 0 open PRs; CI on #89 pass (harness + research). Public repo: pushes are publications.
-- **Local `main`** = origin/main. `~/work/kgirl-tests` is detached at origin/main and clean.
-- **Running (started this session):**
-  - Postgres :5433 (`~/Synaps/.pgdata`)
-  - Julia ChaosRAG :8001
-  - kgirl API :8765 with qwen2.5:3b and llama3.2:3b, on nomic-embed-text, num_ctx 8192, about 6.2 GB VRAM
-- **Data:** the `chaos` DB got one test doc (an "Omarchry" note) plus a TEST telemetry row.
-- **Machine:** Python 3.14.10 (multiprocessing default is forkserver), Julia 1.13.3 with packages in the v1.12 env, Ollama 0.12.11.
-
-## Running the stack
-```bash
-pg_ctl -D ~/Synaps/.pgdata -l /tmp/pg.log -o "-p 5433" start
-cd ~/work/kgirl-tests   # any checkout of main
-DATABASE_URL=postgresql://127.0.0.1:5433/chaos julia --compiled-modules=no \
-  --project=$HOME/.julia/environments/v1.12 src/julia/server.jl &          # :8001
-PYTHONPATH=src MODELS='ollama:chat=qwen2.5:3b,embed=nomic-embed-text|ollama:chat=llama3.2:3b,embed=nomic-embed-text' \
-  ~/Synaps/.venv/bin/python -m uvicorn kgirl.main:app --host 127.0.0.1 --port 8765 &
-curl -s 127.0.0.1:8765/ask -H 'content-type: application/json' -d '{"prompt":"…","use_rag":true,"return_all":true}'
-```
-To stop: `pg_ctl -D ~/Synaps/.pgdata stop`, then kill the processes listening on :8001 and :8765. The user's shell is fish, so wrap these lines in `bash -c '…'`.
+## State (verified 19:10–19:20 PST)
+- `origin/main` `afd666e`. `feat/kgirl-helix` `31d2a97`: 6 ahead, 0 behind, clean, no upstream.
+- `git push --dry-run origin feat/kgirl-helix` succeeds, so pushing works. `gh` is logged out (`gh auth
+  status` fails), so PRs cannot be opened or merged until `gh auth login`.
+- Helix has not been run in `~/.kgirl`: no `helix.db` there yet.
 
 ## Project health
-- Tests:
-  - `tests/integration/test_consensus.py`: 12 pass
-  - `tests/iwme/test_sources.py` and `tests/harness/test_privacy.py`: pass
-  - harness: 146 OK (2 skipped)
-  - research: 119 tests, 30/30 checks
-- CI: both jobs green on #89.
-- Fragile:
-  - `/ask` calibration runs on the first request per adapter (24 embeddings, about 1–2 s).
-  - The Julia server's DB default is `postgresql://127.0.0.1:5433/chaos`.
-  - A stray file named `main` in `~/Synaps` makes a bare `main` ambiguous; use `refs/heads/main`.
+- Tests at 19:12: `tests/helix` 118 OK; `tests/harness` 159 OK (2 skipped). `tests/holo` (49) has never been run.
+- CI runs only `tests/harness` and the research suite (`.github/workflows/tests.yml:25`). Helix, holo and
+  mind tests are not in CI.
+- `checks.sh --run` reports 2 FAIL and 1 SKIP, all unrelated to the harness: `scripts/setup/Makefile` points
+  at a `server/` folder that does not exist, and pytest is not installed for the system Python.
+- Fragile: `helix/store.py:71,99` reads every stored state on each write, fine now and slow after thousands of
+  versions. `helix/protocol.py:31` treats any line starting `TUNE:` or `CAL:` as a trailer, even in prose.
 
 ## Next steps, in order
-1. Answer the two decisions above. Reply e.g. `delete the superseded kgirl branches` / `review the April files in Synaps`.
-2. Check `kgirl-f2`'s re-index into `~/.kgirl` finished (`kgirl ask` should now find the body of `ask()` in `src/kgirl/main.py`). Decide whether the Soup rules in `~/.kgirl-sync/soup.db` should move to `~/.kgirl`.
-3. Log `/ask` energy and coherence against judged answers over about 30 real questions, then decide the energy gate's future.
-4. Optional: a `docs/` page or script for "Running the stack" (above), so it isn't only here.
+1. Measure: about 10 real questions, `helix run` against a direct call with the same model, judged blind.
+   Say first how long it will take. If helix does not win, the lane stays a tool for audits and handoffs.
+2. Decide the order to land the stack: mind first (it has never had a smoke test), then holo, then helix.
+3. Add `tests/helix` and `tests/holo` to `.github/workflows/tests.yml` (outside the lane, so a separate PR).
+4. Answer the seven decisions in `docs/harness/HELIX.md`.
+5. Optional: a `kgirl helix` verb in `cli.py`, once the console lane's edits to the CLI have landed.
 
 ## One-shot check
     bash ~/.claude/skills/hanoffed/scripts/scan.sh --root ~/Synaps --fetch
-    bash ~/.claude/skills/hanoffed/scripts/checks.sh ~/work/kgirl-tests --run
+    cd ~/work/kgirl-helix && PYTHONPATH=src ~/.kgirl/venv/bin/python -m unittest discover -s tests/helix -t .
 
 ## Rules that still apply
-- PR flow. The user asks for PRs and merges; don't merge on your own initiative.
-- Never delete or "clean" the user's copies, originals or vendored duplicates. Root clutter was untracked (#82) but the files stay on disk.
-- Randomness comes from ChaosRNG (logistic map), never `random` or `np.random`, in kgirl modules. Tests may use numpy RNG for fixtures.
+- PR flow. The owner asks for PRs and merges. The repo is public: a push is a publication.
+- Never delete or "clean" the owner's copies, originals or vendored duplicates.
+- Randomness comes from ChaosRNG in kgirl modules, never `random` or `np.random`.
 - State confidence levels on scientific claims. Never present Level 2 output as measured.
 - Tithe material never goes into this repo, `~/.kgirl-sync` or the router index.
 - Never print credentials. Mask URL userinfo.
+- One lane, one package: a lane edits its own package, tests and doc, nothing else.
+- The owner wants visible results first and verification alongside, not in front (their usage report, 16 Nov).
+
+## Running the stack
+Unchanged since 13 Nov: see `docs/handoff/HANDOFF-2026-11-13-claude-opus.md`, "Running the stack". Helix needs
+only Ollama: `PYTHONPATH=src ~/.kgirl/venv/bin/python -m kgirl.harness.helix run "question" -B 4000
+--critic-model llama3.2:3b`. Add `--home <dir>` to keep it out of `~/.kgirl`.
 
 ## Vocabulary so far
-squash merge, dangling commit (11-11) · preregistration, Goodhart's law (11-02/03) · superseded, calibration (11-13). Full ledger: `~/.claude/skills/hanoffed/vocabulary.md`.
+superseded, calibration (11-13) · consolidation, smoke test (11-15) · fail-closed, least privilege (11-16).
+Full ledger: `~/.claude/skills/hanoffed/vocabulary.md`.
 
 ## Opening prompt for next session (edit the brackets)
-> Read kgirl's `HANDOFF.md` on main (`git -C ~/Synaps show origin/main:HANDOFF.md`, or `~/work/kgirl-tests/HANDOFF.md` after `git -C ~/work/kgirl-tests checkout --detach origin/main`) and run its one-shot check. Then [next step 1 or 3]. Done means [truth condition]. Live work; open PRs for changes and merge when CI is green. When we wrap up: /hanoffed kgirl.
+> Read `~/work/kgirl-helix/HANDOFF.md` and run its one-shot check. Then [measure helix against a direct call
+> on these questions: ... / land the mind branch]. Stipulate: live work, visible results first, [push allowed
+> / local commits only]. When we wrap up: /hanoffed.
