@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kgirl console</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="brand"><span class="mark"></span>kgirl<span class="sub">console</span></div>
+  <div id="route-chips" class="chips"></div>
+  <div class="spacer"></div>
+  <div id="ws-badge" class="badge" title="workspace"></div>
+  <div id="conn" class="conn" title="live stream"><span class="dot"></span><span id="conn-text">connecting</span></div>
+</header>
+
+<div id="shell">
+  <nav id="rail">
+    <button class="nav active" data-view="chat">Console</button>
+    <button class="nav" data-view="specialists">Specialists</button>
+    <button class="nav" data-view="memory">Memory</button>
+    <button class="nav" data-view="atlas">Atlas</button>
+    <button class="nav" data-view="forge">Forge</button>
+    <button class="nav" data-view="vitals">Vitals</button>
+    <button class="nav" data-view="matrix">Matrix</button>
+    <button class="nav" data-view="services">Services</button>
+    <div class="spacer"></div>
+    <div id="jobs-mini"></div>
+    <button id="feed-toggle" class="nav ghost">Live feed</button>
+  </nav>
+
+  <main id="main">
+    <!-- CHAT -->
+    <section id="view-chat" class="view active">
+      <div class="view-head">
+        <select id="conv-select"></select>
+        <button id="conv-new" class="btn">new</button>
+        <div class="spacer"></div>
+        <button id="ws-diff" class="btn ghost">diff</button>
+        <button id="ws-undo" class="btn ghost">undo</button>
+        <button id="ws-auto" class="btn ghost">auto: off</button>
+        <button id="ws-verify" class="btn ghost">verifier</button>
+      </div>
+      <div id="transcript"></div>
+      <div id="apply-bar" class="apply-bar hidden">
+        <span>a verified diff is waiting</span>
+        <button id="apply-btn" class="btn accent">apply</button>
+        <button id="apply-dismiss" class="btn ghost">dismiss</button>
+      </div>
+      <div id="composer">
+        <textarea id="chat-input" rows="2" placeholder="talk to kgirl — it remembers, uses tools, and learns from your reactions"></textarea>
+        <button id="chat-send" class="btn accent">send</button>
+      </div>
+    </section>
+
+    <!-- SPECIALISTS -->
+    <section id="view-specialists" class="view">
+      <div class="panel">
+        <h2>dispatch a specialist swarm</h2>
+        <div class="form-grid">
+          <input id="task-goal" placeholder="goal — one precise change">
+          <select id="task-repo"></select>
+          <input id="task-verify" placeholder="verifier command (from the allowlist)">
+          <input id="task-size" type="number" min="1" max="8" placeholder="size (default: metabolism)">
+          <button id="task-run" class="btn accent">dispatch</button>
+        </div>
+        <p class="hint">sandboxed agents, one goal each · the verified diff is never applied without you</p>
+      </div>
+      <div id="task-result"></div>
+      <div class="panel"><h2>recent operations</h2><div id="jobs-list"></div></div>
+    </section>
+
+    <!-- MEMORY -->
+    <section id="view-memory" class="view">
+      <div class="view-head">
+        <input id="soup-q" placeholder="search memory">
+        <select id="soup-kind"><option value="">all kinds</option><option>fact</option><option>preference</option>
+          <option>abstraction</option><option>skill</option><option>trajectory</option><option>exemplar</option>
+          <option>episode</option><option>antipattern</option><option>note</option></select>
+        <select id="soup-status"><option value="">all statuses</option><option>active</option><option>staged</option><option>retired</option></select>
+        <button id="soup-refresh" class="btn">refresh</button>
+        <div class="spacer"></div>
+        <button id="ledger-toggle" class="btn ghost">ledger</button>
+      </div>
+      <div class="panel remember">
+        <input id="remember-text" placeholder="remember that …">
+        <select id="remember-kind"><option>fact</option><option>preference</option><option>abstraction</option></select>
+        <button id="remember-btn" class="btn">store</button>
+      </div>
+      <div id="soup-list"></div>
+      <div id="ledger" class="hidden"></div>
+    </section>
+
+    <!-- ATLAS -->
+    <section id="view-atlas" class="view">
+      <div class="view-head">
+        <input id="atlas-q" placeholder="hybrid search — keyword + vector, every indexed repo">
+        <button id="atlas-search" class="btn accent">search</button>
+        <div class="spacer"></div>
+        <input id="index-spec" placeholder="repo name or URL to index">
+        <button id="index-btn" class="btn ghost">index</button>
+      </div>
+      <div id="repos-grid"></div>
+      <div id="atlas-results"></div>
+    </section>
+
+    <!-- FORGE -->
+    <section id="view-forge" class="view">
+      <div class="forge-grid">
+        <div class="panel">
+          <h2>spec → code</h2>
+          <textarea id="build-spec" rows="7" placeholder="a precise spec: behavior, edges, constraints"></textarea>
+          <div class="row"><input id="build-n" type="number" min="2" max="8" value="6" title="implementations sampled">
+            <button id="build-run" class="btn accent">build</button>
+            <button id="build-accept" class="btn ghost hidden">accept as exemplar</button></div>
+          <div id="build-result"></div>
+        </div>
+        <div class="panel">
+          <h2>long-form writing</h2>
+          <textarea id="write-brief" rows="7" placeholder="a brief: what to write, for whom, the point"></textarea>
+          <div class="row"><input id="write-words" type="number" value="800" title="words">
+            <button id="write-run" class="btn accent">write</button></div>
+          <div id="write-result"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>skills &amp; consolidation</h2>
+        <div class="row">
+          <button id="evolve-run" class="btn accent">evolve</button>
+          <button id="skills-forge" class="btn">forge skills</button>
+          <input id="skills-dir" placeholder="export directory">
+          <button id="skills-export" class="btn ghost">export SKILL.md</button>
+        </div>
+        <div id="evolve-result"></div>
+        <div id="skills-list"></div>
+      </div>
+    </section>
+
+    <!-- VITALS -->
+    <section id="view-vitals" class="view">
+      <div class="view-head"><h2>metabolism</h2><div class="spacer"></div>
+        <button id="vitals-refresh" class="btn">refresh</button></div>
+      <div id="vitals-grid"></div>
+      <div class="panel"><h2>swarm plan</h2><div id="plan-box"></div></div>
+      <div class="panel"><pre id="vitals-render" class="render"></pre></div>
+    </section>
+
+    <!-- MATRIX -->
+    <section id="view-matrix" class="view">
+      <div class="view-head"><h2>spatial matrix</h2><div id="matrix-stats" class="chips"></div>
+        <div class="spacer"></div><button id="matrix-refresh" class="btn">resample</button></div>
+      <div class="matrix-wrap">
+        <canvas id="matrix-canvas" width="900" height="560"></canvas>
+        <div id="matrix-legend"></div>
+      </div>
+      <div class="panel">
+        <div class="row"><input id="matrix-q" placeholder="query the matrix — coarse sign-bit pass, fine int8 pass">
+          <button id="matrix-search" class="btn accent">infer</button></div>
+        <div id="matrix-hits"></div>
+      </div>
+    </section>
+
+    <!-- SERVICES -->
+    <section id="view-services" class="view">
+      <div class="view-head"><h2>MCP services</h2><span class="hint">every tool kgirl offers other platforms — and you</span></div>
+      <div id="mcp-list"></div>
+      <div id="mcp-call" class="panel hidden">
+        <h2 id="mcp-call-name"></h2>
+        <p id="mcp-call-desc" class="hint"></p>
+        <textarea id="mcp-args" rows="5" spellcheck="false">{}</textarea>
+        <div class="row"><button id="mcp-run" class="btn accent">call</button><button id="mcp-cancel" class="btn ghost">close</button></div>
+        <pre id="mcp-result" class="render"></pre>
+      </div>
+    </section>
+  </main>
+
+  <aside id="feed" class="hidden">
+    <div class="feed-head"><span>live</span><input id="feed-filter" placeholder="filter"><button id="feed-pause" class="btn ghost">pause</button></div>
+    <div id="feed-list"></div>
+  </aside>
+</div>
+
+<div id="approval" class="modal hidden">
+  <div class="modal-card">
+    <h3 id="approval-q"></h3>
+    <pre id="approval-detail" class="render"></pre>
+    <div class="row"><button id="approval-yes" class="btn accent">allow</button><button id="approval-no" class="btn">refuse</button></div>
+  </div>
+</div>
+
+<div id="source-modal" class="modal hidden">
+  <div class="modal-card wide">
+    <h3 id="source-title"></h3>
+    <pre id="source-text" class="render"></pre>
+    <div class="row"><button id="source-close" class="btn">close</button></div>
+  </div>
+</div>
+
+<div id="toast" class="hidden"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

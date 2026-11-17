@@ -1,4 +1,4 @@
-"""CLI verbs for kgirl's mind: chat, build, write, evolve, convo. Wired into cli.py."""
+"""CLI verbs for kgirl's mind: chat, build, write, evolve, convo, console. Wired into cli.py."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import shlex
 import sys
 from pathlib import Path
 
-VERBS = ("chat", "build", "write", "evolve", "convo")
+VERBS = ("chat", "build", "write", "evolve", "convo", "console")
 
 CHAT_HELP = """conversation
   /new [title]      start a new conversation        /recap          what this conversation is about
@@ -67,12 +67,26 @@ def add_parsers(sub) -> None:
     q.add_argument("-o", "--out")
     q = cs.add_parser("delete", help="delete a conversation, its summary and the proposals only it supported")
     q.add_argument("id", type=int)
+    p = sub.add_parser("console", help="local web console: chat, specialists, memory, atlas, forge, vitals, matrix, "
+                                       "services — one live surface over the whole harness")
+    p.add_argument("--port", type=int, default=8765, help="localhost port (default 8765)")
+    p.add_argument("--dir", help="project directory kgirl may read and (with your approval) change")
+    p.add_argument("--no-workspace", action="store_true", help="no file or command tools, only indexed repos and memory")
+    p.add_argument("--yes", action="store_true", help="apply kgirl's file edits without asking (they stay undoable)")
 
 
 def run(a, args) -> int | None:
     """Handle a mind verb; None means `args.cmd` isn't one."""
     if args.cmd not in VERBS:
         return None
+    if args.cmd == "console":
+        from .console import serve
+        root = None
+        if not args.no_workspace:
+            cand = Path(args.dir).expanduser() if args.dir else Path.cwd()
+            if cand.resolve() not in (Path.home().resolve(), Path(cand.anchor)):
+                root = cand
+        return serve(a, port=args.port, workspace_root=root, auto_edit=args.yes)
     from .mind import Mind
     try:
         mind = Mind(a, workspace=_workspace(args), verify_cmd=_argv(getattr(args, "verify", None)))
