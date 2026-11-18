@@ -85,9 +85,6 @@ class HoloStore:
         self.home = Path(home) if home else harness_home()
         self.path = self.home / DB_NAME
         self.db = MatrixDB(self.path)
-        # MatrixDB has no "who references this digest" query. A second, read-only connection asks its
-        # documented tables directly; every write still goes through MatrixDB.
-        self._ro = sqlite3.connect(self.path.resolve().as_uri() + "?mode=ro", uri=True, check_same_thread=False)
         self.cache: dict[str, Any] = {}          # opened matrix, chunk index and centroids, kept by infer.py
 
     def drop_cache(self) -> None:
@@ -99,7 +96,6 @@ class HoloStore:
 
     def close(self) -> None:
         self.drop_cache()
-        self._ro.close()
         self.db.close()
 
     def __enter__(self) -> "HoloStore":
@@ -152,16 +148,12 @@ class HoloStore:
 
     def owners(self, digest: str) -> list[str]:
         """Every entity that has recorded this matrix."""
-        rows = self._ro.execute("SELECT DISTINCT e.name FROM geometries g JOIN entities e ON e.id = g.entity"
-                                " WHERE g.matrix = ? ORDER BY e.name", (digest,))
-        return [name for (name,) in rows]
+        return [name for _, name in self.db.references(digest)]
 
     def overlaps(self, kind: str = CHUNK) -> dict[str, list[str]]:
         """Digests of this kind recorded under two or more entities, with their owners."""
         shared: dict[str, list[str]] = {}
-        for digest, name in self._ro.execute(
-                "SELECT DISTINCT g.matrix, e.name FROM geometries g JOIN entities e ON e.id = g.entity"
-                " WHERE g.kind = ? ORDER BY g.matrix, e.name", (kind,)):
+        for digest, name in self.db.references(kind=kind):
             shared.setdefault(digest, []).append(name)
         return {digest: names for digest, names in shared.items() if len(names) >= 2}
 
@@ -171,9 +163,8 @@ class HoloStore:
         for name in self.db.entities():
             chain = self.db.verify(name)
             proven = {e.payload.get("matrix") for e in self.db.events(name, E_RECORD, limit=_ALL)}
-            rows = self._ro.execute("SELECT DISTINCT g.matrix FROM geometries g JOIN entities e ON e.id = g.entity"
-                                    " WHERE e.name = ?", (name,))
-            unproven = sorted(digest for (digest,) in rows if digest not in proven)
+            recorded = {digest for digest, _ in self.db.references(entity=name)}
+            unproven = sorted(digest for digest in recorded if digest not in proven)
             out[name] = {**chain, "unproven": unproven, "ok": bool(chain["ok"]) and not unproven}
         return out
 

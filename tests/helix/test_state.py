@@ -4,7 +4,7 @@ import json
 import unittest
 
 from tests.helix._fixtures import HelixCase
-from kgirl.harness.helix import AXES, DEFAULT_VECTOR, RUBRICS, default_state, invariants_hash, validate
+from kgirl.harness.helix import AXES, DEFAULT_VECTOR, RUBRICS, StateStore, default_state, invariants_hash, validate
 from kgirl.harness.helix import state as S
 from kgirl.harness.helix.store import E_REJECT, HelixError
 from kgirl.vessel.matrixdb import GENESIS
@@ -153,6 +153,26 @@ class Store(HelixCase):
             st.commit("main", "tune", vector={**DEFAULT_VECTOR, "gain": 0.8})
             heads.append(st.verify("main")["main"]["head"])
         self.assertEqual(heads[0], heads[1])
+
+    def test_the_write_path_reads_only_new_state_rows(self):
+        st = self.store()
+        for seed in ("a b c", "d e f", "g h i"):
+            st.commit("main", "task", task_seed=seed)
+        seen = []
+        original = st.db.events
+        st.db.events = lambda *a, **k: (seen.append(a), original(*a, **k))[1]
+        st.commit("main", "tune", vector={**DEFAULT_VECTOR, "gain": 0.8})
+        self.assertEqual(st.head("main").vector["gain"], 0.8)
+        self.assertEqual(seen, [])                       # no full-chain read on the write path
+
+    def test_a_long_lived_store_sees_another_writers_versions(self):
+        st = self.store()
+        other = StateStore(self.base / "home")
+        self.addCleanup(other.close)
+        st.commit("main", "task", task_seed="a b c")
+        self.assertEqual(other.head("main").v, 1)
+        st.commit("main", "task", task_seed="d e f")
+        self.assertEqual((other.head("main").v, other.head("main").task_seed), (2, "d e f"))
 
 
 class Ingest(HelixCase):

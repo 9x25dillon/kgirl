@@ -14,6 +14,7 @@ carry no timestamps, so the same run replayed gives the same chain heads.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import replace
@@ -39,6 +40,7 @@ class StateStore:
         self.home = Path(home) if home else harness_home()
         self.home.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.db = MatrixDB(self.home / DB_NAME)
+        self._synced: dict[str, tuple[str, int, int, State | None]] = {}
 
     def close(self) -> None:
         self.db.close()
@@ -72,15 +74,41 @@ class StateStore:
         name = self.entity(session)
         return self.db.events(name, E_STATE) if self.db.has_entity(name) else []
 
+    def _sync(self, session: str) -> tuple[State | None, int]:
+        """The head and the highest version, reading only state rows appended since the last read.
+
+        MatrixDB has no tail-read API, so this queries its ledger by seq through the same connection the
+        store already owns. The chain head hash is a cheap change probe: unchanged means nothing was
+        appended and the cached head stands; changed means read just the new rows. The hash is read before
+        the rows so a concurrent append can never leave the cache believing it is further along than it is."""
+        name = self.entity(session)
+        if not self.db.has_entity(name):
+            return None, 0
+        chain = self.db.head(name)
+        cached = self._synced.get(name)
+        if cached and cached[0] == chain:
+            return cached[3], cached[2]
+        seq, last_v, head = cached[1:] if cached else (-1, 0, None)
+        # TODO: a public MatrixDB.events_since(entity, event, after_seq) would replace this private-connection
+        # read; vessel/ is another lane, so the store queries the ledger it already owns directly.
+        rows = self.db._db.execute(
+            "SELECT seq, payload FROM ledger WHERE entity=? AND event=? AND seq>? ORDER BY seq",
+            (self.db.entity_id(name), E_STATE, seq)).fetchall()
+        latest = None
+        for seq, body in rows:
+            raw = json.loads(body).get("state", {})
+            last_v = max(last_v, raw.get("v", 0))
+            latest = raw
+        if latest is not None:
+            verdict = validate(latest, expect_hash=latest.get("invariants_hash") if isinstance(latest, dict) else None)
+            head = verdict.state if verdict.ok else None
+        self._synced[name] = (chain, seq, last_v, head)
+        return head, last_v
+
     def head(self, session: str) -> State | None:
         """The latest stored version. The chain is this store's own writing, so its invariants hash is not
         held against the current build; a state that no longer fits the schema counts as no head."""
-        events = self._states(session)
-        if not events:
-            return None
-        raw = events[-1].payload.get("state", {})
-        verdict = validate(raw, expect_hash=raw.get("invariants_hash") if isinstance(raw, dict) else None)
-        return verdict.state if verdict.ok else None
+        return self._sync(session)[0]
 
     def get(self, session: str, v: int) -> State | None:
         for e in self._states(session):
@@ -94,9 +122,8 @@ class StateStore:
         """Write the head with `changes` applied as the next version. Returns the head unchanged, and writes
         nothing, when the changes amount to no diff."""
         name = self._ensure(session)
-        head = self.head(session)
+        head, last_v = self._sync(session)
         base = head or default_state()
-        last_v = max((e.payload.get("state", {}).get("v", 0) for e in self._states(session)), default=0)
         verdict = validate(replace(base, **changes, v=last_v + 1, invariants_hash=invariants_hash()).to_dict())
         if not verdict.ok:
             raise HelixError("refusing to write an invalid state: " + "; ".join(verdict.violations))

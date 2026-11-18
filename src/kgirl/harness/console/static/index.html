@@ -3,17 +3,35 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="kgirl-token" content="__KGIRL_TOKEN__">
 <title>kgirl console</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <header id="topbar">
-  <div class="brand"><span class="mark"></span>kgirl<span class="sub">console</span></div>
+  <div class="brand"><pre id="kgirl-logo" class="logo" aria-label="kgirl">██╗  ██╗ ██████╗ ██╗██████╗ ██╗
+██║ ██╔╝██╔════╝ ██║██╔══██╗██║
+█████╔╝ ██║  ███╗██║██████╔╝██║
+██╔═██╗ ██║   ██║██║██╔══██╗██║
+██║  ██╗╚██████╔╝██║██║  ██║███████╗
+╚═╝  ╚═╝ ╚═════╝ ╚═╝╚═╝  ╚═╝╚══════╝</pre><span class="sub">console</span></div>
   <div id="route-chips" class="chips"></div>
+  <span id="rules-badge" class="chip hidden">rules: on</span>
   <div class="spacer"></div>
+  <button id="jobs-tray" class="tray" aria-expanded="false" title="recent jobs">jobs
+    <span class="tray-n run"><b id="jobs-running">0</b> running</span>
+    <span class="tray-n err"><b id="jobs-failed">0</b> failed</span></button>
+  <span id="code-restart" class="chip verdict-no hidden" role="status">code changed on disk — restart the console to load it</span>
   <div id="ws-badge" class="badge" title="workspace"></div>
   <div id="conn" class="conn" title="live stream"><span class="dot"></span><span id="conn-text">connecting</span></div>
 </header>
+
+<div id="banners"></div>
+
+<div id="jobs-drawer" class="drawer hidden" aria-label="recent jobs">
+  <div class="drawer-head"><span>recent jobs</span><button id="jobs-drawer-close" class="btn ghost">close</button></div>
+  <div id="jobs-drawer-list"></div>
+</div>
 
 <div id="shell">
   <nav id="rail">
@@ -22,8 +40,14 @@
     <button class="nav" data-view="memory">Memory</button>
     <button class="nav" data-view="atlas">Atlas</button>
     <button class="nav" data-view="forge">Forge</button>
+    <button class="nav" data-view="builder">Builder</button>
     <button class="nav" data-view="vitals">Vitals</button>
     <button class="nav" data-view="matrix">Matrix</button>
+    <button class="nav" data-view="helix">Helix</button>
+    <button class="nav" data-view="holo">Holo</button>
+    <button class="nav" data-view="lanes">Lanes</button>
+    <button class="nav" data-view="pocket">Pocket</button>
+    <button class="nav" data-view="rescue">Rescue</button>
     <button class="nav" data-view="services">Services</button>
     <div class="spacer"></div>
     <div id="jobs-mini"></div>
@@ -88,6 +112,11 @@
         <select id="remember-kind"><option>fact</option><option>preference</option><option>abstraction</option></select>
         <button id="remember-btn" class="btn">store</button>
       </div>
+      <div class="panel hidden" id="rules-panel">
+        <h2>standing rules — in every chat prompt</h2>
+        <div id="rules-list"></div>
+        <p class="hint">read-only: the active preferences the rules check enforces · edit them with kgirl soup</p>
+      </div>
       <div id="soup-list"></div>
       <div id="ledger" class="hidden"></div>
     </section>
@@ -137,11 +166,30 @@
       </div>
     </section>
 
+    <!-- BUILDER -->
+    <section id="view-builder" class="view">
+      <div class="panel">
+        <h2>spec → code — the candidate matrix</h2>
+        <textarea id="builder-spec" rows="6" placeholder="a precise spec: behavior, edges, constraints"></textarea>
+        <div class="row"><input id="builder-n" type="number" min="2" max="8" value="6" title="implementations sampled">
+          <label class="hint"><input id="builder-io" type="checkbox"> allow file access</label>
+          <button id="builder-run" class="btn accent">build</button></div>
+        <p class="hint">read-only: tests first, several candidates, agreement selection — nothing is applied or accepted here</p>
+      </div>
+      <div id="builder-result"></div>
+    </section>
+
     <!-- VITALS -->
     <section id="view-vitals" class="view">
       <div class="view-head"><h2>metabolism</h2><div class="spacer"></div>
         <button id="vitals-refresh" class="btn">refresh</button></div>
       <div id="vitals-grid"></div>
+      <div class="panel"><h2>GPU &amp; Ollama</h2>
+        <div class="view-head"><div id="gpu-chips" class="chips"></div><div class="spacer"></div>
+          <button id="gpu-refresh" class="btn ghost">refresh</button></div>
+        <div id="gpu-warnings"></div>
+        <div id="gpu-models"></div>
+        <p class="hint">read-only · flash attention + q8_0 KV cache · 24576 tokens is the most context that stays 100% on the GPU</p></div>
       <div class="panel"><h2>swarm plan</h2><div id="plan-box"></div></div>
       <div class="panel"><pre id="vitals-render" class="render"></pre></div>
     </section>
@@ -159,6 +207,103 @@
           <button id="matrix-search" class="btn accent">infer</button></div>
         <div id="matrix-hits"></div>
       </div>
+    </section>
+
+    <!-- HELIX -->
+    <section id="view-helix" class="view">
+      <div class="view-head">
+        <select id="helix-session" title="whose STATE"></select>
+        <button id="helix-refresh" class="btn">refresh</button>
+        <div id="helix-floor" class="chips"></div>
+        <div class="spacer"></div>
+        <button id="helix-verify" class="btn ghost">verify chains</button>
+      </div>
+      <div class="panel">
+        <h2>run a task within a budget of generated tokens</h2>
+        <div class="form-grid">
+          <input id="helix-task" placeholder="task — the question to answer">
+          <input id="helix-budget" type="number" min="300" value="4000" title="budget B (generated tokens)">
+          <input id="helix-critic" placeholder="critic model (optional, e.g. llama3.2:3b)">
+          <label class="hint"><input id="helix-lattice" type="checkbox"> two experts (lattice)</label>
+          <button id="helix-run" class="btn accent">run</button>
+        </div>
+        <p class="hint">experts → CRITIC → SYNTHESIST · code counts the tokens and keeps the STATE · a re-steer must quote its target</p>
+      </div>
+      <div id="helix-run-result"></div>
+      <div class="panel"><h2>STATE</h2><div id="helix-state"></div></div>
+      <div class="panel"><h2>history — every version with the diff that made it</h2><div id="helix-history"></div>
+        <div class="row"><input id="helix-diff-a" type="number" min="1" placeholder="v" title="from version">
+          <input id="helix-diff-b" type="number" min="1" placeholder="v" title="to version">
+          <button id="helix-diff" class="btn ghost">diff two versions</button></div></div>
+      <div class="panel"><h2>ingest a handoff — validated, fail-closed</h2>
+        <textarea id="helix-ingest-state" rows="5" spellcheck="false" placeholder='paste a STATE JSON handoff'></textarea>
+        <div class="row"><input id="helix-ingest-source" placeholder="source label (e.g. peer)">
+          <button id="helix-ingest" class="btn">ingest</button></div>
+        <div id="helix-ingest-result"></div></div>
+      <div class="panel"><h2>audit a transcript a model wrote on its own</h2>
+        <textarea id="helix-audit-text" rows="5" spellcheck="false" placeholder="paste a HELIX-9 flight log (self-reported ledger, vector, capsules)"></textarea>
+        <div class="row"><input id="helix-audit-external" type="number" min="0" placeholder="external tokens (optional)" title="the run's token count from the provider">
+          <button id="helix-audit" class="btn">audit</button></div>
+        <div id="helix-audit-result"></div></div>
+      <div class="panel hidden" id="helix-verify-panel"><h2>chain verification</h2><pre id="helix-verify-out" class="render"></pre></div>
+    </section>
+
+    <!-- HOLO -->
+    <section id="view-holo" class="view">
+      <div class="view-head"><h2>holo store</h2><div id="holo-stats" class="chips"></div>
+        <div class="spacer"></div>
+        <button id="holo-build" class="btn">build</button>
+        <button id="holo-refresh" class="btn ghost">refresh</button></div>
+      <div class="panel"><div id="holo-status"></div></div>
+      <div class="panel">
+        <div class="row"><input id="holo-q" placeholder="query the space — one embedding call, KGVM coarse-to-fine, provenance on every hit">
+          <input id="holo-k" type="number" min="1" max="50" value="8" title="hits">
+          <button id="holo-search" class="btn accent">infer</button></div>
+        <div id="holo-hits"></div>
+      </div>
+      <div class="panel"><h2>shared digests — one vector, several regions</h2>
+        <div class="row"><button id="holo-overlaps-btn" class="btn ghost">load shared digests</button>
+          <div id="holo-overlap-stats" class="chips"></div></div>
+        <div id="holo-overlaps"></div></div>
+      <div class="panel"><h2>ledger verification — every entity's hash chain</h2>
+        <div class="row"><button id="holo-verify-btn" class="btn ghost">verify chains</button>
+          <div id="holo-verify-stats" class="chips"></div></div>
+        <div id="holo-verify"></div></div>
+      <div class="panel"><h2>live holo events</h2><div id="holo-events"><div class="hint">holo.built · holo.query · holo.regulate appear here as they happen</div></div></div>
+    </section>
+
+    <!-- LANES -->
+    <section id="view-lanes" class="view">
+      <div class="view-head"><h2>agent lanes</h2>
+        <select id="lanes-project" title="porter project"></select>
+        <label class="hint"><input id="lanes-auto" type="checkbox" checked> auto</label>
+        <div class="spacer"></div>
+        <button id="lanes-refresh" class="btn">refresh</button></div>
+      <p class="hint">read-only window onto the shared porter ledger — every active session, its claims, and recent events</p>
+      <div id="lanes-sessions"></div>
+      <div class="panel"><h2>landing — display only</h2><div id="lanes-landing"></div></div>
+      <div class="panel"><h2>recent events</h2><div id="lanes-events"></div></div>
+    </section>
+
+    <!-- POCKET -->
+    <section id="view-pocket" class="view">
+      <div class="view-head"><h2>pocket node</h2><div id="pocket-node" class="chips"></div>
+        <div class="spacer"></div><button id="pocket-refresh" class="btn">refresh</button></div>
+      <p class="hint">read-only from kgirl-pocket's local state files and a local port check — the console never sends commands to the phone</p>
+      <div class="pocket-grid">
+        <div class="panel"><h2>last backup</h2><div id="pocket-backup"></div></div>
+        <div class="panel"><h2>restore drill</h2><div id="pocket-drill"></div></div>
+        <div class="panel"><h2>model benchmark</h2><div id="pocket-bench"></div></div>
+      </div>
+    </section>
+
+    <!-- RESCUE -->
+    <section id="view-rescue" class="view">
+      <div class="view-head"><h2>rescue scan</h2><div id="rescue-chips" class="chips"></div>
+        <label class="hint"><input id="rescue-auto" type="checkbox"> auto</label>
+        <div class="spacer"></div><button id="rescue-refresh" class="btn">refresh</button></div>
+      <p class="hint">read-only: feature-detects the rescue lane's CLI and runs only its scan --json mode — never record or commit</p>
+      <div id="rescue-table"></div>
     </section>
 
     <!-- SERVICES -->

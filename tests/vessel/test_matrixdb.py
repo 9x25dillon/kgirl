@@ -84,6 +84,24 @@ class MatrixDBTests(unittest.TestCase):
                 self.assertEqual(db.head("bix"), head)
                 self.assertTrue(db.verify("bix")["ok"])
 
+    def test_references_filters_and_dedups(self):
+        self.db.create_entity("bix")
+        M = np.eye(2)
+        h = self.db.put_matrix(M)
+        self.db.record("ada", "chunk", M, label="1")
+        self.db.record("ada", "chunk", M, label="2")          # same digest twice under ada -> one pair
+        self.db.record("bix", "chunk", M, label="1")
+        self.db.record("ada", "gram", 2 * np.eye(2))
+        g = self.db.latest("ada", "gram").matrix
+        self.assertEqual(self.db.references(h), [(h, "ada"), (h, "bix")])
+        self.assertEqual(self.db.references(kind="chunk"), [(h, "ada"), (h, "bix")])
+        self.assertEqual(self.db.references(entity="ada"), sorted([(h, "ada"), (g, "ada")]))
+        self.assertEqual(self.db.references(h, kind="gram"), [])
+        self.assertEqual(self.db.references(h, entity="bix"), [(h, "bix")])
+        self.assertEqual(self.db.references("no-such-digest"), [])
+        self.assertEqual(self.db.references(entity="nobody"), [])
+        self.assertEqual(len(self.db.references()), 3)        # ada:chunk, ada:gram, bix:chunk
+
     def test_unknown_entity_and_duplicate_names(self):
         with self.assertRaises(KeyError):
             self.db.append("nobody", "x")

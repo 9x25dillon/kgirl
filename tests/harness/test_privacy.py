@@ -16,7 +16,10 @@ SERVERS = ["src/kgirl/main.py", "src/kgirl/api/integrated_api_server.py", "src/k
            "src/julia/Server.jl", "src/julia/server.jl", "src/julia/setup_limps_service.jl"]
 TRACKERS = re.compile(r"^\s*(import|from)\s+(sentry_sdk|posthog|mixpanel|segment|amplitude|stripe|web3)\b", re.M)
 ALLOWED_NETWORK = {"llm/anthropic_backend.py", "llm/ollama_backend.py", "atlas/vectors.py", "atlas/retrieval.py",
-                   "atlas/sources.py", "jev/browser.py", "jev/browser_env.py", "mcp_server.py"}
+                   "atlas/sources.py", "jev/browser.py", "jev/browser_env.py", "mcp_server.py",
+                   "console/server.py"}     # loopback only (Ollama status, Pocket port probe); see the test below
+LOOPBACK_ONLY = ("console/server.py",)
+URL = re.compile(r"""["'](https?://[^"'\s]+)""")
 NETWORK = re.compile(r"\b(urlopen|requests\.(get|post|put)|httpx\.|socket\.socket|aiohttp\.)")
 
 
@@ -62,6 +65,12 @@ class SourceGuardTests(unittest.TestCase):
         for path, text in self.sources():
             if NETWORK.search(text):
                 self.assertIn(path.relative_to(HARNESS).as_posix(), ALLOWED_NETWORK)
+
+    def test_loopback_only_modules_name_no_other_host(self):
+        for rel in LOOPBACK_ONLY:
+            text = (HARNESS / rel).read_text(errors="replace")
+            for url in URL.findall(text):
+                self.assertRegex(url, r"^https?://(127\.0\.0\.1|localhost|\[::1\])[:/]", f"{rel}: {url}")
 
     def test_servers_do_not_bind_every_interface_by_default(self):
         for rel in SERVERS:

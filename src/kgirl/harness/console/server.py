@@ -8,14 +8,21 @@ from __future__ import annotations
 
 import dataclasses
 import difflib
+import hashlib
+import hmac
 import json
 import mimetypes
 import os
 import queue
 import re
 import shlex
+import socket
 import sqlite3
+import subprocess
 import threading
+import time
+import urllib.request
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -56,13 +63,162 @@ def _swarm(res, root: str) -> dict:
 
 
 def _build(res) -> dict:
-    return {**_plain(res), "confidence": round(res.confidence, 3)}
+    out = {**_plain(res), "confidence": round(res.confidence, 3)}
+    # explain()/summary_dict() arrive with the builder lane; on older results the panel stays hidden.
+    try:
+        explain = getattr(res, "explain", None)
+        out["explain"] = explain() if callable(explain) else ""
+    except Exception:
+        out["explain"] = ""
+    try:
+        summary = getattr(res, "summary_dict", None)
+        out["summary"] = summary() if callable(summary) else None
+    except Exception:
+        out["summary"] = None
+    return out
+
+
+def _critic_host_allowed(host: str) -> bool:
+    """A critic host named from the browser may only be loopback (the adb forward to a phone) or a host the
+    operator listed in KGIRL_CRITIC_HOSTS. Otherwise a forged request could ship prompts and code off-box."""
+    name = (urlparse(host).hostname or "").lower()
+    if name in ("127.0.0.1", "localhost", "::1"):
+        return True
+    allow = os.environ.get("KGIRL_CRITIC_HOSTS", "")
+    names = {(urlparse(h.strip()).hostname or h.strip()).lower() for h in allow.split(",") if h.strip()}
+    return name in names
+
+
+def _porter_db() -> Path:
+    return Path(os.environ.get("AURIC_PORTER_DB") or Path.home() / ".local" / "share" / "auric" / "porter.sqlite")
+
+
+def _rescue_script() -> Path:
+    return Path(os.environ.get("KGIRL_RESCUE_SCRIPT") or "~/work/kgirl-rescue/scripts/rescue.py").expanduser()
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _session_alive(row, now: datetime, ttl_s: float, host: str) -> bool:
+    """Mirrors auric.porter.Porter.alive: not ended, seen within the TTL, and (on this host) a live pid."""
+    if row["ended"]:
+        return False
+    try:
+        seen = datetime.fromisoformat(row["last_seen"])
+    except (ValueError, TypeError):
+        return False
+    if (now - seen).total_seconds() > ttl_s:
+        return False
+    if row["pid"] and row["host"] == host:
+        return _pid_alive(row["pid"])
+    return True
+
+
+LANDING_COMMAND = ("python3 scripts/smoke/land_lanes.py --stack ~/work/kgirl-stack "
+                   "--lane ~/work/kgirl-eng --lane ~/work/kgirl-helix-ui --lane ~/work/kgirl-builder")
+
+
+def _landing() -> dict:
+    """The landing plan's worktrees and their uncommitted path counts. Display only: the sole git commands
+    are `status --porcelain` and `rev-parse --abbrev-ref HEAD`, both reads; the console never runs git writes."""
+    stack = Path(os.environ.get("KGIRL_LANDING_STACK") or "~/work/kgirl-stack").expanduser()
+    lanes = [Path(p.strip()).expanduser() for p in
+             (os.environ.get("KGIRL_LANDING_LANES")
+              or "~/work/kgirl-eng,~/work/kgirl-helix-ui,~/work/kgirl-builder").split(",") if p.strip()]
+    worktrees = []
+    for path in [stack, *lanes]:
+        row = {"name": path.name, "path": str(path), "role": "stack" if path == stack else "lane"}
+        try:
+            st = subprocess.run(["git", "-C", str(path), "status", "--porcelain"],
+                                capture_output=True, text=True, timeout=10)
+            if st.returncode != 0:
+                row["error"] = (st.stderr or "not a git worktree").strip().splitlines()[0]
+            else:
+                br = subprocess.run(["git", "-C", str(path), "rev-parse", "--abbrev-ref", "HEAD"],
+                                    capture_output=True, text=True, timeout=10)
+                row["branch"] = br.stdout.strip()
+                row["uncommitted"] = len([ln for ln in st.stdout.splitlines() if ln.strip()])
+        except (OSError, subprocess.SubprocessError) as exc:
+            row["error"] = str(exc)
+        worktrees.append(row)
+    return {"command": LANDING_COMMAND, "worktrees": worktrees}
+
+
+def _code_root() -> Path:
+    return Path(os.environ.get("KGIRL_CODE") or "~/work/kgirl-stack").expanduser()
+
+
+def _code_fingerprint(root: Path) -> str | None:
+    """HEAD plus a short hash of the uncommitted diff and untracked src files — the same shape the
+    helix-eval runner records as code_rev. None when the root is not a readable git worktree."""
+    def git(*args):
+        r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=10)
+        return r.stdout if r.returncode == 0 else None
+    try:
+        head = git("rev-parse", "--short=10", "HEAD")
+        if head is None:
+            return None
+        diff, untracked = git("diff", "HEAD"), git("ls-files", "--others", "--exclude-standard", "src")
+        if diff is None or untracked is None:
+            return None
+        dirty = diff + untracked
+        return head.strip() + (f"+dirty.{hashlib.sha256(dirty.encode()).hexdigest()[:8]}" if dirty.strip() else "")
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+class CodeWatch:
+    """The code fingerprint taken at startup, re-read at most once a minute. When it drifts, the running
+    server no longer matches the code on disk and the header hints a restart. Git reads only."""
+
+    INTERVAL_S = 60.0
+
+    def __init__(self, root: Path | None = None):
+        self.root = root if root is not None else _code_root()
+        self.startup = _code_fingerprint(self.root)
+        self._lock = threading.Lock()
+        self._checked = 0.0
+        self._current = self.startup
+        self._changed = False
+
+    def status(self) -> dict:
+        with self._lock:
+            now = time.monotonic()
+            if now - self._checked >= self.INTERVAL_S:
+                self._checked = now
+                self._current = _code_fingerprint(self.root)
+                self._changed = bool(self.startup and self._current and self._current != self.startup)
+            return {"available": self.startup is not None, "root": str(self.root),
+                    "startup": self.startup, "current": self._current, "changed": self._changed}
+
+
+POCKET_STATE = Path.home() / ".local" / "state" / "kgirl-pocket"
+POCKET_NODE = ("127.0.0.1", 11435, 11434)      # desktop adb forward -> phone Ollama, both loopback
+
+
+def _pocket_listening(host: str, port: int) -> bool:
+    """A local TCP check of the adb-forwarded port: is the forward up? Connects and closes at once — no data
+    is sent and no command reaches the phone."""
+    try:
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except OSError:
+        return False
 
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "kgirl-console"
     protocol_version = "HTTP/1.1"
     console: Console = None                      # set by serve()
+    code_watch: CodeWatch | None = None          # set by serve(); the startup code fingerprint
 
     def log_message(self, fmt, *args):           # quiet: the UI is the log
         pass
@@ -95,12 +251,32 @@ class Handler(BaseHTTPRequestHandler):
         host = (self.headers.get("Host") or "").split(":")[0]
         return host in ("127.0.0.1", "localhost", "::1", "[::1]", "")
 
+    def _origin_ok(self) -> bool:
+        """A cross-site page sends its own Origin; only this console's own origin may drive it. An absent
+        Origin (same-origin GET, curl) is allowed here and still has to pass the token check."""
+        origin = self.headers.get("Origin")
+        if not origin:
+            return True
+        port = self.server.server_address[1]
+        return origin in (f"http://127.0.0.1:{port}", f"http://localhost:{port}", f"http://[::1]:{port}")
+
+    def _token_ok(self, query: dict | None = None) -> bool:
+        """The per-launch secret, from the X-Kgirl-Token header or (for EventSource, which cannot set
+        headers) the ?token= query parameter. Constant-time compare."""
+        supplied = self.headers.get("X-Kgirl-Token") or (query or {}).get("token", "")
+        return hmac.compare_digest(supplied.encode(), self.console.token.encode())
+
+    def _guarded(self, query: dict | None = None) -> bool:
+        return self._host_ok() and self._origin_ok() and self._token_ok(query)
+
     def _static(self, rel: str) -> None:
         path = (STATIC / (rel or "index.html")).resolve()
         if not path.is_relative_to(STATIC) or not path.is_file():
             return self._err(404, "not found")
         ctype = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
         body = path.read_bytes()
+        if path.name == "index.html":                  # hand the page its per-launch secret, same-origin only
+            body = body.replace(b"__KGIRL_TOKEN__", self.console.token.encode())
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -142,9 +318,11 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         path, query = url.path, {k: v[0] for k, v in parse_qs(url.query).items()}
         try:
-            if path == "/api/events":
-                return self._sse()
             if path.startswith("/api/"):
+                if not self._guarded(query):
+                    return self._err(403, "localhost, same origin and the launch token only")
+                if path == "/api/events":
+                    return self._sse()
                 return self._json(self._get(path, query))
             if path == "/" or path.startswith("/static/"):
                 return self._static(path[len("/static/"):] if path.startswith("/static/") else "")
@@ -155,8 +333,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._err(500, f"{type(exc).__name__}: {exc}")
 
     def do_POST(self):
-        if not self._host_ok():
-            return self._err(403, "localhost only")
+        if not self._guarded():
+            return self._err(403, "localhost, same origin and the launch token only")
+        # A cross-site no-cors POST can only be a "simple" Content-Type; requiring JSON forces a CORS
+        # preflight this server never answers, so the forged request is never sent.
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/json":
+            return self._err(415, "POST needs Content-Type: application/json")
         path, body = urlparse(self.path).path, self._body()
         try:
             return self._json(self._post(path, body))
@@ -168,8 +351,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._err(500, f"{type(exc).__name__}: {exc}")
 
     def do_DELETE(self):
-        if not self._host_ok():
-            return self._err(403, "localhost only")
+        if not self._guarded():
+            return self._err(403, "localhost, same origin and the launch token only")
         path = urlparse(self.path).path
         m = re.fullmatch(r"/api/conversations/(\d+)", path)
         if not m:
@@ -221,6 +404,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/soup/ledger":
             return [dict(r) for r in c.a.soup.ledger(since=float(q.get("since", 0)),
                                                      limit=int(q.get("limit", 200)))]
+        if path == "/api/rules":
+            return self._rules()
         if path == "/api/repos":
             return [dict(r) for r in c.a.atlas.repos()]
         if path == "/api/search":
@@ -249,7 +434,200 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/mcp/tools":
             reply = c.mcp().handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
             return reply["result"]["tools"]
+        if path == "/api/helix/state":
+            return self._helix_state(q)
+        if path == "/api/helix/history":
+            from ..helix.store import StateStore
+            with StateStore(c.a.home) as store:
+                return store.history(q.get("session", "main"))
+        if path == "/api/helix/verify":
+            from ..helix.store import StateStore
+            with StateStore(c.a.home) as store:
+                return store.verify(q.get("session") or None)
+        if path == "/api/helix/diff":
+            from ..helix.store import HelixError, StateStore
+            try:
+                with StateStore(c.a.home) as store:
+                    return store.diff(q.get("session", "main"), int(q["a"]), int(q["b"]))
+            except HelixError as exc:
+                raise ValueError(str(exc))
+        if path == "/api/holo/status":
+            from ..holo import status
+            return status(c.a.home)
+        if path == "/api/holo/owners":
+            from ..holo import HoloStore
+            with HoloStore(c.a.home) as store:
+                return {"digest": q["digest"], "owners": store.owners(q["digest"])}
+        if path == "/api/holo/overlaps":
+            from ..holo import HoloStore
+            limit = max(1, min(500, int(q.get("limit", 100))))
+            with HoloStore(c.a.home) as store:
+                ov = store.overlaps()
+            items = [{"digest": d, "owners": o} for d, o in sorted(ov.items())][:limit]
+            return {"count": len(ov), "shown": len(items), "overlaps": items}
+        if path == "/api/holo/verify":
+            from ..holo import HoloStore, status
+            if status(c.a.home)["built"] is None:            # a read must not create an empty store
+                return {}
+            with HoloStore(c.a.home) as store:
+                return store.verify()
+        if path == "/api/lanes":
+            return self._lanes(q)
+        if path == "/api/pocket":
+            return self._pocket()
+        if path == "/api/rescue":
+            return self._rescue()
+        if path == "/api/code":
+            watch = self.code_watch
+            return watch.status() if watch is not None else {"available": False, "changed": False}
+        if path == "/api/gpu":
+            return self._gpu()
         raise ValueError(f"no such endpoint: {path}")
+
+    def _gpu(self) -> dict:
+        """Read-only GPU and Ollama status: nvidia-smi, /api/ps (with a best-effort /api/show for the native
+        context window), and the active KGIRL_MIND_CTX. Warns when a model is not fully GPU-resident or the
+        GPU is at/above 95 C. Nothing here mutates the GPU or the models."""
+        out = {"gpu": None, "ollama": None, "mind_ctx": None, "warnings": []}
+        ctx = (os.environ.get("KGIRL_MIND_CTX") or "").strip()
+        out["mind_ctx"] = int(ctx) if ctx.isdigit() else None
+        try:
+            r = subprocess.run(["nvidia-smi", "--query-gpu=memory.used,memory.total,utilization.gpu,temperature.gpu",
+                                "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=5)
+            if r.returncode == 0 and r.stdout.strip():
+                used, total, util, temp = (float(x) for x in r.stdout.strip().splitlines()[0].split(","))
+                out["gpu"] = {"memory_used": used, "memory_total": total, "utilization": util, "temperature": temp}
+                if temp >= 95:
+                    out["warnings"].append(f"GPU at {temp:.0f} C — heat alert (>= 95 C)")
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:11434/api/ps", timeout=5) as resp:
+                ps = json.load(resp)
+            models = []
+            for m in ps.get("models", []):
+                size, vram = m.get("size") or 0, m.get("size_vram") or 0
+                pct = round(vram / size * 100, 1) if size else 0.0
+                details = m.get("details") or {}
+                entry = {"name": m.get("name"), "size": size, "size_vram": vram, "gpu_pct": pct,
+                         "parameter_size": details.get("parameter_size"), "quantization": details.get("quantization_level"),
+                         "context_length": None}
+                if size and vram < size:
+                    out["warnings"].append(f"{entry['name']} is {pct:.0f}% GPU — not 100% resident")
+                try:
+                    req = urllib.request.Request("http://127.0.0.1:11434/api/show",
+                                                 data=json.dumps({"name": m.get("name")}).encode(),
+                                                 headers={"Content-Type": "application/json"})
+                    with urllib.request.urlopen(req, timeout=5) as sr:
+                        info = json.load(sr).get("model_info") or {}
+                    entry["context_length"] = next((v for k, v in info.items() if k.endswith(".context_length")), None)
+                except (OSError, ValueError):
+                    pass
+                models.append(entry)
+            out["ollama"] = {"models": models}
+        except (OSError, ValueError):
+            out["ollama"] = {"error": "Ollama /api/ps unreachable on 127.0.0.1:11434"}
+        return out
+
+    def _pocket(self) -> dict:
+        """Read-only phone/node status from kgirl-pocket's LOCAL state files and a local port check. Never
+        invokes adb and never sends anything to the phone."""
+        host, port, phone_port = POCKET_NODE
+
+        def read(name):
+            try:
+                return json.loads((POCKET_STATE / name).read_text())
+            except (OSError, ValueError):
+                return None
+
+        return {"state_dir": str(POCKET_STATE),
+                "node": {"host": host, "port": port, "phone_port": phone_port,
+                         "listening": _pocket_listening(host, port)},
+                "backup": read("backup.json"), "drill": read("drill.json"), "bench": read("bench.json")}
+
+    def _rules(self) -> dict:
+        """The standing rules: active preferences the mind-rules lane's is_rule() marks as rules.
+        Read-only — editing stays with kgirl soup. When that lane is absent the panel hides."""
+        try:
+            from ..mind.rules import is_rule
+        except ImportError:
+            return {"available": False, "rules": []}
+        rules = [{"id": f.id, "text": f.text, "scope": f.scope}
+                 for f in self.console.a.soup.all(status="active", kind="preference") if is_rule(f.text)]
+        return {"available": True, "rules": rules}
+
+    def _rescue(self) -> dict:
+        """Read-only rescue scan: feature-detect the rescue lane's CLI and run ONLY its `scan --json`
+        mode, with a timeout. The console never invokes record or commit — it displays, it does not rescue."""
+        script = _rescue_script()
+        out = {"available": script.is_file(), "script": str(script)}
+        if not out["available"]:
+            return out
+        try:
+            r = subprocess.run(["python3", str(script), "scan", "--json"],
+                               capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            return {**out, "error": "rescue scan timed out after 30 s"}
+        except OSError as exc:
+            return {**out, "error": str(exc)}
+        if r.returncode != 0:
+            lines = (r.stderr or r.stdout).strip().splitlines()
+            return {**out, "error": lines[-1] if lines else "rescue scan failed"}
+        try:
+            rows = json.loads(r.stdout)
+        except ValueError:
+            return {**out, "error": "rescue scan did not return JSON"}
+        if not isinstance(rows, list):
+            return {**out, "error": "rescue scan returned an unexpected shape"}
+        return {**out, "sessions": rows}
+
+    def _lanes(self, q: dict) -> dict:
+        """A read-only window onto the shared porter ledger: every active agent session, its claims, and the
+        recent events. Reads porter.sqlite read-only (stdlib sqlite, no auric import); never writes."""
+        path = _porter_db()
+        if not path.is_file():
+            return {"available": False, "db": str(path), "projects": [], "sessions": [], "events": [],
+                    "landing": _landing()}
+        now = datetime.now(timezone.utc)
+        ttl_s = float(os.environ.get("AURIC_PORTER_TTL_HOURS", 12)) * 3600
+        host = socket.gethostname()
+        project = q.get("project") or None
+        limit = max(1, min(200, int(q.get("limit", 60))))
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        con.row_factory = sqlite3.Row
+        try:
+            where = " WHERE ended IS NULL" + (" AND project=?" if project else "")
+            args = (project,) if project else ()
+            sessions = []
+            for r in con.execute("SELECT * FROM sessions" + where + " ORDER BY last_seen DESC", args):
+                try:
+                    age = round((now - datetime.fromisoformat(r["last_seen"])).total_seconds())
+                except (ValueError, TypeError):
+                    age = None
+                claims = [dict(c) for c in con.execute(
+                    "SELECT path, intent FROM claims WHERE session=? ORDER BY path", (r["id"],))]
+                sessions.append({"id": r["id"], "agent": r["agent"], "project": r["project"], "task": r["task"],
+                                 "started": r["started"], "last_seen": r["last_seen"], "age_s": age,
+                                 "ended": r["ended"], "summary": r["summary"], "pid": r["pid"],
+                                 "alive": _session_alive(r, now, ttl_s, host), "claims": claims})
+            projects = [r[0] for r in con.execute("SELECT DISTINCT project FROM sessions ORDER BY project")]
+            ewhere = (" WHERE project=?" if project else "")
+            eargs = (project, limit) if project else (limit,)
+            events = [dict(e) for e in con.execute(
+                "SELECT id, created, actor, kind, recipient, message, paths FROM events" + ewhere +
+                " ORDER BY id DESC LIMIT ?", eargs)]
+            return {"available": True, "db": str(path), "projects": projects, "sessions": sessions,
+                    "events": events, "landing": _landing()}
+        finally:
+            con.close()
+
+    def _helix_state(self, q: dict) -> dict:
+        from ..helix.store import StateStore
+        session = q.get("session", "main")
+        with StateStore(self.console.a.home) as store:
+            head = store.head(session)
+            return {"sessions": store.sessions(), "session": session,
+                    "state": head.to_dict() if head else None, "floor": store.floor()}
 
     def _state(self) -> dict:
         c, a = self.console, self.console.a
@@ -437,6 +815,12 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("build needs a spec")
             return {"job": self._build_job(spec, int(b.get("candidates") or 6),
                                            bool(b.get("allow_io"))).id}
+        if path == "/api/builder/run":
+            spec = str(b.get("spec", "")).strip()
+            if not spec:
+                raise ValueError("builder needs a spec")
+            return {"job": self._build_job(spec, int(b.get("candidates") or 6),
+                                           bool(b.get("allow_io")), kind="builder").id}
         if path == "/api/build/accept":
             res = c.ops().last_build
             if res is None:
@@ -473,6 +857,28 @@ class Handler(BaseHTTPRequestHandler):
             return {"paths": [str(p) for p in export(skills, directory)]}
         if path == "/api/matrix/search":
             return {"job": self._matrix_search_job(str(b.get("query", "")), int(b.get("k") or 12)).id}
+        if path == "/api/helix/run":
+            return {"job": self._helix_run_job(b).id}
+        if path == "/api/helix/ingest":
+            from ..helix.store import StateStore
+            if "state" not in b:
+                raise ValueError("ingest needs a state")
+            with StateStore(c.a.home) as store:
+                v = store.ingest(str(b.get("session") or "main"), b["state"],
+                                 source=str(b.get("source") or "console"))
+            return {"accepted": v.ok, "violations": list(v.violations), "clamped": list(v.clamped),
+                    "state": v.state.to_dict()}
+        if path == "/api/helix/audit":
+            from ..helix.evaluate import evaluate
+            text = str(b.get("text", ""))
+            if not text.strip():
+                raise ValueError("audit needs a transcript")
+            external = int(b["external"]) if b.get("external") else None
+            return evaluate(text, external)
+        if path == "/api/holo/build":
+            return {"job": self._holo_build_job(b).id}
+        if path == "/api/holo/query":
+            return {"job": self._holo_query_job(b).id}
         if path == "/api/mcp/call":
             return self._mcp_call(b)
         raise ValueError(f"no such endpoint: {path}")
@@ -494,7 +900,7 @@ class Handler(BaseHTTPRequestHandler):
 
         return c.jobs.start("task", goal[:80], run, heavy=True)
 
-    def _build_job(self, spec: str, candidates: int = 6, allow_io: bool = False):
+    def _build_job(self, spec: str, candidates: int = 6, allow_io: bool = False, kind: str = "build"):
         c = self.console
         if not spec.strip():
             raise ValueError("build needs a spec")
@@ -505,7 +911,7 @@ class Handler(BaseHTTPRequestHandler):
             c.ops().last_build = res
             return _build(res)
 
-        return c.jobs.start("build", spec[:80], run, heavy=True)
+        return c.jobs.start(kind, spec[:80], run, heavy=True)
 
     def _write_job(self, mind, args: dict):
         c = self.console
@@ -555,6 +961,61 @@ class Handler(BaseHTTPRequestHandler):
 
         return c.jobs.start("matrix", query[:80], run, heavy=True)
 
+    def _helix_run_job(self, b: dict):
+        c = self.console
+        task = str(b.get("task", "")).strip()
+        if not task:
+            raise ValueError("helix run needs a task")
+        budget = int(b.get("budget") or 4000)
+        session = str(b.get("session") or "main")
+        critic_model = str(b.get("critic_model") or "").strip() or None
+        critic_host = str(b.get("critic_host") or "").strip() or None
+        if critic_host and not _critic_host_allowed(critic_host):
+            raise ValueError("critic_host must be loopback or listed in KGIRL_CRITIC_HOSTS")
+        experts = [str(e) for e in b["expert"]] if b.get("expert") else None
+        expect = int(b["expect"]) if b.get("expect") else None
+
+        def run(emit):
+            from ..helix.__main__ import render
+            from ..helix.harness import Helix, critic_chain
+            from ..helix.store import StateStore
+            from ..hermes.router import Router
+            emit("status", text="experts -> CRITIC -> SYNTHESIST; code keeps the books")
+            critic = critic_chain(critic_model, critic_host) if critic_model or critic_host else None
+            with StateStore(c.a.home) as store:
+                r = Helix(Router.from_env(), store=store, session=session, critic=critic,
+                          bus=c.a.bus).run(task, budget, experts=experts, lattice=bool(b.get("lattice")),
+                                           expect=expect)
+            return {"result": r, "render": render(r)}
+
+        return c.jobs.start("helix", task[:80], run, heavy=True)
+
+    def _holo_build_job(self, b: dict):
+        c = self.console
+        kw = {"per_cell": int(b["per_cell"])} if b.get("per_cell") is not None else {}
+
+        def run(emit):
+            from ..holo import build
+            emit("status", text="deriving the store from the chunk index (offline, no model)")
+            return build(c.a.home, bus=c.a.bus, **kw)
+
+        return c.jobs.start("holo-build", "build holo store", run, heavy=True)
+
+    def _holo_query_job(self, b: dict):
+        c = self.console
+        text = str(b.get("query", "")).strip()
+        if not text:
+            raise ValueError("holo query needs text")
+        k = max(1, min(50, int(b.get("k") or 8)))
+
+        def run(emit):
+            from ..holo import HoloStore, query
+            emit("status", text="one embedding call (CPU), then KGVM coarse-to-fine with provenance")
+            with HoloStore(c.a.home) as store:
+                return query(store, text, k, bus=c.a.bus)
+
+        return c.jobs.start("holo-query", text[:80], run, heavy=True)
+
     def _mcp_call(self, b: dict):
         c = self.console
         name = str(b["name"])
@@ -575,6 +1036,7 @@ class Handler(BaseHTTPRequestHandler):
 def serve(a, port: int = 8765, workspace_root: Path | None = None, auto_edit: bool = False) -> int:
     console = Console(a, workspace_root=workspace_root, auto_edit=auto_edit)
     Handler.console = console
+    Handler.code_watch = CodeWatch()
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     httpd.daemon_threads = True
     print(f"kgirl console: http://127.0.0.1:{httpd.server_address[1]}/  (Ctrl-C to stop)", flush=True)

@@ -112,11 +112,19 @@ def _json_end(s: str) -> int | None:
     return None
 
 
+def _noise_only(s: str) -> bool:
+    """Whether s is nothing but what may sit between trailers of one block: blank lines, code-fence lines
+    and leftover decoration. A line of prose is not noise, so it ends the trailing block."""
+    return not _LEFTOVER.sub("", _FENCE.sub("", s)).strip()
+
+
 def split(text: str) -> tuple[str, list[Trailer], int]:
     """Separate a reply into its body and its trailers. Returns (body, trailers, trailer characters).
 
-    The JSON may sit on the tag's line or start on the next one, with or without a code fence, and a `+0.1`
-    is read as 0.1: small models write both."""
+    Only a trailing block counts: the trailers must be a suffix of the reply, separated by noise alone, with
+    noise alone after the last one. A tag line with prose after it is body, not a trailer, so a model that
+    writes about `TUNE:` mid-answer does not steer anything. The JSON may sit on the tag's line or start on
+    the next one, with or without a code fence, and a `+0.1` is read as 0.1: small models write both."""
     trailers: list[Trailer] = []
     spans: list[tuple[int, int]] = []
     last = 0
@@ -144,6 +152,12 @@ def split(text: str) -> tuple[str, list[Trailer], int]:
         trailers.append(Trailer(m.group(1), value))
         spans.append((m.start(), end))
         last = end
+    keep = len(spans)                              # keep only the trailing block of candidate trailers
+    if spans and _noise_only(text[spans[-1][1]:]):
+        keep = len(spans) - 1
+        while keep > 0 and _noise_only(text[spans[keep - 1][1]:spans[keep][0]]):
+            keep -= 1
+    trailers, spans = trailers[keep:], spans[keep:]
     body, pos = [], 0
     for a, b in spans:
         body.append(text[pos:a])
