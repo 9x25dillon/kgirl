@@ -45,6 +45,7 @@ from ..util import clip, estimate_tokens
 from .builder import Builder
 from .conversations import ConversationStore
 from .reflect import Reflector, episode_marker, explicit_memory, quick_feedback
+from .rules import check as rules_check, render_rules, revision_prompt, standing_rules, warning as rules_warning
 from .text import one_line, strip_reasoning
 from .tools import CALL_FORMAT, STOP, Tool, call_complete, parse_tool_call, strip_calls, tools_doc
 from .workspace import Workspace, WorkspaceError, allowlisted_commands
@@ -60,6 +61,8 @@ How you work:
 - Use a tool whenever the answer depends on the user's code or files, or on something you need to look
   up, run or build. Look before you change: read a file before you edit it.
 - Only say you changed, ran or verified something when a TOOL RESULT shows it.
+- The user's RULES are binding. Never write code or commands that break them, not even in an example or a
+  "full script". If the task seems to need such a step, leave it out and say which step the user should run.
 - Be direct and concrete. Code in fenced blocks. No filler."""
 
 NO_MORE_TOOLS = ("\n\nYou have used every tool call available for this message. Answer now from what you have; "
@@ -106,6 +109,7 @@ class Mind:
         self._reflecting: threading.Thread | None = None
         self._say: Callable[[str], None] = lambda msg: None
         self.last_build = None
+        self._rules: list = []               # the standing rules in the latest system prompt
         self.last_task = None                 # (SwarmResult, repo root) waiting for /apply
 
     # ------------------------------------------------------------------ model access
@@ -202,11 +206,38 @@ class Mind:
             answer = "(the model returned nothing; try rephrasing)"
             if on_text:
                 on_text(answer + "\n")
+        answer, rules_meta = self._enforce_rules(conv_id, system, text, answer, on_text)
         tid = self.store.append(conv_id, "assistant", answer, recalled=recalled,
-                                meta={"tools": [name for name, _ in used]})
+                                meta={"tools": [name for name, _ in used], **rules_meta})
         self.store.save_context(tid, system)
         self._maybe_reflect(conv_id)
         return Reply(answer, conv_id, recalled, used, stored, verdict if credited is not None else "none")
+
+    def _enforce_rules(self, conv_id: int, system: str, text: str, answer: str,
+                       on_text: Callable[[str], None] | None) -> tuple[str, dict]:
+        """Check the answer's code against the user's rules; on a hit, revise once, and warn if it still breaks one."""
+        hits = rules_check(answer, text)
+        if not hits:
+            return answer, {}
+        self._say("rules check: " + "; ".join(f"{v.name} ({v.snippet})" for v in hits) + " -> revising")
+        if on_text:
+            on_text("\n\n---\n*kgirl's rules check caught a step you asked it not to take; revising...*\n\n")
+        msgs = self._messages(conv_id) + [Message("assistant", answer),
+                                          Message("user", revision_prompt(hits, self._rules))]
+        try:
+            revised = strip_calls(self._generate(system + NO_MORE_TOOLS, msgs, on_text)).strip()
+        except Exception as exc:  # noqa: BLE001 - a failed revision must not lose the answer
+            self._say(f"rules revision failed: {type(exc).__name__}")
+            revised = ""
+        final = revised or answer
+        left = rules_check(final, text)
+        if left:
+            note = rules_warning(left)
+            final += note
+            if on_text:
+                on_text(note)
+        return final, {"rules_hits": [v.name for v in hits], "rules_left": [v.name for v in left],
+                       "rules_revised": bool(revised)}
 
     def feedback(self, conv_id: int, verdict: str) -> str:
         """The user's explicit verdict on the last answer (/good, /bad). It overrides an inferred one."""
@@ -230,7 +261,11 @@ class Mind:
         scope = conv.scope if conv and conv.scope != "*" else None
         # Stable blocks first (persona, tools, workspace, the date): the model server reuses its work on a
         # prompt prefix that did not change, and everything recalled per message comes after.
-        parts = [PERSONA, tools_doc(list(self.tools().values()))]
+        # The user's rules come right after the persona and in every prompt: recall by similarity would only
+        # surface "never push" when the message happens to look like it.
+        rules = standing_rules(soup, scope, budget_tokens=max(200, self.memory_budget // 2))
+        self._rules = rules
+        parts = [PERSONA] + ([render_rules(rules)] if rules else []) + [tools_doc(list(self.tools().values()))]
         if self.workspace is not None:
             parts.append(self.workspace.describe())
         parts.append(f"Today is {time.strftime('%A, %Y-%m-%d')}.")
@@ -239,7 +274,8 @@ class Mind:
         if profile:
             parts.append(f"WHO THE USER IS (kgirl's consolidated profile):\n{clip(profile.text, 1600)}")
             recalled.append(profile.id)
-        prefs = soup.recall(text, budget_tokens=max(120, self.memory_budget // 2), kinds=("preference",), scope=scope)
+        prefs = soup.recall(text, budget_tokens=max(120, self.memory_budget // 2), kinds=("preference",), scope=scope,
+                            exclude=tuple(f.id for f in rules))
         if prefs.fragments:
             parts.append("WHAT THE USER WANTS (their preferences):\n" + "\n".join(f"- {f.text}" for f in prefs.fragments))
             recalled += prefs.ids
