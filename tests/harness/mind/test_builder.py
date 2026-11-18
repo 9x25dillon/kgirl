@@ -13,6 +13,12 @@ from unittest import mock
 import tests.harness._fixtures  # noqa: F401  (sys.path)
 from kgirl.harness.mind import builder as builder_mod
 from kgirl.harness.mind import sandbox
+from kgirl.harness.mind.build_spec import (atlas_context, build_summary_dict, candidate_prompt, donor_snippet,
+                                           emit_files, expected_exports, explain_build, format_failures,
+                                           fragment_utility, has_tests, missing_exports, normalize_suite,
+                                           parse_multifile_reply, rank_exemplars, spec_checklist, spec_query,
+                                           strip_numbered_lines, suite_prompt, suite_test_ids, test_method_source,
+                                           test_weights, weighted_test_count)
 from kgirl.harness.mind.builder import (EDGE_FIRST, IMPL_SYSTEM, REPAIR_SYSTEM, TEST_SYSTEM, BuildResult, Builder,
                                         Candidate, spec_from_text, suite_name)
 from kgirl.harness.soup import Soup
@@ -129,6 +135,38 @@ class AgreementTests(unittest.TestCase):
         pick, group = Builder._agree([a, b, c])
         self.assertIs(pick, b)
         self.assertEqual(len(group), 3)
+
+    def test_failing_cluster_never_outscores_a_passing_candidate(self):
+        fail_a, fail_b, fail_c, fail_d = (self.cand(i, 10) for i in range(4))
+        passing = self.cand(4, 40, "test_gen0:T.test_a")
+        pick, group = Builder._agree([fail_a, fail_b, fail_c, fail_d, passing])
+        self.assertIs(pick, passing)
+        self.assertEqual(group, [passing])
+
+    def test_tie_prefers_tests_spanning_more_independent_suites(self):
+        one_suite = self.cand(0, 10, "test_gen0:T.test_a", "test_gen0:T.test_b")
+        two_suites = self.cand(1, 40, "test_gen0:T.test_a", "test_gen1:T.test_b")
+        pick, group = Builder._agree([one_suite, two_suites])
+        self.assertIs(pick, two_suites)
+        self.assertEqual(group, [two_suites])
+
+    def test_tie_prefers_higher_per_test_candidate_consensus(self):
+        shared_a = self.cand(0, 40, "test_gen0:T.test_1", "test_gen0:T.test_2")
+        helper = self.cand(1, 50, "test_gen0:T.test_1")
+        isolated = self.cand(2, 10, "test_gen0:T.test_3", "test_gen0:T.test_4")
+        pick, _ = Builder._agree([shared_a, helper, isolated])
+        self.assertIs(pick, shared_a)
+
+    def test_split_sibling_assertions_are_weighted_as_one_over_n(self):
+        split_only = self.cand(0, 10, "test_gen0:T.test_cases_1", "test_gen0:T.test_cases_2", "test_gen0:T.test_cases_3")
+        two_methods = self.cand(1, 40, "test_gen0:T.test_basic", "test_gen0:T.test_empty")
+        pick, group = Builder._agree([split_only, two_methods])
+        self.assertIs(pick, two_methods)
+        self.assertEqual(group, [two_methods])
+        weights = test_weights(["test_gen0:T.test_cases_1", "test_gen0:T.test_cases_2", "test_gen0:T.test_basic"])
+        self.assertAlmostEqual(weights["test_gen0:T.test_cases_1"], 0.5)
+        self.assertEqual(weights["test_gen0:T.test_basic"], 1.0)
+        self.assertEqual(weighted_test_count(["test_gen0:T.test_cases_1", "test_gen0:T.test_cases_2"], weights), 1.0)
 
     def test_credible_is_every_test_someone_passes(self):
         self.assertEqual(Builder._credible([self.cand(0, 1, "t1"), self.cand(1, 1, "t2", "t3"), self.cand(2, 1)]),
@@ -373,6 +411,286 @@ class LearnTests(unittest.TestCase):
         self.assertEqual(ids, [staged])
         self.assertTrue(shots.startswith("EXAMPLE 1 (accepted earlier):\nSPEC: Write mean(xs)"), shots)
         self.assertEqual(Builder(lambda *a: "")._exemplars(SPEC, "*"), ("", []))
+
+    def test_unrelated_exemplars_sharing_only_boilerplate_are_filtered_out(self):
+        unrelated = self.soup.add(
+            "SPEC: Write spiral(matrix: list[list[int]]) -> list[int]; raise ValueError on ragged rows.\n\n"
+            "SOLUTION:\n```python\ndef spiral(matrix):\n    return []\n```",
+            kind="exemplar",
+            status="active",
+        )
+        shots, ids = self.builder._exemplars(SPEC, "*")
+        self.assertNotIn(unrelated, ids)
+        self.assertEqual((shots, ids), ("", []))
+
+    def test_use_exemplars_false_skips_recall_while_allowing_learn(self):
+        fid = self.builder.learn(self.result(), accepted=True)
+        cold = Builder(lambda *a: "", self.soup, use_exemplars=False)
+        self.assertEqual(cold._exemplars(SPEC, "*"), ("", []))
+        self.assertIsNotNone(fid)
+
+    def test_learn_stores_agreed_tests_in_fragment_data(self):
+        res = self.result()
+        res.tests = SUITE
+        fid = self.builder.learn(res, accepted=True)
+        self.assertEqual(self.soup.get(fid).data, SUITE.strip())
+
+    def test_confirm_activates_user_accepted_winner_while_mcp_stays_staged(self):
+        earlier = self.soup.add("SPEC: median\n\nSOLUTION: ...", kind="exemplar")
+        fid = self.builder.confirm(self.result(exemplars=[earlier]), scope="kgirl", note="confirmed")
+        frag = self.soup.get(fid)
+        self.assertEqual((frag.kind, frag.status, frag.source, frag.scope),
+                         ("exemplar", "active", "user", "kgirl"))
+        self.assertEqual(frag.wins, 1.0)
+        self.assertEqual(self.soup.get(earlier).wins, 1.0)
+        mcp_id = self.builder.learn(self.result(code=LONG), accepted=True, origin="mcp")
+        self.assertEqual((self.soup.get(mcp_id).status, self.soup.get(mcp_id).source), ("staged", "mcp"))
+        self.assertAlmostEqual(fragment_utility(frag), 2.0 / 3.0)
+        self.assertIsNone(self.builder.confirm(self.result(code="")))
+
+
+class SpecAndSuiteNormalizationTests(unittest.TestCase):
+    def test_spec_checklist_extracts_signatures_properties_exceptions_and_invariants(self):
+        spec = (
+            "Write class `MovingAverage(size: int)`. `size` < 1 raises ValueError.\n"
+            "- `add(x: float) -> float` adds a value. The input must not be modified.\n"
+            "- `count` property: how many values are in the window.\n"
+            "`add` must run in O(1) time. `decode` inverts `encode`."
+        )
+        checklist = spec_checklist(spec)
+        self.assertIn("`MovingAverage(size: int)`", checklist)
+        self.assertIn("`add(x: float) -> float`", checklist)
+        self.assertIn("`count`", checklist)
+        self.assertIn("@property", checklist)
+        self.assertIn("ValueError", checklist)
+        self.assertIn("not mutate", checklist)
+        self.assertIn("round-trip", checklist)
+        self.assertIn("O(1)", checklist)
+
+    def test_suite_prompt_keeps_first_direct_and_diversifies_later_suites(self):
+        self.assertEqual(suite_prompt(SPEC, 0), f"SPEC:\n{SPEC}")
+        p1 = suite_prompt(SPEC, 1)
+        p2 = suite_prompt(SPEC, 2)
+        self.assertIn("boundary", p1.lower())
+        self.assertIn("contract", p2.lower())
+        self.assertIn("ValueError", p1)
+
+    def test_normalize_suite_leaves_single_assert_and_stateful_methods_unchanged(self):
+        self.assertEqual(normalize_suite(SUITE), SUITE)
+        stateful = (
+            "import unittest\nfrom solution import MovingAverage\n\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_window(self):\n"
+            "        m = MovingAverage(3)\n"
+            "        self.assertEqual(m.add(1), 1)\n"
+            "        self.assertEqual(m.add(3), 2)\n"
+        )
+        self.assertEqual(normalize_suite(stateful), stateful)
+
+    def test_normalize_suite_splits_stateless_multi_assert_methods(self):
+        multi = (
+            "import unittest\nfrom solution import encode, decode\n\n"
+            "class TestRLE(unittest.TestCase):\n"
+            "    def test_cases(self):\n"
+            "        self.assertEqual(encode('aaab'), '3a1b')\n"
+            "        self.assertEqual(decode('3a1b'), 'aaab')\n"
+            "        with self.assertRaises(ValueError):\n"
+            "            encode('a1')\n"
+        )
+        out = normalize_suite(multi)
+        self.assertIn("def test_cases_1(self):", out)
+        self.assertIn("def test_cases_2(self):", out)
+        self.assertIn("def test_cases_3(self):", out)
+        self.assertNotIn("def test_cases(self):", out)
+        compile(out, "<suite>", "exec")
+
+    def test_normalize_suite_wraps_bare_test_functions_and_strips_bare_main(self):
+        bare = (
+            "from solution import mean\n\n"
+            "def test_one():\n"
+            "    assert mean([2, 4]) == 3\n\n"
+            "unittest.main()\n"
+        )
+        out = normalize_suite(bare)
+        self.assertTrue(has_tests(out))
+        self.assertIn("class TestSpec(unittest.TestCase):", out)
+        self.assertIn("def test_one(self):", out)
+        self.assertNotIn("unittest.main()", out)
+
+
+class TargetedRepairTests(OfflineBuilderCase):
+    def test_suite_without_test_methods_is_dropped(self):
+        reply = fenced("import unittest\nfrom solution import mean\n\nclass Empty(unittest.TestCase):\n    pass\n")
+        self.assertEqual(self.builder(ModelByPrompt({}, suite=reply))._suite(SPEC, 0),
+                         ("", "it defines no test methods"))
+
+    def test_repair_prompt_includes_failing_test_source_and_regression_warning(self):
+        calls = []
+
+        def llm(system, prompt, max_tokens, temperature):
+            calls.append((system, prompt, temperature))
+            if system == TEST_SYSTEM:
+                return fenced(SUITE)
+            if system == REPAIR_SYSTEM:
+                return fenced(ODD if temperature < 0.3 else FIXED)
+            return {0.2: fenced(LONG), 0.5: fenced(SHORT), 0.8: fenced(ODD)}[temperature]
+
+        res = self.builder(llm, repair_rounds=2).build(SPEC)
+        self.assertEqual(res.code, FIXED)
+        repairs = [c for c in calls if c[0] == REPAIR_SYSTEM]
+        self.assertEqual(len(repairs), 2)
+        self.assertIn("def test_empty(self):", repairs[0][1])
+        self.assertIn("REGRESSED IN PREVIOUS REPAIR", repairs[1][1])
+        self.assertIn("def test_basic(self):", repairs[1][1])
+        self.assertEqual(test_method_source([SUITE], EMPTY),
+                         "def test_empty(self):\n    with self.assertRaises(ValueError):\n        mean([])")
+        self.assertIn("def test_empty(self):", format_failures([SUITE], {EMPTY: "failed"}))
+        self.assertIn("mean", spec_query(SPEC))
+        self.assertEqual(rank_exemplars(SPEC, []), [])
+
+    def test_explain_renders_suites_votes_repairs_and_winner_rationale(self):
+        llm = ModelByPrompt({0.2: fenced(LONG), 0.5: fenced(SHORT), 0.8: fenced(ODD)})
+        res = self.builder(llm).build(SPEC)
+        explained = res.explain()
+        self.assertEqual(explained, explain_build(res))
+        self.assertIn("=== SUITES ===", explained)
+        self.assertIn(BASIC, explained)
+        self.assertIn(EMPTY, explained)
+        self.assertIn("=== CANDIDATE VOTES & AGREEMENT GROUPS ===", explained)
+        self.assertIn("group 1: members=[#0, #1]", explained)
+        self.assertIn("=== REPAIR STEPS ===", explained)
+        self.assertIn("round 1 (#100, T=0.20): 1 -> 2 tests", explained)
+        self.assertIn("ACCEPTED (strict superset)", explained)
+        self.assertIn("=== WHY THE WINNER WON ===", explained)
+        self.assertIn("Initial dual-agreement pick", explained)
+        self.assertIn("Targeted repair winner: candidate #100", explained)
+
+    def test_explain_covers_failed_and_no_suite_builds(self):
+        failed = BuildResult(spec=SPEC, code="", tests="", chosen=None, group_size=0, passed=0, credible=0,
+                             candidates=[Candidate(0, "", 0.2, "direct", dropped="no Python module in the reply")],
+                             suites=[], exemplars=[])
+        self.assertIn("No candidate won", failed.explain())
+        no_suite = BuildResult(spec=SPEC, code=SHORT, tests="", chosen=1, group_size=2, passed=0, credible=0,
+                               candidates=[Candidate(0, LONG, 0.2, "direct"), Candidate(1, SHORT, 0.5, "edge-first")],
+                               suites=[], exemplars=[])
+        self.assertIn("won by fallback: no test suite survived", no_suite.explain())
+
+    def test_multi_file_and_atlas_context_build(self):
+        self.assertEqual(suite_test_ids(SUITE, "test_gen0"), [BASIC, EMPTY])
+        self.assertIn("ValueError", candidate_prompt(SPEC, "", 2, EDGE_FIRST))
+        numbered = "   1: def helper(x):\n   2:     return x + 1\n"
+        self.assertEqual(strip_numbered_lines(numbered), "def helper(x):\n    return x + 1\n")
+
+        fake_atlas = mock.Mock()
+        fake_atlas.read_source.return_value = numbered
+        ctx, extra = atlas_context(fake_atlas, "kgirl", ["src/pkg/helper.py"])
+        self.assertIn("EXISTING REPO CONTEXT (from Atlas):", ctx)
+        self.assertIn("def helper(x):", ctx)
+        self.assertEqual(extra, {"helper.py": "def helper(x):\n    return x + 1\n"})
+
+        with mock.patch("kgirl.harness.mind.build_spec.secret_reason", return_value="flagged"):
+            with self.assertRaises(ValueError):
+                atlas_context(fake_atlas, "kgirl", ["src/pkg/config.py"])
+
+        sol, comp = parse_multifile_reply(
+            "```python helpers.py\ndef add1(x):\n    return x + 1\n```\n"
+            "```python\nfrom helpers import add1\ndef mean(xs):\n    return add1(0)\n```"
+        )
+        self.assertIn("def mean(xs):", sol)
+        self.assertEqual(comp, {"helpers.py": "def add1(x):\n    return x + 1\n"})
+
+        llm = ModelByPrompt({0.2: fenced(LONG), 0.5: fenced(SHORT), 0.8: fenced(ODD)})
+        res = self.builder(llm).build_with_atlas(SPEC, fake_atlas, "kgirl", "src/pkg/helper.py")
+        self.assertEqual(res.code, FIXED)
+        self.assertEqual(res.extra_files, {"helper.py": "def helper(x):\n    return x + 1\n"})
+        emitted = res.files("stats.py")
+        self.assertEqual(set(emitted), {"stats.py", "helper.py", "test_stats.py"})
+        self.assertIn("from stats import mean", emitted["test_stats.py"])
+        self.assertEqual(emit_files("", [SUITE]), {})
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "stats.py"
+            written = res.write(out_path)
+            self.assertEqual(len(written), 3)
+            self.assertTrue((Path(tmp) / "stats.py").is_file())
+            self.assertTrue((Path(tmp) / "helper.py").is_file())
+            self.assertTrue((Path(tmp) / "test_stats.py").is_file())
+
+    def test_donor_snippet_and_summary_dict(self):
+        llm = ModelByPrompt({0.2: fenced(LONG), 0.5: fenced(SHORT), 0.8: fenced(ODD)})
+        res = self.builder(llm).build(SPEC)
+        repairs = [c for c in llm.calls if c[0] == REPAIR_SYSTEM]
+        self.assertIn("PASSING CANDIDATE REFERENCE (candidate #2 passes test_gen0:TestMean.test_empty):",
+                      repairs[0][1])
+        self.assertIn("raise ValueError('empty')", repairs[0][1])
+        self.assertNotIn(BASIC, repairs[0][1])
+        self.assertEqual(donor_snippet([], None, []), "")
+        summary = res.summary_dict()
+        self.assertEqual(summary, build_summary_dict(res))
+        self.assertEqual((summary["chosen"], summary["passed"], summary["credible"]), (100, 2, 2))
+        self.assertIn("=== WHY THE WINNER WON ===", summary["explain"])
+        self.assertEqual(len(summary["candidates"]), 4)
+
+    def test_expected_and_missing_exports_and_disputed_explanation(self):
+        cls_spec = (
+            "Write class `MovingAverage(size: int)`.\n"
+            "- `add(x: float) -> float` adds a value.\n"
+            "- `count` property: how many values are in the window."
+        )
+        self.assertEqual(expected_exports(cls_spec), (["MovingAverage"], ["add"], ["count"]))
+        bad_cls = "class MovingAverage:\n    def count(self):\n        return 0\n"
+        self.assertEqual(
+            missing_exports(cls_spec, bad_cls),
+            ["missing method `add`", "`count` is defined as a method without @property"],
+        )
+        good_cls = (
+            "class MovingAverage:\n"
+            "    def add(self, x):\n        return x\n"
+            "    @property\n    def count(self):\n        return 0\n"
+        )
+        self.assertEqual(missing_exports(cls_spec, good_cls), [])
+        self.assertEqual(expected_exports("Write `encode(s: str)` and `decode(s: str)`."),
+                         (["encode", "decode"], [], []))
+        self.assertEqual(missing_exports("Write `encode(s: str)` and `decode(s: str)`.", "def encode(s):\n    return s\n"),
+                         ["missing top-level `decode`"])
+        ann_and_imports = (
+            "from codecs import encode as encode\n"
+            "import math as _m\n"
+            "try:\n"
+            "    decode: object = lambda s: s\n"
+            "except Exception:\n"
+            "    def decode(s):\n"
+            "        return s\n"
+        )
+        self.assertEqual(missing_exports("Write `encode(s: str)` and `decode(s: str)`.", ann_and_imports), [])
+        if_try_cls = (
+            "if True:\n"
+            "    class MovingAverage:\n"
+            "        try:\n"
+            "            from operator import identity as add\n"
+            "        except ImportError:\n"
+            "            def add(self, x):\n"
+            "                return x\n"
+            "        count = property(lambda self: 0)\n"
+        )
+        self.assertEqual(missing_exports(cls_spec, if_try_cls), [])
+        # Contract tie-breaking in _agree: complete exports beat shorter incomplete code on equal test score.
+        incomplete = Candidate(0, "def encode(s):\n    return s\n", 0.2, "direct", passed=frozenset({"t1"}))
+        complete = Candidate(
+            1,
+            "def encode(s):\n    return s\ndef decode(s):\n    return s\n",
+            0.5,
+            "edge-first",
+            passed=frozenset({"t1"}),
+        )
+        pick_tie, _ = Builder._agree([incomplete, complete], "Write `encode(s: str)` and `decode(s: str)`.")
+        self.assertIs(pick_tie, complete)
+
+        llm = ModelByPrompt({0.2: fenced(LONG), 0.5: fenced(SHORT), 0.8: fenced(ODD)}, repair=fenced(ODD))
+        res = self.builder(llm, repair_rounds=1).build(SPEC)
+        explained = res.explain()
+        self.assertIn("=== DISPUTED TESTS ===", explained)
+        self.assertIn(f"{EMPTY} (passed by #2)", explained)
 
 
 if __name__ == "__main__":
