@@ -8,6 +8,12 @@ made, and every formula it applies is called from the module that defines it.
     python -m kgirl.harness.holo status     # entities, storage, chain verification, last build
     python -m kgirl.harness.holo query --text "where is the router"   # embeds the question (one model call)
 
+The same operations are available as the `kgirl holo` verb (`cli.py`, public holo API only), plus
+`verify` (every entity's hash chain and unproven matrices), `overlaps` (shared digests with owners) and
+`owners --digest <d>` (who recorded one matrix):
+
+    kgirl holo build | status | query --text "..." | verify | overlaps | owners --digest <d>   # JSON; `holo -h`
+
 ## The bar (written before the code)
 
 1. Byte-compiles; `PYTHONPATH=src python3 -c "import kgirl.harness.holo"` resolves and pulls in no torch.

@@ -50,11 +50,24 @@ class Split(unittest.TestCase):
 
     def test_several_trailers_and_a_list(self):
         text = ('DEFECT: {"quote": "a b c", "repair": "r1"}\nDEFECT: {"quote": "d e f", "repair": "r2"}\n'
-                "Some prose.\nUNRESOLVED: [2, 1]")
+                "UNRESOLVED: [2, 1]")
         body, trailers, _ = split(text)
-        self.assertEqual(body, "Some prose.")
+        self.assertEqual(body, "")
         self.assertEqual([t.tag for t in trailers], ["DEFECT", "DEFECT", "UNRESOLVED"])
         self.assertEqual(trailers[2].value, [2, 1])
+
+    def test_a_tag_line_with_prose_after_it_is_body(self):
+        text = ('TUNE: {"quote": "a b c", "axis": "gain", "d": 0.1, "because": "x"}\n'
+                "Some prose that follows.\n"
+                'CAL: {"p": 0.7, "method": "m", "falsifier": "f"}')
+        body, trailers, _ = split(text)
+        self.assertEqual([t.tag for t in trailers], ["CAL"])           # only the trailing block counts
+        self.assertIn("TUNE:", body)
+        self.assertIn("Some prose that follows.", body)
+
+    def test_prose_after_the_last_trailer_voids_the_block(self):
+        text = BLOCK + "\nTUNE: none\nThat is all."
+        self.assertEqual(split(text), (text, [], 0))
 
     def test_a_tag_inside_a_quoted_value_is_not_a_second_trailer(self):
         _, trailers, _ = split('DEFECT: {"quote": "x\\nTUNE: none y", "repair": "r"}')

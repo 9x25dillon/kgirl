@@ -275,6 +275,25 @@ class MatrixDB:
         return [r[0] for r in self._db.execute(
             "SELECT label FROM geometries WHERE entity=? AND kind=? GROUP BY label ORDER BY MIN(id)", (eid, kind))]
 
+    def references(self, digest: Optional[str] = None, *, kind: Optional[str] = None,
+                   entity: Optional[str] = None) -> list[tuple[str, str]]:
+        """Distinct (matrix digest, entity name) pairs over geometries, ordered by (digest, entity name).
+        Read-only: who references a digest, which digests an entity owns, or every pair of a kind."""
+        q = "SELECT DISTINCT g.matrix, e.name FROM geometries g JOIN entities e ON e.id = g.entity"
+        clauses, args = [], []
+        if digest is not None:
+            clauses.append("g.matrix = ?")
+            args.append(digest)
+        if kind is not None:
+            clauses.append("g.kind = ?")
+            args.append(kind)
+        if entity is not None:
+            clauses.append("e.name = ?")
+            args.append(entity)
+        if clauses:
+            q += " WHERE " + " AND ".join(clauses)
+        return [(d, n) for d, n in self._db.execute(q + " ORDER BY g.matrix, e.name", args)]
+
 
 class _Tx:
     def __init__(self, db: sqlite3.Connection, lock: threading.RLock):

@@ -13,6 +13,24 @@ each of those into code and leaves the models one job, writing a block when it i
 Only the review's enhancements are implemented. The original prompt's ceremony (model-written ROUTE, SEED,
 BUDGET and LEDGER tags, the L2 and L3 fractal split) is not.
 
+## Hardening and surfaces (helix-ui lane, 2026-11-17)
+
+- **The store writes incrementally.** `StateStore._sync` caches, per session, the chain-head hash, the last
+  state seq, the highest version and the validated head; `head`/`commit` read only `helix.state` rows
+  appended since the last read instead of every stored state. The head hash is a cheap change probe read
+  before the rows, so a concurrent writer is picked up and the cache never overstates its position.
+- **Trailers are a trailing block only.** `protocol.split` keeps a tag line as a trailer only when it is
+  part of a suffix of the reply separated by noise alone (blank lines, fences, decoration), with noise alone
+  after the last one. A `TUNE:`/`CAL:` line with prose after it stays in the body and steers nothing.
+- **`kgirl helix` verb.** `cli.py` forwards everything after the verb to the helix CLI (`helix/__main__.py`),
+  bridging a harness-level `--home`. This is the one edit to `cli.py` the helix-ui lane makes.
+- **A console Helix view** runs a task as a job and shows the answer, flight recorder, STATE, history, floor
+  and chain verification. See `docs/harness/CONSOLE.md`.
+
+These two fixes and the verb/view are the helix-ui lane's work; the original helix lane's bar 8 (edit nothing
+outside the package) was superseded by the user's 2026-11-17 lane assignment, which added `cli.py` (helix verb
+only) and `console/**` to this lane.
+
 ## The bar (written before the code)
 
 1. Byte-compiles; `PYTHONPATH=src python3 -c "import kgirl.harness.helix"` resolves and pulls in no torch.

@@ -18,7 +18,114 @@ def _assistant(args) -> Assistant:
     return Assistant(home=args.home, swarm_config=SwarmConfig(keep_workspaces=getattr(args, "keep", False)))
 
 
+def _helix_argv(argv: list[str]) -> list[str] | None:
+    """The args after a leading `helix` verb, or None when the command is not helix. The harness --home
+    prefix is bridged into the helix CLI unless helix was given its own. Everything else is forwarded
+    verbatim: argparse.REMAINDER drops leading options, and the helix CLI owns its own flags."""
+    i, home = 0, None
+    while i < len(argv):
+        if argv[i] == "--home" and i + 1 < len(argv):
+            home, i = argv[i + 1], i + 2
+        elif argv[i].startswith("--home="):
+            home, i = argv[i].split("=", 1)[1], i + 1
+        else:
+            break
+    if i >= len(argv) or argv[i] != "helix":
+        return None
+    rest = argv[i + 1:]
+    if home is not None and not any(a == "--home" or a.startswith("--home=") for a in rest):
+        rest = ["--home", home] + rest
+    return rest
+
+
+def _holo_argv(argv: list[str]) -> list[str] | None:
+    """The args after a leading `holo` verb, or None when the command is not holo. Same --home bridge as
+    `_helix_argv`; the holo verb owns its subparsers here (the holo module CLI has no verify/overlaps)."""
+    i, home = 0, None
+    while i < len(argv):
+        if argv[i] == "--home" and i + 1 < len(argv):
+            home, i = argv[i + 1], i + 2
+        elif argv[i].startswith("--home="):
+            home, i = argv[i].split("=", 1)[1], i + 1
+        else:
+            break
+    if i >= len(argv) or argv[i] != "holo":
+        return None
+    rest = argv[i + 1:]
+    if home is not None and not any(a == "--home" or a.startswith("--home=") for a in rest):
+        rest = ["--home", home] + rest
+    return rest
+
+
+def _holo_main(argv: list[str]) -> int:
+    """`kgirl holo build | status | query | verify | overlaps | owners` — the console Holo view from a shell,
+    as JSON. Public holo API only; errors print `holo: <message>` and return 1, like the holo module CLI."""
+    from .holo import HoloError, HoloStore, build, status
+    from .holo.store import PER_CELL, SEED
+    ap = argparse.ArgumentParser(prog="kgirl holo", description="overlapping matrix stores with provenance")
+    ap.add_argument("--home", help="state dir (default $KGIRL_HOME or ~/.kgirl)")
+    sub = ap.add_subparsers(dest="holo_cmd", required=True)
+    p = sub.add_parser("build", help="derive the store from the chunk index (offline; no model call)")
+    p.add_argument("--chunks-db", help="chunk index (default $KGIRL_CHUNKS_DB, else HOME/chunks/all/all-repos.db)")
+    p.add_argument("--matrix", help="KGVM matrix (default $KGIRL_MATRIX, else HOME/chunks/all/all-repos.kgvm)")
+    p.add_argument("--per-cell", type=int, default=PER_CELL,
+                   help=f"chunk vectors kept per (repository, kind) cell (default {PER_CELL}; 0 keeps all)")
+    p.add_argument("--seed", type=float, default=SEED, help=f"chaos seed of the sample (default {SEED})")
+    p.add_argument("--no-soup", action="store_true", help="leave the Soup evidence tables out")
+    sub.add_parser("status", help="entities, storage, chain verification, the last build")
+    p = sub.add_parser("query", help="search the space; hits carry owning entities and digests")
+    p.add_argument("--text", help="a question (embedded with the matrix's model: one model call)")
+    p.add_argument("--vector", help="a .npy file holding the query vector (no model call)")
+    p.add_argument("-k", type=int, default=8)
+    sub.add_parser("verify", help="recompute every entity's hash chain; list matrices without a ledger entry")
+    sub.add_parser("overlaps", help="chunk digests recorded under two or more entities, with their owners")
+    p = sub.add_parser("owners", help="every entity that recorded a matrix digest")
+    p.add_argument("--digest", required=True)
+    args = ap.parse_args(argv)
+    try:
+        if args.holo_cmd == "build":
+            out = build(args.home, chunks_db=args.chunks_db, matrix=args.matrix, per_cell=args.per_cell or None,
+                        seed=args.seed, use_soup=not args.no_soup)
+        elif args.holo_cmd == "status":
+            out = status(args.home)
+        else:
+            if status(args.home)["built"] is None:           # do not create an empty store just to say so
+                raise HoloError("the holo store has not been built yet: run `kgirl holo build` first")
+            if args.holo_cmd == "query":
+                if bool(args.text) == bool(args.vector):
+                    ap.error("query needs exactly one of --text and --vector")
+                import numpy as np
+
+                from .holo import query
+                q = args.text if args.text else np.load(args.vector, allow_pickle=False)
+                with HoloStore(args.home) as store:
+                    out = query(store, q, args.k)
+            elif args.holo_cmd == "verify":
+                with HoloStore(args.home) as store:
+                    out = store.verify()
+            elif args.holo_cmd == "overlaps":
+                with HoloStore(args.home) as store:
+                    out = store.overlaps()
+            else:
+                with HoloStore(args.home) as store:
+                    out = {"digest": args.digest, "owners": store.owners(args.digest)}
+    except (HoloError, FileNotFoundError, ValueError) as exc:
+        print(f"holo: {exc}", file=sys.stderr)
+        return 1
+    json.dump(out, sys.stdout, indent=1, ensure_ascii=False)
+    print()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    helix = _helix_argv(argv)
+    if helix is not None:
+        from .helix.__main__ import main as helix_main
+        return helix_main(helix)
+    holo = _holo_argv(argv)
+    if holo is not None:
+        return _holo_main(holo)
     ap = argparse.ArgumentParser(prog="kgirl.harness", description="repo-aware personal coding assistant")
     ap.add_argument("--home", help="state dir (default $KGIRL_HOME or ~/.kgirl)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -96,6 +203,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("trace", help="tail the Hermes trace")
     p.add_argument("-n", type=int, default=40)
     sub.add_parser("mcp", help="serve the harness over MCP (stdio)")
+    sub.add_parser("helix", help="HELIX-9 orchestration: run within a token budget, versioned STATE, transcript "
+                                 "audit (run | state | history | diff | verify | ingest | floor | audit; "
+                                 "options after the verb go to the helix CLI, `helix -h`)")
+    sub.add_parser("holo", help="overlapping matrix stores with provenance (build | status | query | verify | "
+                                "overlaps | owners; `holo -h` for options)")
     from .cli_mind import add_parsers as add_mind_parsers
     add_mind_parsers(sub)
 

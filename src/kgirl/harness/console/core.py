@@ -12,6 +12,7 @@ Design notes that matter for correctness:
 from __future__ import annotations
 
 import queue
+import secrets
 import threading
 import time
 import uuid
@@ -45,7 +46,8 @@ class Hub:
             if q in self._clients:
                 self._clients.remove(q)
 
-    def emit(self, kind: str, **data) -> dict:
+    def emit(self, kind: str, /, **data) -> dict:
+        # kind is positional-only: job_start/job_end carry the job's own `kind` field in **data.
         event = {"type": kind, "ts": time.time(), **data}
         with self._lock:
             clients = list(self._clients)
@@ -74,8 +76,10 @@ class Job:
     events: deque = field(default_factory=lambda: deque(maxlen=1000))
 
     def summary(self) -> dict:
+        # last_event lets the tray flag a running job that has gone silent (stuck after 120 s).
+        last = self.events[-1]["ts"] if self.events else self.created
         return {"id": self.id, "kind": self.kind, "label": self.label, "status": self.status,
-                "created": self.created, "ended": self.ended, "error": self.error}
+                "created": self.created, "ended": self.ended, "error": self.error, "last_event": last}
 
     def full(self) -> dict:
         return {**self.summary(), "result": self.result, "events": list(self.events)}
@@ -130,8 +134,12 @@ class JobManager:
                 job.ended = time.time()
                 self.hub.emit("job_end", job=job.id, kind=job.kind, status=job.status, error=job.error)
 
-        self.hub.emit("job_start", job=job.id, kind=kind, label=label)
-        threading.Thread(target=worker, daemon=True, name=f"console-{kind}-{job.id}").start()
+        try:
+            self.hub.emit("job_start", job=job.id, kind=kind, label=label)
+            threading.Thread(target=worker, daemon=True, name=f"console-{kind}-{job.id}").start()
+        except Exception as exc:  # noqa: BLE001 - a job whose thread never started must not stay "running"
+            job.status, job.error, job.ended = "error", f"{type(exc).__name__}: {exc}", time.time()
+            self.hub.emit("job_end", job=job.id, kind=job.kind, status=job.status, error=job.error)
         return job
 
 
@@ -179,6 +187,9 @@ class Console:
 
     def __init__(self, a: Assistant, workspace_root: Path | None = None, auto_edit: bool = False):
         self.a = a
+        # Per-launch secret the page must echo on every /api call. A cross-site page cannot read it
+        # (same-origin only), so it cannot forge a request even though the browser would send cookies.
+        self.token = secrets.token_urlsafe(32)
         self.hub = Hub()
         self.jobs = JobManager(self.hub)
         self.approvals = Approvals(self.hub)
