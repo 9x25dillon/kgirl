@@ -55,15 +55,54 @@ Every transition is in the Soup ledger (`kgirl soup ledger`) and can be rolled b
 
 ## Spec → code
 
-    kgirl build spec.md -o lru.py      # writes lru.py and test_lru.py
-    kgirl build spec.md --accept       # also keep the result as an active exemplar
+    kgirl build spec.md -o lru.py                                  # writes lru.py and test_lru*.py
+    kgirl build spec.md -n 6 -k 3 -r 2 --explain                   # sample counts, repair rounds, full vote breakdown
+    kgirl build spec.md --repo kgirl --context src/kgirl/paths.py  # build against an existing indexed repo file
+    kgirl build spec.md --context ./helpers.py -o mod.py           # build against a local companion file
+    kgirl build spec.md --no-exemplars                             # cold-start build without recalling Soup exemplars
+    kgirl build spec.md --accept                                   # confirm and stage the winner as a Soup exemplar
 
-The builder writes K test suites from the spec alone, samples N implementations, runs every
-implementation against every test in a sandbox, picks the largest group of implementations that agree,
-and repairs toward tests some other implementation passes. Accepted results become `exemplar` memories
-recalled into later builds as worked examples. Over MCP the tool is `kgirl_build`; it needs
-`KGIRL_MCP_BUILD=1` because it executes model-written code (the sandbox is a temp dir with rlimits, not a
-security boundary), and its exemplars stay staged until a person promotes them.
+The builder (`mind/builder.py` and `mind/build_spec.py`) writes `K` test suites from the spec alone
+(suite 1 direct, later suites focused on boundaries/errors and contracts/invariants with a static
+contract checklist pulled from the spec), normalizes each suite so stateless multi-assertion methods
+split into one test per assertion, samples `N` implementations, and runs every implementation against
+every test in a sandbox. It picks the highest-scoring CodeT dual-agreement group (`members × weighted
+tests passed`, where `test_<name>_1..M` siblings split from one multi-assert method carry weight `1/M`
+each so splitting a method never inflates its vote weight; tie-broken by raw tests passed, suite
+breadth, per-test candidate consensus, fewer static contract mismatches, and code length; zero-passing
+clusters score 0), then runs up to `R` targeted repair rounds toward credible tests some other candidate
+passes or static contract mismatches against the spec (ranked by candidate support, showing the failing
+test method source, a passing donor candidate snippet, and any regressions from an earlier round).
+
+### Knobs
+| Flag | Default | Meaning |
+|---|---|---|
+| `-o, --out PATH` | stdout | Write the winning module, any companion modules (`extra_files`), and retargeted agreed test files (`test_<stem>.py`, `test_<stem>_2.py`, …) beside `PATH` |
+| `-n INT` | `6` | Candidate implementations to sample across spread temperatures and alternating `direct` / `edge-first` styles |
+| `-k INT` | `3` | Independent unittest suites generated from the spec before any code is written |
+| `-r, --repair-rounds INT` | `2` | Targeted repair rounds toward credible failing tests |
+| `--explain` | off | Print the four-part explanation (`SUITES`, `CANDIDATE VOTES & AGREEMENT GROUPS`, `REPAIR STEPS`, `WHY THE WINNER WON`) instead of the short summary (also `/explain` in `kgirl chat`) |
+| `--repo NAME` | workspace | Indexed Atlas repository to read `--context` paths from |
+| `--context PATH` | none | Repeatable path (in `--repo` or on disk) whose source is checked for secrets, added to the prompt context, and emitted alongside the module |
+| `--accept` | off | Store the result as an **active** exemplar right away (also `/accept` in chat: the user's word makes it active immediately and credits the exemplars it built from) |
+| `--no-exemplars` | off | Skip recalling active Soup exemplars for a clean cold-start build |
+| `--allow-io` | off | Permit file I/O in static lint when the spec requires reading or writing files |
+
+### How to read `--explain`
+- **`=== SUITES ===`**: Lists each surviving generated suite (`test_gen0`, `test_gen1`, …) and every atomic test ID (`test_gen0:Class.test_x`), with the count and `#idx` list of live candidates that passed it (`0/N` means no candidate satisfied that test, so it is not treated as credible).
+- **`=== CANDIDATE VOTES & AGREEMENT GROUPS ===`**: Shows each sampled candidate (`#0..#N-1`), its style (`direct` or `edge-first`), temperature, character length, either `DROPPED — <reason>` or the exact list of tests it passed, followed by the ranked dual-agreement groups (`members × tests -> score` with `1/M` sibling weighting, suites spanned, and shortest member).
+- **`=== REPAIR STEPS ===`**: For each repair round (`#100`, `#101`, …), shows `before -> after` test counts, `+gained` test IDs, `-regressed` test IDs, and whether the round was `ACCEPTED (strict superset)` or `REJECTED`.
+- **`=== WHY THE WINNER WON ===`**: States in plain steps which initial agreement group won (and how its dual-agreement score beat the runner-up group) and whether a repair candidate superseded the initial pick by passing a strict superset of tests.
+
+### Exemplars & evaluation
+`/accept` and `kgirl build --accept` are the user's word, so the exemplar becomes **active** at once
+(with the agreed test suite stored in `fragment.data`) and credits the exemplars it was built from.
+Unconfirmed automatic write-back (and anything arriving over MCP) is stored as **staged** until a
+person promotes it (`kgirl soup promote ID`). Active exemplars are recalled into later builds when
+their `SPEC:` header shares domain terms with the new spec, ranked by domain overlap and Soup's
+smoothed `(wins + 1) / (wins + losses + 2)` utility. In the preregistered `spec/run.py` experiment,
+primary Arm B runs with `soup=None` so the pipeline test is not confounded by prior memory. Over MCP
+the tool is `kgirl_build`; it needs `KGIRL_MCP_BUILD=1` because it executes model-written code.
 
 ## Writing
 

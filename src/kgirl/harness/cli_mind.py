@@ -46,7 +46,14 @@ def add_parsers(sub) -> None:
     p.add_argument("-o", "--out", help="write the module here (and its agreed tests beside it as test_<name>*.py)")
     p.add_argument("-n", type=int, default=6, help="implementations to sample (default 6)")
     p.add_argument("-k", type=int, default=3, help="independent test suites (default 3)")
+    p.add_argument("-r", "--repair-rounds", type=int, default=2, help="targeted repair rounds (default 2)")
+    p.add_argument("--explain", action="store_true",
+                   help="show generated suites, candidate votes, repair steps, and why the winner won")
+    p.add_argument("--repo", help="indexed Atlas repository name when building against existing repo files")
+    p.add_argument("--context", action="append", default=[],
+                   help="existing repo path (with --repo) or local file to build against (may be repeated)")
     p.add_argument("--accept", action="store_true", help="store the result as an active exemplar right away")
+    p.add_argument("--no-exemplars", action="store_true", help="build without recalling Soup exemplars")
     p.add_argument("--allow-io", action="store_true", help="the spec needs file access: don't drop candidates for it")
     p = sub.add_parser("write", help="long-form writing: plan, draft by section, critique, revise")
     p.add_argument("brief", help="what to write, or @file to read the brief from a file")
@@ -305,21 +312,27 @@ def _slash(mind, conv: int, cmd: str, rest: str, event) -> int:
     elif cmd == "apply":
         print(mind.apply_task())
     elif cmd == "build":
+        explain = rest.strip() == "--explain"
         spec = _read_block("paste the spec")
         if not spec.strip():
             print("no spec given")
             return conv
-        res = mind.builder(workers=4).build(spec)
+        res = mind.builder(workers=4).build(spec, scope=mind.scope())
         mind.last_build = res
-        print(res.render())
+        print(res.explain() if explain else res.render())
         if res.code:
             print(f"\n```python\n{res.code}```\n(/accept to keep it as an exemplar kgirl learns from)")
         mind.store.append(conv, "tool", f"[build] {res.render()}\n{res.code}")
+    elif cmd == "explain":
+        if mind.last_build is None:
+            print("no build in this session")
+        else:
+            print(mind.last_build.explain())
     elif cmd == "accept":
         if mind.last_build is None or not mind.last_build.code:
             print("no build in this session")
         else:
-            fid = mind.builder().learn(mind.last_build, accepted=True, note=rest)
+            fid = mind.builder().learn(mind.last_build, accepted=True, scope=mind.scope(), note=rest)
             print(f"stored exemplar #{fid}; future builds with similar specs will see it")
     elif cmd == "write" and rest:
         from .mind import Writer
@@ -335,25 +348,43 @@ def _slash(mind, conv: int, cmd: str, rest: str, event) -> int:
 # ---------------------------------------------------------------------- build / write / convo
 
 def _build(mind, args) -> int:
-    from .mind.suites import retarget
+    from ..atlas.secrets import secret_reason
+    from .mind.build_spec import atlas_context
+
     spec = sys.stdin.read() if args.spec == "-" else Path(args.spec).read_text(encoding="utf-8")
-    builder = mind.builder(n_impl=args.n, n_suites=args.k, allow_io=args.allow_io)
-    res = builder.build(spec)
-    print(res.render(), file=sys.stderr)
+    scope = getattr(args, "repo", None) or mind.scope()
+    builder = mind.builder(n_impl=args.n, n_suites=args.k, repair_rounds=getattr(args, "repair_rounds", 2),
+                           allow_io=args.allow_io, use_exemplars=not getattr(args, "no_exemplars", False))
+    ctx_paths = getattr(args, "context", None) or []
+    repo = getattr(args, "repo", None)
+    context_text = ""
+    extra_files: dict[str, str] = {}
+    if ctx_paths:
+        if repo:
+            context_text, extra_files = atlas_context(mind.a.atlas, repo, ctx_paths)
+        else:
+            blocks: list[str] = []
+            for p in ctx_paths:
+                fp = Path(p).expanduser()
+                raw = fp.read_text(encoding="utf-8")
+                why = secret_reason(str(fp), raw)
+                if why:
+                    raise ValueError(f"{fp} looks like it holds a secret ({why})")
+                blocks.append(f"# ---- {fp.name} ----\n```python\n{raw[:6000].rstrip()}\n```")
+                if fp.suffix == ".py" and fp.name != "solution.py":
+                    extra_files[fp.name] = raw
+            if blocks:
+                context_text = "EXISTING REPO CONTEXT:\n" + "\n\n".join(blocks)
+    res = builder.build(spec, scope=scope, context=context_text, extra_files=extra_files)
+    print(res.explain() if getattr(args, "explain", False) else res.render(), file=sys.stderr)
     if not res.code:
         return 1
     if args.out:
-        out = Path(args.out)
-        out.write_text(res.code, encoding="utf-8")
-        written = [str(out)]
-        for k, suite in enumerate(res.agreed, 1):
-            tests = out.with_name(f"test_{out.stem}.py" if k == 1 else f"test_{out.stem}_{k}.py")
-            tests.write_text(retarget(suite, out.stem), encoding="utf-8")
-            written.append(str(tests))
+        written = res.write(args.out)
         print("wrote " + ", ".join(written), file=sys.stderr)
     else:
         print(res.code)
-    fid = builder.learn(res, accepted=args.accept)
+    fid = builder.learn(res, accepted=args.accept, scope=scope)
     print(f"exemplar #{fid} {'active' if args.accept else 'staged (kgirl soup promote ' + str(fid) + ' to keep it)'}",
           file=sys.stderr)
     return 0
