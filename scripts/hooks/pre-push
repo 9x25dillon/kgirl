@@ -1,0 +1,64 @@
+#!/bin/sh
+# kgirl pre-push privacy gate (installed by scripts/install_prepush_hook.sh; remove with --uninstall).
+#
+# kgirl is a PUBLIC repo, so a push is a publication. Before every push this runs
+# the installed copy of scripts/smoke/prepush_scan.py over the commits being pushed and blocks on any finding.
+# Then it hands over to the hook it replaced (Git LFS's pre-push), with the same stdin.
+#
+# It fails closed: when it cannot scan exactly what is being pushed, it blocks and says why.
+# To push anyway after reading every finding yourself: git push --no-verify
+#
+# Extra private names to flag (never printed): one per line in $(git rev-parse --git-common-dir)/kgirl-private-names
+set -u
+remote=${1:-origin}
+url=${2:-}                                                # saved: `set --` below reuses the positional args
+hookdir=$(cd "$(dirname "$0")" && pwd)
+top=$(git rev-parse --show-toplevel) || exit 1
+buf=$(mktemp "${TMPDIR:-/tmp}/kgirl-prepush.XXXXXX") || exit 1
+trap 'rm -f "$buf"' EXIT INT TERM
+cat >"$buf"
+
+say() { printf 'kgirl privacy gate: %s\n' "$*" >&2; }
+
+names_file="$(git rev-parse --git-common-dir)/kgirl-private-names"
+head=$(git rev-parse HEAD)
+status=0
+while read -r lref lsha rref rsha; do
+  [ -n "${lref:-}" ] || continue
+  case "$lsha" in *[!0]*) ;; *) continue ;; esac          # deleting a remote branch: nothing to publish
+  if [ "$lsha" != "$head" ]; then
+    say "you are pushing $lref, but the checked-out commit is different. Check out what you push, then push again."
+    status=1; continue
+  fi
+  # Always the installed scanner copy, never the branch's own: a pushed branch must not be able to
+  # weaken the check that clears it.
+  scanner="$hookdir/kgirl-prepush/prepush_scan.py"
+  if [ ! -f "$scanner" ]; then
+    say "the installed scanner is missing ($scanner); reinstall with scripts/install_prepush_hook.sh. Blocked."
+    status=1; continue
+  fi
+  case "$rsha" in
+    *[!0]*) base=$rsha ;;                                  # updating a remote branch: scan only what is new
+    *) base=$(git rev-parse --verify -q "refs/remotes/$remote/main") || base="" ;;  # new branch: scan vs main
+  esac
+  if [ -z "$base" ]; then
+    say "no base to compare against (fetch $remote first). Blocked (fail closed)."
+    status=1; continue
+  fi
+  set --
+  if [ -f "$names_file" ]; then
+    while IFS= read -r n; do [ -n "$n" ] && set -- "$@" --name "$n"; done <"$names_file"
+  fi
+  if ! python3 -E -s "$scanner" --repo "$top" --base "$base" "$@"; then
+    say "blocked $lref -> $rref. Read every REVIEW line above; fix, or push with --no-verify once you are sure."
+    status=1
+  fi
+done <"$buf"
+[ "$status" -eq 0 ] || exit "$status"
+
+prev="$hookdir/pre-push.before-kgirl"
+if [ -x "$prev" ]; then
+  "$prev" "$remote" "$url" <"$buf"
+  exit $?
+fi
+exit 0

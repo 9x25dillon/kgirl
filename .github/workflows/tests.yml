@@ -12,17 +12,32 @@ jobs:
   harness:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [harness, helix, holo, vessel]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
       - run: pip install numpy
-      - name: Run harness suite
+      - name: Run offline ${{ matrix.suite }} suite
         env:
           PYTHONPATH: src
-        run: |
-          KGIRL_HOME="$(mktemp -d)" python -m unittest discover -s tests/harness -t .
+        run: python scripts/smoke/suite_check.py "${{ matrix.suite }}"
+      - name: Check engineering tooling offline
+        if: matrix.suite == 'harness'
+        run: python scripts/smoke/engineering_tests.py
+      - name: Check the pre-push privacy gate offline
+        if: matrix.suite == 'harness'
+        run: python scripts/smoke/hook_tests.py
+      - name: Check the lane merge preview offline
+        if: matrix.suite == 'harness'
+        run: python scripts/smoke/merge_preview_tests.py
+      - name: Check the lane landing tool offline
+        if: matrix.suite == 'harness'
+        run: python scripts/smoke/land_lanes_tests.py
 
   research-efl-iwme-cascade:
     runs-on: ubuntu-latest
