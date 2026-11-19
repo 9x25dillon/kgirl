@@ -5,7 +5,10 @@ pass, together with the rolling summary, and asks the model for a small JSON rec
 
     summary      the conversation so far, rewritten (this is what later prompts carry)
     title        a short name for the thread
-    threads      open questions and unfinished tasks
+    threads      open questions and unfinished tasks (the whole current list: resolved ones drop out)
+    commitments  new promises, "I'll ..." or "next time ...", from either side, with who made them
+    closed       labels (C1, C2, ...) of open commitments whose outcome the excerpt states or the user called done
+    tags         a few topic words; later conversations on the same topic are found through them
     facts        durable facts about the user, their projects and their machine
     preferences  how the user wants kgirl to work
     lessons      what helped in kgirl's own answers
@@ -17,6 +20,9 @@ to the Curator with source "reflection". A proposal is staged; an independent la
 thing reinforces it; the curator promotes it only once support >= 2 and its utility lower bound clears
 the policy, and decays and retires it when it stops helping. One conversation can suggest a habit; only
 repetition makes it one. Anything the user states explicitly ("remember that ...") is stored active at once.
+Repetition means independent conversations: a conversation that restates its own proposal on a later pass does not
+count twice, and a proposal that restates an existing memory reinforces that memory instead of staging a twin.
+Threads, commitments and tags are conversation state, not memory: they never become habits.
 
 Feedback closes the loop: the memory fragments an answer was built from are credited with a win when the
 user approves the answer and a loss when the user corrects it, so useful memories rise in recall and
@@ -33,26 +39,35 @@ misleading ones sink. There are three sources, and an answer is judged once:
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 from dataclasses import dataclass, field
 from typing import Callable
 
 from ..soup import Curator, Soup
-from .conversations import ConversationStore, Turn
+from .conversations import Commitment, ConversationStore, Turn, clean_tags
 from .text import first_json, one_line
 
 REFLECT_SYSTEM = """You maintain the long-term memory of kgirl, a local coding and writing assistant.
 Read the conversation excerpt and the previous summary, then return ONLY one JSON object:
 {"summary": "<the whole conversation so far in <= 120 words: goals, decisions, results, current state>",
  "title": "<3-7 word title>",
- "threads": ["<open question or unfinished task>", ...],
+ "threads": ["<open question or unfinished task, still open now>", ...],
+ "commitments": [{"text": "<what was promised to be done later, one sentence naming the subject>",
+                  "who": "kgirl" | "user"}, ...],
+ "closed": ["<label of an OPEN COMMITMENT that was done or whose outcome is stated>", ...],
+ "tags": ["<1-5 lowercase topic words, e.g. rust, error-handling>", ...],
  "facts": ["<durable fact about the user, their projects, tools or machine>", ...],
  "preferences": ["<how the user wants the assistant to behave or write>", ...],
  "lessons": ["<a reusable lesson about what worked in the assistant's answers>", ...],
  "mistakes": ["<something the assistant got wrong that the user corrected, stated as what to avoid>", ...],
  "feedback": {"A1": "positive" | "negative" | "none", ...}}
-Rules: only include what the excerpt actually shows; no guesses. Each item is one self-contained sentence
+Rules: only include what the excerpt actually shows; no guesses. "threads" is the full list of what is still open:
+carry over OPEN THREADS SO FAR that are not resolved, drop the resolved ones. "commitments" are explicit promises or
+plans to act later, by either side ("I'll ...", "next time ...", "remind me to ..."), not things already done in the
+excerpt and not questions. "closed" lists labels from OPEN COMMITMENTS that were done, or that the user said are done
+or no longer wanted. Each item is one self-contained sentence
 that still makes sense months later (name the project, no "this" or "it"). Empty lists are fine.
 "feedback" has one entry for each ASSISTANT [An] answer that a USER message follows: "positive" if that
 next message accepts or thanks, "negative" if it corrects the answer or says it is wrong or did not work,
@@ -159,6 +174,9 @@ class Reflection:
     preferences: list[str] = field(default_factory=list)
     lessons: list[str] = field(default_factory=list)
     mistakes: list[str] = field(default_factory=list)
+    commitments: list[tuple[str, str]] = field(default_factory=list)   # (text, who) found in this pass
+    closed: list[str] = field(default_factory=list)              # commitment labels this pass closed
+    tags: list[str] = field(default_factory=list)
     verdicts: dict[str, str] = field(default_factory=dict)       # answer label ("A2", or "LAST") -> verdict
     proposed: list[tuple[int, str]] = field(default_factory=list)
     credited: list[int] = field(default_factory=list)            # ids of the answers this reflection judged
@@ -178,6 +196,13 @@ class Reflection:
             v = v if isinstance(v, list) else [v]
             return [one_line(str(x), 280) for x in v if isinstance(x, (str, int, float)) and str(x).strip()][:6]
 
+        promised: list[tuple[str, str]] = []
+        for x in (obj.get("commitments") if isinstance(obj.get("commitments"), list) else [])[:6]:
+            text, who = (x.get("text"), x.get("who")) if isinstance(x, dict) else (x, "")
+            if isinstance(text, str) and text.strip():
+                who = str(who or "").strip().lower()
+                promised.append((one_line(text, 240), who if who in ("kgirl", "user") else ""))
+        closed = obj.get("closed") if isinstance(obj.get("closed"), list) else []
         fb = obj.get("feedback")
         verdicts: dict[str, str] = {}
         if isinstance(fb, dict):
@@ -187,9 +212,11 @@ class Reflection:
                     verdicts[str(label).strip().upper()] = verdict
         elif isinstance(fb, str) and fb.strip().lower() in ("positive", "negative"):
             verdicts["LAST"] = fb.strip().lower()     # the older single-verdict form: the last answer reacted to
+        tags = obj.get("tags") if isinstance(obj.get("tags"), list) else []
         return cls(one_line(str(obj.get("summary", "")), 1200), one_line(str(obj.get("title", "")), 80),
                    items("threads"), items("facts"), items("preferences"), items("lessons"), items("mistakes"),
-                   verdicts)
+                   promised, [str(c).strip() for c in closed if isinstance(c, (str, int))][:12],
+                   clean_tags(tags)[:5], verdicts)
 
 
 class Reflector:
@@ -247,7 +274,7 @@ class Reflector:
                     shown.insert(0, prior)
             excerpt, labels, reacted = render_excerpt(shown, 6000)
             prompt = (f"PREVIOUS SUMMARY:\n{conv.summary or '(none: new conversation)'}\n\n"
-                      f"CONVERSATION EXCERPT:\n{excerpt}")
+                      f"{open_state(conv.threads, conv.open_commitments)}CONVERSATION EXCERPT:\n{excerpt}")
             try:
                 raw = self.llm(REFLECT_SYSTEM, prompt, 900, 0.1)
             except Exception:  # noqa: BLE001 - reflection must never break a chat
@@ -256,7 +283,11 @@ class Reflector:
             if not ref.summary:
                 return None
             self.store.update(conv_id, summary=ref.summary, title=conv.title or ref.title or None,
-                              threads=ref.threads, reflected_turn=turns[-1].id)
+                              threads=ref.threads, reflected_turn=turns[-1].id,
+                              tags=ref.tags + conv.tags if ref.tags else None)
+            # New ones first: a "new" commitment that restates one being closed in the same pass is not new.
+            self.store.add_commitments(conv_id, ref.commitments, turn=turns[-1].id)
+            self.store.close_commitments(conv_id, ref.closed, by="reflection")
             self._episode(conv_id, ref, conv.scope)
             src = f"reflection:conv{conv_id}"
             # Who the user is and what they want holds everywhere, so facts and preferences are proposed
@@ -266,8 +297,7 @@ class Reflector:
                                        ("abstraction", ref.lessons, conv.scope),
                                        ("antipattern", ref.mistakes, conv.scope)):
                 for text in texts:
-                    fid, how = self.curator.propose(text, kind=kind, tags="conversation", source=src, scope=scope)
-                    ref.proposed.append((fid, how))
+                    ref.proposed.append(self._propose(text, kind, scope, conv_id))
             for label, verdict in ref.verdicts.items():
                 if label == "LAST":
                     label = reacted[-1] if reacted else ""
@@ -277,6 +307,27 @@ class Reflector:
                 if self.credit_answer(conv_id, verdict, source="reflection", weight=0.5, turn=answer) is not None:
                     ref.credited.append(answer.id)
             return ref
+
+    def _propose(self, text: str, kind: str, scope: str, conv_id: int) -> tuple[int, str]:
+        """Stage a proposal, or reinforce the memory it restates (one that says the same thing in other words
+        counts, not only a near-copy). Reinforcement is evidence from an independent conversation, so a
+        conversation that proposes the same thing again on a later pass adds nothing: "seen"."""
+        for frag, sim in self.soup.similar(text, kind=kind, limit=8):
+            if frag.scope in ("*", scope) and (sim >= self.curator.policy.dedupe_jaccard
+                                               or _restates(text, frag.text)):
+                return self._restate(frag, conv_id)
+        return self.curator.propose(text, kind=kind, tags="conversation", source=f"reflection:conv{conv_id}",
+                                    scope=scope, data=json.dumps({"convs": [conv_id]}))
+
+    def _restate(self, frag, conv_id: int) -> tuple[int, str]:
+        if frag.source.startswith("reflection:"):
+            convs = observed_in(frag)
+            if conv_id in convs:
+                return frag.id, "seen"
+            set_observed_in(self.soup, frag.id, convs | {conv_id})
+        self.soup.reinforce(frag.id, detail=f"restated in conv{conv_id}")
+        self.soup.credit([frag.id], success=True)
+        return frag.id, "reinforced"
 
     def _episode(self, conv_id: int, ref: Reflection, scope: str) -> int:
         """One active `episode` fragment per conversation, replaced as the summary grows."""
@@ -292,6 +343,46 @@ class Reflector:
         fid = self.soup.add(text, kind="episode", tags="conversation", source="conversation", scope=scope, data=marker)
         self.soup.set_status(fid, "active", "episode summary")   # an identical retired summary comes back
         return fid
+
+
+def _restates(new: str, old: str) -> bool:
+    """`new` says what `old` says: nearly all of the shorter one's words are in the other."""
+    a, b = set(re.findall(r"[a-z0-9]+", new.lower())), set(re.findall(r"[a-z0-9]+", old.lower()))
+    return len(a) >= 4 and len(b) >= 4 and len(a & b) / min(len(a), len(b)) >= 0.8
+
+
+def observed_in(frag) -> set[int]:
+    """The conversations a reflection-sourced fragment has been observed in (its proposer, and any that restated it)."""
+    convs: set[int] = set()
+    try:
+        data = json.loads(frag.data or "{}")
+        convs |= {int(c) for c in data.get("convs", [])}
+    except (ValueError, TypeError, AttributeError):
+        pass
+    m = re.fullmatch(r"reflection:conv(\d+)", frag.source)
+    if m:
+        convs.add(int(m.group(1)))
+    return convs
+
+
+def set_observed_in(soup: Soup, frag_id: int, convs: set[int]) -> None:
+    """Record which conversations observed a reflection-sourced fragment; its `source` names the first of them.
+    The one place reflection writes a fragment row directly (Soup has no call for it), under Soup's own lock."""
+    rest = sorted(convs)
+    with soup._lock, soup.db:
+        soup.db.execute("UPDATE fragments SET data=?, source=? WHERE id=?",
+                        (json.dumps({"convs": rest}), f"reflection:conv{rest[0]}" if rest else "reflection:", frag_id))
+
+
+def open_state(threads: list[str], commitments: list[Commitment]) -> str:
+    """What was still open before this pass, for the reflector to carry over or close ("" when nothing)."""
+    out = ""
+    if threads:
+        out += "OPEN THREADS SO FAR:\n" + "\n".join(f"- {t}" for t in threads) + "\n\n"
+    if commitments:
+        out += "OPEN COMMITMENTS (list a label under \"closed\" once it is done):\n" + "\n".join(
+            f"{c.label} ({c.who or 'unclear'}): {c.text}" for c in commitments) + "\n\n"
+    return out
 
 
 def episode_marker(conv_id: int) -> str:

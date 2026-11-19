@@ -12,10 +12,12 @@ from unittest import mock
 
 import tests.harness._fixtures  # noqa: F401  (sys.path)
 from kgirl.harness.mind.conversations import ConversationStore
-from kgirl.harness.mind.evolve import (PROFILE_SYSTEM, EvolveReport, evolve, export_chat_sft, rewrite_profile,
-                                       verdict_on)
+from kgirl.harness.mind.evolve import (PROFILE_SYSTEM, EvolveReport, evolve, export_chat_sft, iter_chat_sft, preview,
+                                       rewrite_profile, verdict_on)
 from kgirl.harness.mind.reflect import REFLECT_SYSTEM
 from kgirl.harness.soup import Curator, Soup
+from kgirl.harness.soup.curator import CurationPolicy
+from kgirl.harness.util import now
 
 
 class ModelByPrompt:
@@ -263,6 +265,98 @@ class EvolveTests(EvolveCase):
 
     def test_an_empty_report(self):
         self.assertEqual(EvolveReport().render(self.soup), "reflected on conversations: none pending")
+
+
+class PreviewTests(EvolveCase):
+    def staged(self, text: str, support: int, wins: float, source: str = "reflection:conv1") -> int:
+        fid = self.soup.add(text, kind="fact", source=source, status="staged")
+        for _ in range(support - 1):
+            self.soup.reinforce(fid)
+        self.soup.credit([fid], True, wins)
+        return fid
+
+    def test_a_dry_run_says_what_a_pass_would_do_and_changes_nothing(self):
+        ready = self.staged("The user's staging box is box7.", 2, 3)
+        lonely = self.staged("The user likes green tea.", 1, 3)
+        manual = self.staged("A claim that arrived over a tool.", 5, 5, source="mcp")     # only a person promotes it
+        stale = self.staged("The user once mentioned a ferry timetable.", 1, 0)
+        self.soup.db.execute("UPDATE fragments SET created=? WHERE id=?", (now() - 60 * 86400, stale))
+        failing = self.soup.add("Prefer verbose logging in every function.", kind="preference")
+        self.soup.credit([failing], False, 8)
+        fine = self.soup.add("The user wants short answers.", kind="preference")
+        conv, other = self.store.new(), self.store.new()
+        self.exchange(conv, "hello", "hi")
+        _, answer = self.exchange(other, "how do I sort?", "use sorted")
+        self.approve(answer)
+        out = self.home / "approved.jsonl"
+        ledger = len(self.soup.ledger(limit=100000))
+        stats = self.soup.stats()
+
+        rep = preview(self.soup, self.curator, self.store, out)
+
+        self.assertTrue(rep.dry_run)
+        self.assertEqual(sorted(rep.reflected), sorted([conv, other]))
+        self.assertEqual((rep.promoted, rep.expired, rep.retired), ([ready], [stale], [failing]))
+        self.assertEqual(rep.considering, [lonely])
+        self.assertNotIn(manual, rep.promoted + rep.considering)
+        self.assertEqual(rep.profile_from, (2, 0, 0))
+        self.assertEqual(rep.dataset, (str(out), 1))
+        # nothing was written: no ledger entry, no status change, no reflection, no file
+        self.assertEqual(len(self.soup.ledger(limit=100000)), ledger)
+        self.assertEqual(self.soup.stats(), stats)
+        self.assertEqual(self.soup.get(ready).status, "staged")
+        self.assertEqual(self.store.get(conv).reflected_turn, 0)
+        self.assertEqual(self.notes(), [])
+        self.assertFalse(out.exists())
+        self.assertIsNotNone(self.soup.get(fine))
+
+        text = rep.render(self.soup)
+        self.assertTrue(text.startswith("dry run: nothing was changed, no model was called"))
+        self.assertIn(f"would be promoted to habit:\n  #{ready} fact (support 2, utility 0.80): The user's staging box", text)
+        self.assertIn(f"would be retired:\n  #{failing} preference", text)
+        self.assertIn(f"would expire (proposals nobody repeated):\n  #{stale}", text)
+        self.assertIn("would rewrite the profile from 2 preferences, 0 facts and 0 episodes", text)
+        self.assertIn(f"would write 1 approved exchanges to {out}", text)
+        self.assertIn("skills: not previewed", text)
+
+    def test_the_preview_agrees_with_a_real_curator_step_that_has_no_decay(self):
+        ready = self.staged("The user's staging box is box7.", 2, 3)
+        self.staged("The user likes green tea.", 1, 3)
+        stale = self.staged("A forgotten remark about ferries.", 1, 0)
+        self.soup.db.execute("UPDATE fragments SET created=? WHERE id=?", (now() - 60 * 86400, stale))
+        failing = self.soup.add("Prefer verbose logging in every function.", kind="preference")
+        self.soup.credit([failing], False, 8)
+        rep = preview(self.soup, self.curator, self.store)
+        real = Curator(self.soup, CurationPolicy(gamma=1.0)).step()
+        self.assertEqual((rep.promoted, rep.retired, rep.expired), (real.promoted, real.retired, real.expired))
+        self.assertEqual(real.promoted, [ready])
+
+    def test_capacity_overflow_is_previewed_too_and_an_empty_soup_says_so(self):
+        curator = Curator(self.soup, CurationPolicy(capacity=2))
+        ids = [self.soup.add(f"fact number {i} about the zebra", kind="fact") for i in range(4)]
+        rep = preview(self.soup, curator, self.store)
+        self.assertEqual(len(rep.retired), 2)
+        self.assertTrue(set(rep.retired) <= set(ids))
+
+    def test_an_empty_memory_has_nothing_to_preview(self):
+        soup = Soup(self.home / "empty.db")
+        store = ConversationStore(self.home / "empty-conversations.db")
+        self.addCleanup(soup.close)
+        self.addCleanup(store.close)
+        text = preview(soup, Curator(soup), store).render(soup)
+        self.assertEqual(text.splitlines()[-3:], ["would leave the profile alone (nothing to write it from)",
+                                                  "skills: not previewed",
+                                                  "nothing to reflect on, promote or retire"])
+
+    def test_iter_chat_sft_is_what_export_writes(self):
+        conv = self.store.new()
+        _, a = self.exchange(conv, "q1", "a1")
+        self.approve(a)
+        rows = list(iter_chat_sft(self.store))
+        self.assertEqual(len(rows), 1)
+        out = self.home / "x.jsonl"
+        self.assertEqual(export_chat_sft(self.store, out), 1)
+        self.assertEqual([json.loads(ln) for ln in out.read_text().splitlines()], rows)
 
 
 if __name__ == "__main__":

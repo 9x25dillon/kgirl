@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shlex
 import sys
 from pathlib import Path
@@ -17,7 +18,10 @@ memory
   /recall QUERY     search memory and old chats     /remember TEXT  store a fact or preference now
   /mem QUERY        matching memories with their ids
   /forget ID        retire a memory                 /good  /bad     your verdict on the last answer
-  /reflect          reflect on this conversation    /evolve         consolidate memory now
+  /reflect          reflect on this conversation    /evolve         consolidate memory now (--dry-run: preview)
+  /doctor           health checks: models, GPU, index, code checkout (read-only)
+  /context          what the last prompt held: each block's size and what the token budget cut
+  /done [C2|text]   mark a commitment done (no argument: list the open ones)
 project (the directory chat was started in, or --dir)
   /diff             what kgirl changed this session /undo           take back its last change
   /auto on|off      apply edits without asking      /allow CMD      let kgirl run CMD without asking
@@ -26,7 +30,8 @@ project (the directory chat was started in, or --dir)
 making things
   /build            spec -> tested code (paste the spec, end with a line '.')
   /accept [note]    keep the last build as a learned exemplar
-  /write BRIEF      long-form text                  /tools          what kgirl can call"""
+  /write BRIEF      long-form text                  /tools          what kgirl can call
+  /write --resume N continue draft N                /drafts         this conversation's drafts"""
 
 
 def add_parsers(sub) -> None:
@@ -55,13 +60,20 @@ def add_parsers(sub) -> None:
     p.add_argument("--accept", action="store_true", help="store the result as an active exemplar right away")
     p.add_argument("--no-exemplars", action="store_true", help="build without recalling Soup exemplars")
     p.add_argument("--allow-io", action="store_true", help="the spec needs file access: don't drop candidates for it")
-    p = sub.add_parser("write", help="long-form writing: plan, draft by section, critique, revise")
-    p.add_argument("brief", help="what to write, or @file to read the brief from a file")
-    p.add_argument("-w", "--words", type=int)
+    p = sub.add_parser("write", help="long-form writing: outline, draft by section, critique, revise; every draft "
+                                     "is kept and can be resumed")
+    p.add_argument("brief", nargs="?", help="what to write, or @file to read the brief from a file")
+    p.add_argument("-w", "--words", type=int, help="total length; each section gets a share, and a section far "
+                                                   "off its share is revised")
     p.add_argument("-o", "--out")
     p.add_argument("--no-revise", action="store_true")
+    p.add_argument("--resume", type=int, metavar="ID", help="continue draft ID where it stopped (see --list)")
+    p.add_argument("--list", action="store_true", help="list saved drafts, newest first")
+    p.add_argument("--conv", type=int, help="keep the draft in conversation ID (default: the latest one)")
     p = sub.add_parser("evolve", help="consolidate: reflect, curate habits, rewrite the user profile")
     p.add_argument("--dataset", help="also export approved exchanges as chat JSONL for fine-tuning")
+    p.add_argument("--dry-run", action="store_true", help="report what would be promoted, retired or rewritten; "
+                                                          "change nothing")
     p = sub.add_parser("convo", help="conversation history")
     cs = p.add_subparsers(dest="convo_cmd", required=True)
     cs.add_parser("list")
@@ -74,6 +86,9 @@ def add_parsers(sub) -> None:
     q.add_argument("-o", "--out")
     q = cs.add_parser("delete", help="delete a conversation, its summary and the proposals only it supported")
     q.add_argument("id", type=int)
+    q = cs.add_parser("done", help="mark a commitment of a conversation done (its label, e.g. C2, or a piece of its text)")
+    q.add_argument("id", type=int)
+    q.add_argument("which")
     p = sub.add_parser("console", help="local web console: chat, specialists, memory, atlas, forge, vitals, matrix, "
                                        "services — one live surface over the whole harness")
     p.add_argument("--port", type=int, default=8765, help="localhost port (default 8765)")
@@ -109,7 +124,9 @@ def run(a, args) -> int | None:
             return _write(mind, args)
         if args.cmd == "evolve":
             from .mind import evolve
-            rep = evolve(mind._llm_text, a.soup, a.curator, mind.store, args.dataset)
+            from .mind.evolve import preview
+            rep = (preview(a.soup, a.curator, mind.store, args.dataset) if args.dry_run
+                   else evolve(mind._llm_text, a.soup, a.curator, mind.store, args.dataset))
             print(rep.render(a.soup))
             return 0
         return _convo(mind, args)
@@ -289,7 +306,22 @@ def _slash(mind, conv: int, cmd: str, rest: str, event) -> int:
         print(f"summary: {ref.summary}\nproposed: {ref.proposed}" if ref else "nothing new to reflect on")
     elif cmd == "evolve":
         from .mind import evolve
-        print(evolve(mind._llm_text, a.soup, a.curator, mind.store).render(a.soup))
+        from .mind.evolve import preview
+        rep = preview(a.soup, a.curator, mind.store) if rest == "--dry-run" else evolve(
+            mind._llm_text, a.soup, a.curator, mind.store)
+        print(rep.render(a.soup))
+    elif cmd == "doctor":
+        print(mind.doctor())
+    elif cmd == "context":
+        print(mind.context_report(conv))
+    elif cmd == "done":
+        if rest:
+            print(mind.close_commitment(conv, rest))
+        else:
+            c = mind.store.get(conv)
+            owed = c.open_commitments if c else []
+            print("\n".join(f"{x.label} {x.who + ': ' if x.who else ''}{x.text}" for x in owed)
+                  or "no open commitments in this conversation")
     elif cmd == "tools":
         for t in mind.tools().values():
             print(f"{t.name:<12} {t.help}")
@@ -335,11 +367,19 @@ def _slash(mind, conv: int, cmd: str, rest: str, event) -> int:
             fid = mind.builder().learn(mind.last_build, accepted=True, scope=mind.scope(), note=rest)
             print(f"stored exemplar #{fid}; future builds with similar specs will see it")
     elif cmd == "write" and rest:
-        from .mind import Writer
-        ctx = a.soup.recall(rest, budget_tokens=500, kinds=("preference", "fact", "episode")).render()
-        d = Writer(mind._llm_text).write(rest, ctx, progress=event)
+        m = re.fullmatch(r"--resume\s+(\d+)", rest)
+        resume = int(m.group(1)) if m else None
+        try:
+            d, art = mind.write(conv, "" if resume else rest, resume=resume, progress=event)
+        except ValueError as exc:
+            print(exc)
+            return conv
         print(d.markdown())
         mind.store.append(conv, "tool", f"[write] {d.markdown()}")
+        print(f"(draft #{art} saved; /write --resume {art} or `kgirl write --resume {art}` continues it)")
+    elif cmd == "drafts":
+        for art, _, title, where in mind.drafts(conv):
+            print(f"#{art:<4} {title or '(untitled)':<40} {where}")
     else:
         print(CHAT_HELP)
     return conv
@@ -391,11 +431,35 @@ def _build(mind, args) -> int:
 
 
 def _write(mind, args) -> int:
-    from .mind import Writer
-    brief = Path(args.brief[1:]).read_text(encoding="utf-8") if args.brief.startswith("@") else args.brief
-    ctx = mind.a.soup.recall(brief, budget_tokens=500, kinds=("preference", "fact", "episode")).render()
-    d = Writer(mind._llm_text).write(brief, ctx, args.words, revise=not args.no_revise,
-                                     progress=lambda m: print(f"  · {m}", file=sys.stderr, flush=True))
+    say = lambda m: print(f"  · {m}", file=sys.stderr, flush=True)  # noqa: E731
+    if args.list:
+        rows = mind.drafts(args.conv)
+        for art, conv, title, where in rows:
+            print(f"#{art:<4} conv #{conv:<4} {title or '(untitled)':<40} {where}")
+        if not rows:
+            print("no drafts yet")
+        return 0
+    if args.resume is None and not args.brief:
+        print("kgirl: write needs a brief, or --resume ID to continue a draft (see --list)", file=sys.stderr)
+        return 2
+    if args.conv and not mind.store.get(args.conv):
+        print(f"no conversation #{args.conv} (see `convo list`)", file=sys.stderr)
+        return 1
+    brief = ""
+    if args.brief:
+        brief = Path(args.brief[1:]).read_text(encoding="utf-8") if args.brief.startswith("@") else args.brief
+    conv = 0 if args.resume is not None else (args.conv or mind.resume())      # a resumed draft keeps its own
+    try:
+        d, art = mind.write(conv, brief, args.words, revise=not args.no_revise, resume=args.resume, progress=say)
+    except ValueError as exc:
+        print(f"kgirl: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        if mind.last_draft:
+            print(f"\n  · interrupted; draft #{mind.last_draft} is saved: kgirl write --resume {mind.last_draft}",
+                  file=sys.stderr)
+        return 130
+    say(f"draft #{art} saved ({d.progress()}); `kgirl write --resume {art}` continues it")
     if args.out:
         Path(args.out).write_text(d.markdown(), encoding="utf-8")
         print(f"wrote {args.out}", file=sys.stderr)
@@ -410,7 +474,10 @@ def _convo(mind, args) -> int:
         for c in s.list(50):
             print(f"#{c.id:<5} turns={s.count(c.id):<4} {c.title or '(untitled)':<40} {c.summary[:90]}")
     elif args.convo_cmd == "show":
-        print(mind.recap(args.id), end="\n\n")
+        print(mind.recap(args.id))
+        for art, _, title, where in mind.drafts(args.id):
+            print(f"draft #{art}: {title or '(untitled)'} ({where})")
+        print()
         for t in s.turns(args.id):
             print(f"[{t.role}] {t.content}\n")
     elif args.convo_cmd == "search":
@@ -428,4 +495,9 @@ def _convo(mind, args) -> int:
             print(text)
     elif args.convo_cmd == "delete":
         print(mind.forget(args.id))
+    elif args.convo_cmd == "done":
+        if not s.get(args.id):
+            print(f"no conversation #{args.id}", file=sys.stderr)
+            return 1
+        print(mind.close_commitment(args.id, args.which))
     return 0

@@ -14,6 +14,10 @@ waiting to be seen again (or for `kgirl soup promote ID`).
 
 Steps 1-4 change only memory and every change is in the Soup ledger (`kgirl soup ledger`), so a bad
 consolidation is undone with the curator's rollback. Step 5 only writes a file.
+
+`kgirl evolve --dry-run` (`preview`) reports what a pass would do and writes nothing: no model call, no
+ledger entry, no file. It reads the same rules the curator applies, except that it cannot show the decay the
+real pass applies first, so a borderline proposal may differ by a hair.
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ from pathlib import Path
 from typing import Callable
 
 from ..soup import Curator, Soup
+from ..util import now
 from .conversations import ConversationStore, Exchange
 from .reflect import Reflector, quick_feedback
 from .text import strip_reasoning
@@ -46,8 +51,12 @@ class EvolveReport:
     profile_id: int | None = None
     skills: list[str] = field(default_factory=list)
     dataset: tuple[str, int] | None = None
+    dry_run: bool = False
+    profile_from: tuple[int, int, int] | None = None      # dry run: (preferences, facts, episodes) it would be written from
 
     def render(self, soup: Soup) -> str:
+        if self.dry_run:
+            return self._render_dry_run(soup)
         lines = [f"reflected on conversations: {self.reflected or 'none pending'}"]
         for label, ids in (("promoted to habit", self.promoted), ("retired", self.retired),
                            ("expired proposals", self.expired),
@@ -65,6 +74,30 @@ class EvolveReport:
             lines.append("skills: " + ", ".join(self.skills))
         if self.dataset:
             lines.append(f"wrote {self.dataset[1]} approved exchanges to {self.dataset[0]}")
+        return "\n".join(lines)
+
+    def _render_dry_run(self, soup: Soup) -> str:
+        lines = ["dry run: nothing was changed, no model was called",
+                 f"would reflect on conversations: {self.reflected or 'none pending'}"]
+        for label, ids in (("would be promoted to habit", self.promoted), ("would be retired", self.retired),
+                           ("would expire (proposals nobody repeated)", self.expired),
+                           ("would still be considering (seen once)", self.considering)):
+            if ids:
+                lines.append(f"{label}:")
+                for i in ids[:12]:
+                    f = soup.get(i)
+                    if f:
+                        lines.append(f"  #{i} {f.kind} (support {f.support}, utility {f.utility:.2f}): {f.text[:120]}")
+        if self.profile_from:
+            n_pref, n_fact, n_ep = self.profile_from
+            lines.append(f"would rewrite the profile from {n_pref} preferences, {n_fact} facts and {n_ep} episodes")
+        else:
+            lines.append("would leave the profile alone (nothing to write it from)")
+        lines.append("skills: not previewed")
+        if self.dataset:
+            lines.append(f"would write {self.dataset[1]} approved exchanges to {self.dataset[0]}")
+        if not (self.reflected or self.promoted or self.retired or self.expired):
+            lines.append("nothing to reflect on, promote or retire")
         return "\n".join(lines)
 
 
@@ -90,6 +123,43 @@ def evolve(llm: LLM, soup: Soup, curator: Curator, store: ConversationStore, dat
             rep.skills = []
     if dataset:
         rep.dataset = (str(dataset), export_chat_sft(store, dataset))
+    return rep
+
+
+def preview(soup: Soup, curator: Curator, store: ConversationStore, dataset: str | Path | None = None) -> EvolveReport:
+    """What `evolve` would do, as a report, with no writes: no reflection, no curator step, no profile, no file.
+
+    The curator's rules are applied to the fragments as they stand now, without the decay the real step applies
+    first (decay moves evidence toward its prior, so a borderline fragment can come out differently)."""
+    rep = EvolveReport(dry_run=True)
+    rep.reflected = [c.id for c in store.list(limit=50) if store.turns(c.id, since_id=c.reflected_turn, roles=("user",))]
+    p, t = curator.policy, now()
+    for f in soup.all(status="staged"):
+        auto = f.source not in p.manual_sources
+        if auto and f.support >= p.min_support and f.bound(-1.0) >= p.promote_lcb \
+                and (curator.validator is None or curator.validator(f)):
+            rep.promoted.append(f.id)
+        elif t - (f.created or t) > p.staged_ttl_days * 86400 and (not auto or f.support < p.min_support):
+            rep.expired.append(f.id)
+    active = soup.all(status="active") + [soup.get(i) for i in rep.promoted]       # promotion comes first
+    rep.retired = [f.id for f in active if f.evidence >= p.min_evidence_retire and f.bound(1.0) < p.retire_ucb]
+    active = [f for f in active if f.id not in rep.retired]
+    if len(active) > p.capacity:
+        half = soup.half_life or 1.0
+
+        def keep_score(f) -> float:
+            age = t - (f.last_used or f.created or t)
+            return f.bound(-1.0) * (0.5 ** (age / half)) + (1.0 if f.kind == "preference" else 0.0)
+        rep.retired += [f.id for f in sorted(active, key=keep_score)[: len(active) - p.capacity]]
+    rep.considering = [r["id"] for r in soup.db.execute(
+        "SELECT id FROM fragments WHERE status='staged' AND source LIKE 'reflection:%' ORDER BY support DESC, id DESC"
+        " LIMIT 12") if r["id"] not in rep.promoted and r["id"] not in rep.expired]
+    prefs = min(30, len(soup.all(status="active", kind="preference")))         # what rewrite_profile reads
+    facts = min(30, len([f for f in soup.all(status="active", kind="fact") if f.source != "atlas"]))
+    episodes = min(8, len(soup.all(status="active", kind="episode")))
+    rep.profile_from = (prefs, facts, episodes) if prefs or facts or episodes else None
+    if dataset:
+        rep.dataset = (str(dataset), sum(1 for _ in iter_chat_sft(store)))
     return rep
 
 
@@ -126,6 +196,31 @@ def verdict_on(done: list[Exchange], i: int) -> str:
     return quick_feedback(done[i + 1].user.content) if i + 1 < len(done) else "none"
 
 
+def iter_chat_sft(store: ConversationStore, context_exchanges: int = 2):
+    """Approved exchanges as the rows `export_chat_sft` writes: {"messages", "conv", "turn"} and, when it was stored,
+    "system". One row per answer the user approved."""
+    for conv in store.list(limit=100000):
+        done = store.exchanges(conv.id)
+        for i, ex in enumerate(done):
+            if ex.answer is None or verdict_on(done, i) != "positive":
+                continue
+            messages: list[dict] = []
+            for prev in done[max(0, i - context_exchanges):i]:
+                if prev.answer is not None:
+                    messages += [{"role": "user", "content": prev.user.content},
+                                 {"role": "assistant", "content": prev.answer.content}]
+            messages.append({"role": "user", "content": ex.user.content})
+            for step in ex.steps:
+                messages.append({"role": "assistant", "content": step.content} if step.role == "assistant"
+                                else {"role": "user", "content": f"TOOL RESULT {step.content}"})
+            messages.append({"role": "assistant", "content": ex.answer.content})
+            row = {"messages": messages, "conv": conv.id, "turn": ex.answer.id}
+            system = store.context(ex.answer.id)
+            if system:
+                row["system"] = system
+            yield row
+
+
 def export_chat_sft(store: ConversationStore, out: str | Path, context_exchanges: int = 2) -> int:
     """Approved exchanges as JSONL, in the form the chat model is used in.
 
@@ -139,25 +234,7 @@ def export_chat_sft(store: ConversationStore, out: str | Path, context_exchanges
     path = Path(out)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fh:
-        for conv in store.list(limit=100000):
-            done = store.exchanges(conv.id)
-            for i, ex in enumerate(done):
-                if ex.answer is None or verdict_on(done, i) != "positive":
-                    continue
-                messages: list[dict] = []
-                for prev in done[max(0, i - context_exchanges):i]:
-                    if prev.answer is not None:
-                        messages += [{"role": "user", "content": prev.user.content},
-                                     {"role": "assistant", "content": prev.answer.content}]
-                messages.append({"role": "user", "content": ex.user.content})
-                for step in ex.steps:
-                    messages.append({"role": "assistant", "content": step.content} if step.role == "assistant"
-                                    else {"role": "user", "content": f"TOOL RESULT {step.content}"})
-                messages.append({"role": "assistant", "content": ex.answer.content})
-                row = {"messages": messages, "conv": conv.id, "turn": ex.answer.id}
-                system = store.context(ex.answer.id)
-                if system:
-                    row["system"] = system
-                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
-                n += 1
+        for row in iter_chat_sft(store, context_exchanges):
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+            n += 1
     return n

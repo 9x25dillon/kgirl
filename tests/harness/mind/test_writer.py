@@ -9,7 +9,7 @@ import unittest
 
 import tests.harness._fixtures  # noqa: F401  (sys.path)
 from kgirl.harness.mind.writer import (CRITIC_SYSTEM, DRAFT_SYSTEM, PLAN_SYSTEM, REVISE_SYSTEM, Draft, Writer,
-                                       _render_outline)
+                                       _length_issues, _render_outline, _set_targets, style_guide)
 
 OUTLINE = {"title": "Why small tasks win", "audience": "engineers", "thesis": "Small tasks are checkable.",
            "sections": [{"heading": "Intro", "points": ["state the claim", "one example"], "words": 120},
@@ -171,6 +171,165 @@ class WriterTests(unittest.TestCase):
         llm = ScriptedWriterLLM({"title": "T", "sections": [{"heading": "Only", "points": []}]},
                                 drafts=["body"], critique=critique)
         self.assertEqual(len(Writer(llm).write("The brief.").issues), 8)
+
+
+class StyleAndCoverageTests(unittest.TestCase):
+    def test_style_goes_into_every_call_apart_from_the_context(self):
+        critique = {"issues": [{"section": "Intro", "problem": "p", "fix": "f"}]}
+        llm = ScriptedWriterLLM(OUTLINE, drafts=["a", "b", "c"], critique=critique, revisions=["a2"])
+        Writer(llm).write("The brief.", context="- a fact", style="Their preferences:\n- no filler")
+        block = "STYLE (the user's; write in it):\nTheir preferences:\n- no filler"
+        for system in (PLAN_SYSTEM, DRAFT_SYSTEM, CRITIC_SYSTEM, REVISE_SYSTEM):
+            for prompt in llm.prompts(system):
+                self.assertIn(block, prompt, system[:20])
+        self.assertIn("CONTEXT (what kgirl knows; use, don't contradict):\n- a fact\n\n" + block,
+                      llm.prompts(PLAN_SYSTEM)[0])
+
+    def test_without_style_the_prompts_carry_none(self):
+        llm = ScriptedWriterLLM(OUTLINE, drafts=["a", "b", "c"], critique={"issues": []})
+        Writer(llm).write("The brief.")
+        self.assertFalse(any("STYLE (" in call[1] for call in llm.calls))
+
+    def test_later_sections_are_told_what_earlier_ones_covered(self):
+        llm = ScriptedWriterLLM(OUTLINE, drafts=["We claim small tasks win. More text follows.", "Drills agree. x", "end"],
+                                critique={"issues": []})
+        Writer(llm).write("The brief.")
+        first, second, third = llm.prompts(DRAFT_SYSTEM)
+        self.assertNotIn("ALREADY COVERED", first)
+        self.assertIn("ALREADY COVERED (do not repeat):\n- Intro: We claim small tasks win\n\nPREVIOUS SECTION", second)
+        self.assertIn("- Intro: We claim small tasks win\n- Evidence: Drills agree", third)
+
+    def test_style_guide(self):
+        self.assertEqual(style_guide(), "")
+        self.assertEqual(style_guide("- Builds kgirl.", ["no filler", " ", "short answers"]),
+                         "Who the user is and how they like to work:\n- Builds kgirl.\n\n"
+                         "Their preferences:\n- no filler\n- short answers")
+        self.assertEqual(style_guide("", ["only a preference"]), "Their preferences:\n- only a preference")
+        long = style_guide("x" * 3000, [], limit=100)
+        self.assertEqual((len(long), long[-1]), (100, "…"))
+
+
+class LengthTargetTests(unittest.TestCase):
+    def test_targets_are_shared_or_scaled_to_the_total(self):
+        secs = [{"heading": "A"}, {"heading": "B", "words": 300}, {"heading": "C", "words": "junk"}]
+        _set_targets(secs, 900)
+        self.assertEqual([s["words"] for s in secs], [300, 300, 300])           # the unplanned ones share the total
+        full = [{"heading": "A", "words": 100}, {"heading": "B", "words": 300}]
+        _set_targets(full, 800)                                                   # a complete plan 50% off: scaled
+        self.assertEqual([s["words"] for s in full], [200, 600])
+        near = [{"heading": "A", "words": 100}, {"heading": "B", "words": 300}]
+        _set_targets(near, 450)                                                   # within a quarter: the plan stands
+        self.assertEqual([s["words"] for s in near], [100, 300])
+        none = [{"heading": "A"}]
+        _set_targets(none, None)
+        self.assertEqual(none, [{"heading": "A"}])
+
+    def test_sections_far_off_target_become_issues_found_by_counting(self):
+        plan = [{"heading": "Long", "words": 100}, {"heading": "Short", "words": 200},
+                {"heading": "Fine", "words": 100}, {"heading": "Tiny target", "words": 40}]
+        secs = [("Long", " ".join(["w"] * 180)), ("Short", " ".join(["w"] * 50)), ("Fine", " ".join(["w"] * 120)),
+                ("Tiny target", " ".join(["w"] * 400))]
+        got = _length_issues(secs, plan)
+        self.assertEqual([(x["section"], x["problem"].split(":")[0]) for x in got],
+                         [("Long", "too long"), ("Short", "too short")])
+        self.assertTrue(all(x["auto"] for x in got))
+        self.assertIn("cut it to about 100 words", got[0]["fix"])
+        self.assertIn("expand it to about 200 words", got[1]["fix"])
+
+    def test_a_length_target_adds_length_issues_to_the_critique_and_one_revision_fixes_both(self):
+        outline = {"title": "T", "sections": [{"heading": "One", "points": ["p"], "words": 100},
+                                              {"heading": "Two", "points": ["q"], "words": 100}]}
+        critique = {"issues": [{"section": "One", "problem": "vague", "fix": "name the number"}]}
+        llm = ScriptedWriterLLM(outline, drafts=[" ".join(["a"] * 300), " ".join(["b"] * 100)], critique=critique,
+                                revisions=["one, shorter and exact"])
+        d = Writer(llm).write("The brief.", words=200)
+        self.assertEqual(len(llm.prompts(REVISE_SYSTEM)), 1)                      # Two is fine; One has two issues
+        self.assertIn("- vague -> name the number\n- too long: 300 words against a target of about 100 -> cut it to",
+                      llm.prompts(REVISE_SYSTEM)[0])
+        self.assertEqual([x.get("auto", False) for x in d.issues], [False, True])
+        self.assertEqual(d.sections[0], ("One", "one, shorter and exact"))
+
+    def test_without_a_total_target_length_is_not_enforced(self):
+        outline = {"title": "T", "sections": [{"heading": "One", "points": ["p"], "words": 100}]}
+        llm = ScriptedWriterLLM(outline, drafts=[" ".join(["a"] * 900)], critique={"issues": []})
+        self.assertEqual(Writer(llm).write("The brief.").issues, [])
+
+
+class ResumeTests(unittest.TestCase):
+    def test_a_checkpoint_follows_every_step_and_the_record_round_trips(self):
+        critique = {"issues": [{"section": "Close", "problem": "abrupt", "fix": "name the next step"}]}
+        llm = ScriptedWriterLLM(OUTLINE, drafts=["a", "b", "c"], critique=critique, revisions=["c2"])
+        seen: list[tuple[str, int, bool, list[str]]] = []
+        Writer(llm).write("The brief.", style="s",
+                          checkpoint=lambda d: seen.append((d.stage, len(d.sections), d.critiqued, list(d.revised))))
+        self.assertEqual(seen, [("drafting", 0, False, []), ("drafting", 1, False, []), ("drafting", 2, False, []),
+                                ("drafting", 3, False, []), ("critique", 3, True, []), ("revising", 3, True, ["Close"]),
+                                ("done", 3, True, ["Close"])])
+        d = Writer(ScriptedWriterLLM(OUTLINE, drafts=["a", "b", "c"], critique=critique, revisions=["c2"])).write(
+            "The brief.", style="s")
+        d.words = 300                                                             # (a length target survives too)
+        back = Draft.from_dict(json.loads(json.dumps(d.to_dict())))
+        self.assertEqual(back, d)
+        self.assertEqual((back.stage, back.done, back.progress(), back.words, back.style), ("done", True,
+                                                                                            "done: 3 sections", 300, "s"))
+
+    def test_resume_drafts_only_what_is_missing(self):
+        first = ScriptedWriterLLM(OUTLINE, drafts=["intro body", "evidence body", "close body"], critique={"issues": []})
+        snapshots: list[dict] = []
+
+        class Stop(Exception):
+            pass
+
+        def stop_after_two_sections(d: Draft) -> None:
+            snapshots.append(json.loads(json.dumps(d.to_dict())))
+            if len(d.sections) == 2:
+                raise Stop
+
+        with self.assertRaises(Stop):
+            Writer(first).write("Argue for small tasks.", context="- a fact", style="the voice",
+                                checkpoint=stop_after_two_sections)
+        saved = Draft.from_dict(snapshots[-1])
+        self.assertEqual((saved.stage, len(saved.sections), saved.progress()), ("drafting", 2, "drafting: 2/3 sections"))
+
+        second = ScriptedWriterLLM({}, drafts=["close body"], critique={"issues": []})
+        said: list[str] = []
+        d = Writer(second).write("ignored brief", context="ignored", style="ignored", resume=saved, progress=said.append)
+        self.assertEqual([c[0] for c in second.calls], [DRAFT_SYSTEM, CRITIC_SYSTEM])          # no new plan, one draft
+        self.assertEqual(said, ["drafting 3/3: Close", "critiquing"])
+        self.assertEqual([t for _, t in d.sections], ["intro body", "evidence body", "close body"])
+        self.assertIn("BRIEF:\nArgue for small tasks.", second.prompts(DRAFT_SYSTEM)[0])       # the draft's own brief,
+        self.assertIn("- a fact", second.prompts(DRAFT_SYSTEM)[0])                              # context
+        self.assertIn("the voice", second.prompts(DRAFT_SYSTEM)[0])                             # and style
+        self.assertNotIn("ignored", second.prompts(DRAFT_SYSTEM)[0])
+        self.assertEqual((d.stage, d.title), ("done", "Why small tasks win"))
+
+    def test_resume_does_not_revise_twice_and_a_finished_draft_is_returned_as_is(self):
+        critique = {"issues": [{"section": "Intro", "problem": "p", "fix": "f"}, {"section": "Close", "problem": "q",
+                                                                                   "fix": "g"}]}
+        llm = ScriptedWriterLLM(OUTLINE, drafts=["a", "b", "c"], critique=critique, revisions=["a2"])
+        snaps: list[dict] = []
+
+        def stop_after_first_revision(d: Draft) -> None:
+            snaps.append(json.loads(json.dumps(d.to_dict())))
+            if d.revised:
+                raise KeyError
+
+        with self.assertRaises(KeyError):
+            Writer(llm).write("The brief.", checkpoint=stop_after_first_revision)
+        again = ScriptedWriterLLM({}, revisions=["c2"])
+        d = Writer(again).write("", resume=Draft.from_dict(snaps[-1]))
+        self.assertEqual([c[0] for c in again.calls], [REVISE_SYSTEM])                          # only Close is left
+        self.assertEqual(d.sections, [("Intro", "a2"), ("Evidence", "b"), ("Close", "c2")])
+        idle = ScriptedWriterLLM({})
+        self.assertIs(Writer(idle).write("", resume=d), d)
+        self.assertEqual(idle.calls, [])
+
+    def test_a_damaged_record_loads_as_far_as_it_can(self):
+        d = Draft.from_dict({"title": 5, "sections": [["A", "body"], "junk", ["only one"]], "stage": "weird",
+                             "words": -3, "plan": [1, {"heading": "A"}], "issues": ["x"], "recalled": ["a", 3]})
+        self.assertEqual((d.title, d.sections, d.stage, d.words, d.plan, d.issues, d.recalled),
+                         ("5", [("A", "body")], "outline", None, [{"heading": "A"}], [], [3]))
+        self.assertEqual(Draft.from_dict({}).title, "Untitled")
 
 
 if __name__ == "__main__":
