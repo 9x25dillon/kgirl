@@ -11,7 +11,7 @@ from pathlib import Path
 
 import tests.harness._fixtures  # noqa: F401  (sys.path)
 from kgirl.harness.mind.conversations import ConversationStore
-from kgirl.harness.mind.reflect import REFLECT_SYSTEM, Reflector, episode_marker
+from kgirl.harness.mind.reflect import REFLECT_SYSTEM, Reflection, Reflector, episode_marker
 from kgirl.harness.soup import Curator, Soup
 
 
@@ -328,6 +328,119 @@ class ReflectionFeedbackTests(ReflectorCase):
         self.assertEqual(out.credited, [a2])
         self.assertEqual(self.store.turn(a1).verdict, "")
         self.assertEqual(self.store.turn(a2).verdict, "positive")
+
+
+class CommitmentReflectionTests(ReflectorCase):
+    def test_parse_reads_commitments_closed_labels_and_tags(self):
+        r = Reflection.parse({"summary": "s", "commitments": [{"text": "I'll run the benchmark", "who": "KGIRL"},
+                                                               "next time, check the lockfile",
+                                                               {"text": "x", "who": "somebody"}, {"who": "user"}, 5],
+                              "closed": ["C1", " c2 ", 3, {"x": 1}], "tags": ["Rust", "error handling", "a"]})
+        self.assertEqual(r.commitments, [("I'll run the benchmark", "kgirl"), ("next time, check the lockfile", ""),
+                                         ("x", "")])
+        self.assertEqual(r.closed, ["C1", "c2", "3"])
+        self.assertEqual(r.tags, ["rust", "error-handling"])
+        self.assertEqual((Reflection.parse({"summary": "s"}).commitments, Reflection.parse({"summary": "s"}).tags),
+                         ([], []))
+        self.assertEqual(len(Reflection.parse({"commitments": [f"do thing {i}" for i in range(9)]}).commitments), 6)
+
+    def test_reflection_stores_commitments_and_tags_and_later_closes_them(self):
+        first = {"summary": "Porting the parser.", "title": "Parser port", "tags": ["rust", "parser"],
+                 "threads": ["pick an error type"],
+                 "commitments": [{"text": "I'll benchmark the new tokenizer", "who": "kgirl"},
+                                 {"text": "next time I will read the changelog first", "who": "user"}]}
+        second = {"summary": "Benchmarked.", "tags": ["rust", "benchmark"], "threads": [],
+                  "commitments": [{"text": "I will benchmark the new tokenizer.", "who": "kgirl"}],
+                  "closed": ["C1"]}
+        ref, llm = self.reflector(first, second)
+        conv = self.store.new()
+        _, last = self.exchange(conv, "port the parser", "ok, I'll benchmark the tokenizer next")
+        ref.reflect(conv, force=True)
+        got = self.store.get(conv)
+        self.assertEqual([(c.label, c.who, c.status, c.turn) for c in got.commitments],
+                         [("C1", "kgirl", "open", last), ("C2", "user", "open", last)])
+        self.assertEqual(got.tags, ["rust", "parser"])
+
+        self.exchange(conv, "how did the benchmark go?", "done: 12% faster")
+        ref.reflect(conv, force=True)
+        prompt = llm.calls[1][1]                                           # the model is shown what is still open
+        self.assertIn("OPEN THREADS SO FAR:\n- pick an error type", prompt)
+        self.assertIn("C1 (kgirl): I'll benchmark the new tokenizer\nC2 (user): next time I will read the changelog first",
+                      prompt)
+        self.assertLess(prompt.index("OPEN COMMITMENTS"), prompt.index("CONVERSATION EXCERPT"))
+        got = self.store.get(conv)
+        self.assertEqual([(c.label, c.status, c.closed_by) for c in got.commitments],
+                         [("C1", "done", "reflection"), ("C2", "open", "")])    # the restated C1 was not added twice
+        self.assertEqual(got.tags, ["rust", "benchmark", "parser"])
+        self.assertEqual(got.threads, [])
+
+    def test_the_prompt_has_no_open_state_block_when_nothing_is_open(self):
+        ref, llm = self.reflector({"summary": "s"})
+        conv = self.store.new()
+        self.exchange(conv, "hello", "hi")
+        ref.reflect(conv, force=True)
+        self.assertNotIn("OPEN", llm.calls[0][1])
+        self.assertIn('"commitments"', REFLECT_SYSTEM)
+        self.assertIn('"closed"', REFLECT_SYSTEM)
+        self.assertIn('"tags"', REFLECT_SYSTEM)
+
+    def test_a_failed_reflection_leaves_commitments_alone(self):
+        ref, _ = self.reflector(RuntimeError("model down"))
+        conv = self.store.new()
+        self.store.add_commitments(conv, [("write the changelog entry", "kgirl")])
+        self.exchange(conv, "hello", "hi")
+        self.assertIsNone(ref.reflect(conv, force=True))
+        self.assertEqual(len(self.store.get(conv).open_commitments), 1)
+
+
+class ProposalDedupeTests(ReflectorCase):
+    FACT = "The user's parser project targets Rust 1.80."
+
+    def propose_in(self, ref, conv, fact):
+        ref.llm.replies.append({"summary": "s", "facts": [fact]})
+        self.exchange(conv, "q", "a")
+        return ref.reflect(conv, force=True).proposed[0]
+
+    def test_a_restatement_in_another_conversation_reinforces_instead_of_staging_a_twin(self):
+        ref, _ = self.reflector()
+        a, b = self.store.new(), self.store.new()
+        fid, how = self.propose_in(ref, a, self.FACT)
+        self.assertEqual(how, "staged")
+        self.assertEqual(self.soup.get(fid).support, 1)
+        # a paraphrase that is not a near-copy, but says the same thing
+        fid2, how2 = self.propose_in(ref, b, "The parser project the user is building targets Rust 1.80.")
+        self.assertEqual((fid2, how2), (fid, "reinforced"))
+        self.assertEqual(self.soup.get(fid).support, 2)
+        self.assertEqual(len(self.soup.all(kind="fact")), 1)
+        self.assertEqual(self.soup.get(fid).status, "staged")             # support 2 alone promotes nothing: the curator decides
+
+    def test_the_same_conversation_saying_it_again_is_not_independent_evidence(self):
+        ref, _ = self.reflector()
+        a = self.store.new()
+        fid, _ = self.propose_in(ref, a, self.FACT)
+        again = self.propose_in(ref, a, self.FACT)
+        self.assertEqual(again, (fid, "seen"))
+        self.assertEqual(self.soup.get(fid).support, 1)
+        self.assertEqual(self.soup.get(fid).wins, 1.0)                    # no second win either
+
+    def test_a_third_conversation_counts_once_and_a_second_pass_of_the_second_does_not(self):
+        ref, _ = self.reflector()
+        a, b, c = self.store.new(), self.store.new(), self.store.new()
+        fid, _ = self.propose_in(ref, a, self.FACT)
+        self.propose_in(ref, b, self.FACT)
+        self.assertEqual(self.propose_in(ref, b, self.FACT), (fid, "seen"))
+        self.assertEqual(self.soup.get(fid).support, 2)
+        self.assertEqual(self.propose_in(ref, c, self.FACT), (fid, "reinforced"))
+        self.assertEqual(self.soup.get(fid).support, 3)
+
+    def test_a_different_fact_is_staged_not_folded_into_an_unrelated_one(self):
+        ref, _ = self.reflector()
+        a, b = self.store.new(), self.store.new()
+        fid, _ = self.propose_in(ref, a, self.FACT)
+        other, how = self.propose_in(ref, b, "The user's staging box is called box7 and runs Debian 12.")
+        self.assertNotEqual(other, fid)
+        self.assertEqual(how, "staged")
+        self.assertEqual(self.soup.get(fid).support, 1)
 
 
 if __name__ == "__main__":

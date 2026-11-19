@@ -4,6 +4,12 @@
     turns          every message in order, with the memory ids it was answered from and a small `meta` record
     turn_fts       full-text index over what was said, so a new conversation can recall old ones
     contexts       the system prompt each answer was generated from (for a faithful fine-tune export)
+    artifacts      work products of a conversation (writer drafts), so a long piece can be resumed
+
+Beyond the rolling summary, reflection keeps two more kinds of state per conversation: open `threads`
+(questions and unfinished tasks) and `commitments` ("I'll ...", "next time ...", from either side), each
+with an owner and a status, closed once the outcome is stated or the user says so. `tags` name what the
+conversation was about; `related()` uses them to find earlier conversations on the same topic.
 
 Roles, in the order one exchange stores them:
 
@@ -21,7 +27,9 @@ Lives beside soup.db in the harness home (private, 0700; see docs/PRIVACY.md).
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -33,14 +41,25 @@ from ..util import estimate_tokens, fts_query, harness_home, now, search_terms
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS conversations (
   id INTEGER PRIMARY KEY, title TEXT DEFAULT '', summary TEXT DEFAULT '', threads TEXT DEFAULT '[]',
-  scope TEXT DEFAULT '*', started REAL, updated REAL, reflected_turn INTEGER DEFAULT 0);
+  scope TEXT DEFAULT '*', started REAL, updated REAL, reflected_turn INTEGER DEFAULT 0,
+  commitments TEXT DEFAULT '[]', tags TEXT DEFAULT '[]');
 CREATE TABLE IF NOT EXISTS turns (
   id INTEGER PRIMARY KEY, conv_id INTEGER NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL,
   ts REAL, recalled TEXT DEFAULT '[]', meta TEXT DEFAULT '{}');
 CREATE INDEX IF NOT EXISTS ix_turns_conv ON turns(conv_id, id);
 CREATE VIRTUAL TABLE IF NOT EXISTS turn_fts USING fts5(terms, content, tokenize='unicode61 remove_diacritics 2');
 CREATE TABLE IF NOT EXISTS contexts (turn_id INTEGER PRIMARY KEY, system TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS artifacts (
+  id INTEGER PRIMARY KEY, conv_id INTEGER NOT NULL, kind TEXT NOT NULL, title TEXT DEFAULT '',
+  data TEXT NOT NULL, created REAL, updated REAL);
+CREATE INDEX IF NOT EXISTS ix_artifacts_conv ON artifacts(conv_id, kind, id);
 """
+MIGRATIONS = (("conversations", "commitments", "TEXT DEFAULT '[]'"), ("conversations", "tags", "TEXT DEFAULT '[]'"))
+
+MAX_COMMITMENTS = 20       # open ones first; this many closed ones are kept for the record
+MAX_TAGS = 8
+RELATED_SCAN = 500         # `related` looks at the most recently used conversations
+_TAG = re.compile(r"[a-z0-9][a-z0-9_-]{1,23}")
 
 ROLES = ("user", "assistant", "tool", "system")
 
@@ -84,6 +103,40 @@ class Exchange:
 
 
 @dataclass(frozen=True)
+class Commitment:
+    """Something said would be done: by kgirl ("I'll check that") or by the user ("next time I will ...")."""
+    id: int                    # per conversation; shown as C<id>
+    text: str
+    who: str = ""              # "kgirl", "user", or "" when unclear
+    status: str = "open"       # "open" | "done"
+    turn: int = 0              # the turn the reflection that found it ended at
+    closed_by: str = ""        # once done: "reflection" (an outcome was stated or the user said so) or "user" (/done)
+
+    @property
+    def label(self) -> str:
+        return f"C{self.id}"
+
+    @property
+    def open(self) -> bool:
+        return self.status == "open"
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "text": self.text, "who": self.who, "status": self.status, "turn": self.turn,
+                "closed_by": self.closed_by}
+
+    @classmethod
+    def from_dict(cls, d) -> "Commitment | None":
+        try:
+            text = " ".join(str(d["text"]).split())
+            if not text:
+                return None
+            return cls(int(d["id"]), text, str(d.get("who", "")), "done" if d.get("status") == "done" else "open",
+                       int(d.get("turn") or 0), str(d.get("closed_by", "")))
+        except (KeyError, TypeError, ValueError):
+            return None
+
+
+@dataclass(frozen=True)
 class Conversation:
     id: int
     title: str
@@ -93,6 +146,12 @@ class Conversation:
     started: float
     updated: float
     reflected_turn: int
+    commitments: list[Commitment] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+
+    @property
+    def open_commitments(self) -> list[Commitment]:
+        return [c for c in self.commitments if c.open]
 
 
 class ConversationStore:
@@ -105,6 +164,10 @@ class ConversationStore:
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode = WAL")
         self.db.executescript(SCHEMA)
+        for table, col, decl in MIGRATIONS:       # a database made before this column existed
+            if col not in {r["name"] for r in self.db.execute(f"PRAGMA table_info({table})")}:
+                with self.db:
+                    self.db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
 
     def close(self) -> None:
         self.db.close()
@@ -136,7 +199,7 @@ class ConversationStore:
 
     def update(self, conv_id: int, *, title: str | None = None, summary: str | None = None,
                threads: list[str] | None = None, reflected_turn: int | None = None,
-               scope: str | None = None) -> None:
+               scope: str | None = None, tags: list[str] | None = None) -> None:
         sets, args = [], []
         for col, val in (("title", title), ("summary", summary), ("reflected_turn", reflected_turn), ("scope", scope)):
             if val is not None:
@@ -145,6 +208,9 @@ class ConversationStore:
         if threads is not None:
             sets.append("threads=?")
             args.append(json.dumps(threads[:12], ensure_ascii=False))
+        if tags is not None:
+            sets.append("tags=?")
+            args.append(json.dumps(clean_tags(tags), ensure_ascii=False))
         if not sets:
             return
         with self._lock, self.db:
@@ -157,8 +223,127 @@ class ConversationStore:
             self.db.executemany("DELETE FROM turn_fts WHERE rowid=?", [(i,) for i in ids])
             self.db.executemany("DELETE FROM contexts WHERE turn_id=?", [(i,) for i in ids])
             self.db.execute("DELETE FROM turns WHERE conv_id=?", (conv_id,))
+            self.db.execute("DELETE FROM artifacts WHERE conv_id=?", (conv_id,))
             self.db.execute("DELETE FROM conversations WHERE id=?", (conv_id,))
         return len(ids)
+
+    # ------------------------------------------------------------------ commitments
+
+    def add_commitments(self, conv_id: int, items: list[tuple[str, str]], turn: int = 0) -> list[Commitment]:
+        """Record new commitments as (text, who). One that restates an open commitment is not added twice.
+        Returns the ones that were added."""
+        added: list[Commitment] = []
+        with self._lock, self.db:
+            have = self._commitments(conv_id)
+            if have is None:
+                return added
+            nxt = max((c.id for c in have), default=0) + 1
+            for text, who in items:
+                text = " ".join(str(text).split())[:240]
+                if not text or any(c.open and same_commitment(c.text, text) for c in have + added):
+                    continue
+                added.append(Commitment(nxt, text, who if who in ("kgirl", "user") else "", "open", turn))
+                nxt += 1
+            if added:
+                self._save_commitments(conv_id, have + added)
+        return added
+
+    def close_commitments(self, conv_id: int, which: list[int | str], by: str = "reflection") -> list[Commitment]:
+        """Mark open commitments done. `which` holds ids (3, "C3", "3") or a distinctive piece of the text.
+        Returns the ones that were closed."""
+        closed: list[Commitment] = []
+        with self._lock, self.db:
+            have = self._commitments(conv_id)
+            if not have:
+                return closed
+            out = []
+            for c in have:
+                hit = c.open and any(_names(c, w) for w in which)
+                if hit:
+                    c = Commitment(c.id, c.text, c.who, "done", c.turn, by)
+                    closed.append(c)
+                out.append(c)
+            if closed:
+                self._save_commitments(conv_id, out)
+        return closed
+
+    def _commitments(self, conv_id: int) -> list[Commitment] | None:
+        r = self.db.execute("SELECT commitments FROM conversations WHERE id=?", (conv_id,)).fetchone()
+        return None if r is None else _commitments(r["commitments"])
+
+    def _save_commitments(self, conv_id: int, items: list[Commitment]) -> None:
+        opened = [c for c in items if c.open][-MAX_COMMITMENTS:]
+        done = [c for c in items if not c.open][-MAX_COMMITMENTS:]
+        keep = sorted(opened + done, key=lambda c: c.id)
+        self.db.execute("UPDATE conversations SET commitments=? WHERE id=?",
+                        (json.dumps([c.to_dict() for c in keep], ensure_ascii=False), conv_id))
+
+    # ------------------------------------------------------------------ related conversations
+
+    def tag_counts(self) -> dict[str, int]:
+        """How many of the recent conversations carry each tag."""
+        counts: dict[str, int] = {}
+        for r in self.db.execute("SELECT tags FROM conversations ORDER BY updated DESC, id DESC LIMIT ?",
+                                 (RELATED_SCAN,)):
+            for tag in _tags(r["tags"]):
+                counts[tag] = counts.get(tag, 0) + 1
+        return counts
+
+    def related(self, tags: list[str], exclude_conv: int | None = None, scope: str | None = None,
+                limit: int = 3) -> list[tuple[Conversation, list[str]]]:
+        """Earlier conversations on the same topic: those sharing tags with `tags`, best first, with the shared tags.
+
+        A shared tag counts for more the fewer conversations carry it (a tag everything has says nothing).
+        Ties go to the more recently used conversation. With `scope`, only conversations of that scope or of
+        no scope (`*`) qualify, like recalled memory."""
+        want = set(clean_tags(tags))
+        if not want:
+            return []
+        rows = self.db.execute("SELECT * FROM conversations ORDER BY updated DESC, id DESC LIMIT ?",
+                               (RELATED_SCAN,)).fetchall()
+        df: dict[str, int] = {}
+        for r in rows:
+            for tag in _tags(r["tags"]):
+                df[tag] = df.get(tag, 0) + 1
+        scored: list[tuple[float, int, Conversation, list[str]]] = []
+        for rank, r in enumerate(rows):
+            if r["id"] == exclude_conv or (scope is not None and (r["scope"] or "*") not in ("*", scope)):
+                continue
+            shared = [t for t in _tags(r["tags"]) if t in want]
+            if shared:
+                weight = sum(math.log(1 + len(rows) / df[t]) for t in shared)
+                scored.append((weight, -rank, _conv(r), shared))
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        return [(c, shared) for _, _, c, shared in scored[:limit]]
+
+    # ------------------------------------------------------------------ artifacts
+
+    def save_artifact(self, conv_id: int, kind: str, title: str, data: dict, artifact_id: int | None = None) -> int:
+        """Keep a work product of a conversation (a writer draft); with `artifact_id`, replace that one.
+        Saving one does not count as conversation activity: it never changes which conversation chat resumes."""
+        t = now()
+        blob = json.dumps(data, ensure_ascii=False)
+        with self._lock, self.db:
+            if artifact_id is not None and self.db.execute("SELECT 1 FROM artifacts WHERE id=?",
+                                                           (artifact_id,)).fetchone():
+                self.db.execute("UPDATE artifacts SET title=?, data=?, updated=? WHERE id=?",
+                                (title, blob, t, artifact_id))
+                return artifact_id
+            return self.db.execute("INSERT INTO artifacts(conv_id, kind, title, data, created, updated)"
+                                   " VALUES (?,?,?,?,?,?)", (conv_id, kind, title, blob, t, t)).lastrowid
+
+    def artifact(self, artifact_id: int) -> dict | None:
+        """{"id", "conv_id", "kind", "title", "data", "created", "updated"}, or None."""
+        r = self.db.execute("SELECT * FROM artifacts WHERE id=?", (artifact_id,)).fetchone()
+        return _artifact(r) if r else None
+
+    def artifacts(self, conv_id: int | None = None, kind: str | None = None, limit: int = 50) -> list[dict]:
+        sql, args = "SELECT * FROM artifacts WHERE 1=1", []
+        if conv_id is not None:
+            sql, args = sql + " AND conv_id=?", args + [conv_id]
+        if kind:
+            sql, args = sql + " AND kind=?", args + [kind]
+        return [_artifact(r) for r in self.db.execute(sql + " ORDER BY updated DESC, id DESC LIMIT ?", (*args, limit))]
 
     # ------------------------------------------------------------------ turns
 
@@ -299,8 +484,17 @@ class ConversationStore:
                  f"Started {_stamp(conv.started)}; last message {_stamp(conv.updated)}; scope `{conv.scope}`."]
         if conv.summary:
             lines += ["", f"**Summary:** {conv.summary}"]
+        if conv.tags:
+            lines += ["", "**Topics:** " + ", ".join(conv.tags)]
         if conv.threads:
             lines += ["", "**Open threads:**", *(f"- {t}" for t in conv.threads)]
+        if conv.commitments:
+            lines += ["", "**Commitments:**", *(f"- [{'x' if not c.open else ' '}] {c.label} {c.text}"
+                                                   + (f" ({c.who})" if c.who else "") for c in conv.commitments)]
+        drafts = self.artifacts(conv_id, "draft")
+        if drafts:
+            lines += ["", "**Drafts:**", *(f"- #{d['id']} {d['title'] or '(untitled)'} ({d['data'].get('stage', '?')})"
+                                           for d in drafts)]
         for t in self.turns(conv_id):
             label = {"user": "You", "assistant": "kgirl", "tool": "Tool result", "system": "System"}[t.role]
             if t.partial:
@@ -314,13 +508,78 @@ def _stamp(ts: float | None) -> str:
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else "?"
 
 
+def clean_tags(tags) -> list[str]:
+    """Topic tags as stored: lowercase words, 2-24 characters, no repeats, at most MAX_TAGS."""
+    out: dict[str, None] = {}
+    for t in tags or []:
+        t = re.sub(r"[\s_]+", "-", str(t).strip().lower()).strip("-")
+        if _TAG.fullmatch(t):
+            out.setdefault(t, None)
+    return list(out)[:MAX_TAGS]
+
+
+def _words(text: str) -> list[str]:
+    return [w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+            for w in re.findall(r"[a-z0-9]+", text.lower())]
+
+
+def same_commitment(a: str, b: str) -> bool:
+    """Two wordings of one commitment: equal word sets, or one nearly inside the other."""
+    x, y = set(_words(a)), set(_words(b))
+    if not x or not y:
+        return False
+    return len(x & y) / min(len(x), len(y)) >= 0.8 and len(x & y) / len(x | y) >= 0.5
+
+
+def _names(c: Commitment, which) -> bool:
+    which = str(which).strip()
+    m = re.fullmatch(r"[Cc]?(\d+)", which)
+    if m:
+        return int(m.group(1)) == c.id
+    return len(which) >= 4 and which.lower() in c.text.lower()
+
+
+def tags_in(text: str, known: list[str] | dict[str, int]) -> list[str]:
+    """The known tags a piece of text mentions (whole words, plural-insensitive; "error-handling" is "error handling")."""
+    words = _words(text)
+    padded = " " + " ".join(words) + " "
+    return [t for t in known if " " + " ".join(_words(t.replace("-", " "))) + " " in padded]
+
+
+def _tags(raw) -> list[str]:
+    try:
+        v = json.loads(raw or "[]")
+    except ValueError:
+        return []
+    return [t for t in v if isinstance(t, str)] if isinstance(v, list) else []
+
+
+def _commitments(raw) -> list[Commitment]:
+    try:
+        v = json.loads(raw or "[]")
+    except ValueError:
+        return []
+    items = [Commitment.from_dict(d) for d in v] if isinstance(v, list) else []
+    return [c for c in items if c is not None]
+
+
+def _artifact(r: sqlite3.Row) -> dict:
+    try:
+        data = json.loads(r["data"])
+    except ValueError:
+        data = {}
+    return {"id": r["id"], "conv_id": r["conv_id"], "kind": r["kind"], "title": r["title"] or "",
+            "data": data if isinstance(data, dict) else {}, "created": r["created"], "updated": r["updated"]}
+
+
 def _conv(r: sqlite3.Row) -> Conversation:
     try:
         threads = json.loads(r["threads"] or "[]")
     except ValueError:
         threads = []
     return Conversation(r["id"], r["title"] or "", r["summary"] or "", threads if isinstance(threads, list) else [],
-                        r["scope"] or "*", r["started"], r["updated"], r["reflected_turn"] or 0)
+                        r["scope"] or "*", r["started"], r["updated"], r["reflected_turn"] or 0,
+                        _commitments(r["commitments"]), _tags(r["tags"]))
 
 
 def _turn(r: sqlite3.Row) -> Turn:
