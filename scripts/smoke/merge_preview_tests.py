@@ -77,13 +77,45 @@ class MergePreviewTests(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertIn("tests/harness: 2 cases", res.stdout)
 
-    def test_same_path_in_two_lanes_is_a_conflict(self):
+    def test_same_path_with_disjoint_edits_is_three_way_merged(self):
+        a, b = self.r.lane("a"), self.r.lane("b")
+        middle = "".join(f"KEEP_{n} = {n}\n" for n in range(10))
+        Repo.write(self.r.base, "src/pkg/core.py", "TOP = 1\n" + middle + "BOTTOM = 1\n")
+        self.r.git("add", "-A")
+        self.r.git("commit", "-q", "-m", "spread lines")
+        # Recreate lanes from the new base so each contains the preview base commit.
+        self.r.git("worktree", "remove", "--force", str(a))
+        self.r.git("worktree", "remove", "--force", str(b))
+        self.r.git("branch", "-D", "lane/a")
+        self.r.git("branch", "-D", "lane/b")
+        a, b = self.r.lane("a"), self.r.lane("b")
+        Repo.write(a, "src/pkg/core.py", "TOP = 2\n" + middle + "BOTTOM = 1\n")
+        Repo.write(b, "src/pkg/core.py", "TOP = 1\n" + middle + "BOTTOM = 2\n")
+        res = self.r.preview(a, b)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("WARN src/pkg/core.py: clean 3-way merge of a, b", res.stdout)
+
+    def test_same_line_edits_are_a_conflict_with_the_hunk(self):
         a, b = self.r.lane("a"), self.r.lane("b")
         Repo.write(a, "src/pkg/core.py", "VALUE = 2\n")
         Repo.write(b, "src/pkg/core.py", "VALUE = 3\n")
         res = self.r.preview(a, b)
         self.assertEqual(res.returncode, 1)
         self.assertIn("CONFLICT src/pkg/core.py: a, b", res.stdout)
+        self.assertIn("<<<<<<< a", res.stdout)
+        self.assertIn("=======", res.stdout)
+        self.assertIn(">>>>>>> b", res.stdout)
+
+    def test_delete_modify_conflict_prints_a_hunk(self):
+        a, b = self.r.lane("a"), self.r.lane("b")
+        (a / "src/pkg/core.py").unlink()
+        Repo.write(b, "src/pkg/core.py", "VALUE = 2\n")
+        res = self.r.preview(a, b)
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("CONFLICT src/pkg/core.py: a, b", res.stdout)
+        self.assertIn("<<<<<<< a", res.stdout)
+        self.assertIn("(deleted)", res.stdout)
+        self.assertIn(">>>>>>> b", res.stdout)
 
     def test_syntax_error_in_a_lane_fails_compile(self):
         a = self.r.lane("a")

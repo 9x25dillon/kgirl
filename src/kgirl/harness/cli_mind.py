@@ -30,6 +30,8 @@ making things
 
 
 def add_parsers(sub) -> None:
+    p = sub.add_parser("doctor", help="read-only local health check: Ollama, models, GPU, index, code, MCP, pytest")
+    p.add_argument("--json", action="store_true", help="machine-readable report")
     p = sub.add_parser("chat", help="talk with kgirl: remembers, uses tools, works in your project, learns from "
                                     "your reactions")
     p.add_argument("message", nargs="*", help="one message, then exit (omit for an interactive session)")

@@ -74,7 +74,11 @@ def parse_tool_call(raw: str) -> ToolCall | None:
     if body.startswith("{"):                  # {"name": ..., "arguments": {...}}
         obj, err = _object(body)
         if obj is None:
-            return ToolCall("", prefix=prefix, error=err)
+            # A streamed call is often cut off after its name but before the arguments object closes.
+            # Keep the name so the chat loop can give precise retry feedback instead of losing the call.
+            partial = re.search(r'["\'](?:name|tool)["\']\s*:\s*["\']([A-Za-z_][\w-]*)', body, re.I)
+            name = partial.group(1).lower() if partial else ""
+            return ToolCall(name, prefix=prefix, error=err)
         name = obj.get("name") or obj.get("tool") or ""
         args = obj.get("arguments", obj.get("args", obj.get("parameters", {})))
         if isinstance(args, str):             # some models write the arguments as a JSON string

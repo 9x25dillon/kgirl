@@ -3,10 +3,13 @@
 kgirl recalls preferences by similarity to the message. So "never push unless I name it" only reached a prompt when the message happened to look like it. A 7b model then wrote `git push` into a script the user had asked for. Two layers close that gap (`mind/rules.py`):
 
 - **Standing rules.** Every active `preference` phrased as a rule goes into every chat system prompt, right after the persona and before anything recalled. A rule starts with Never, Always, Only, Before, Don't, Do not or No. They're global (`scope *`) or match the conversation's scope, within half the memory budget. The persona says they're binding, even in examples. They're excluded from the similarity-recalled preferences, so they don't appear twice. They aren't credited as "recalled", so feedback on an answer doesn't move them.
-- **The rules check.** After the answer, `rules.check` reads its fenced code blocks only, so prose that merely mentions a command isn't flagged. It looks for:
+- **The rules check.** After the answer, `rules.check` reads fenced code plus command-shaped proposals outside fences: `$`/`>`/`-` command lines, shell-looking numbered steps, and inline code spans that parse as commands. Ordinary explanations, quoted failures, and sentences such as “never run X” are negative controls and are not flagged.
+
+  The check is table-driven. Each active Never/Always preference activates only detectors whose wording it maps to; an unmapped style rule stays prompt-only. The current detector table covers:
   - `git push` (and force-push), `git pull`, `git commit`
   - `git add .`/`-A`, `git reset --hard`, `git clean -f`, `git branch -D`
   - `rm -rf`
+  - `curl … | sh` and `--no-verify`
   - `torch.load`/`pickle.load` without `weights_only=True`
 
   It reads shell form and list form (`["git", "-C", repo, "push"]`). A step the user's message names ("commit it", "push") is allowed.
