@@ -25,6 +25,7 @@ This module keeps `builder.py` small by handling the static spec/AST work:
 from __future__ import annotations
 
 import ast
+import difflib
 import re
 import textwrap
 from pathlib import Path
@@ -33,23 +34,36 @@ from typing import Iterable, Sequence
 from ..atlas.secrets import secret_reason
 from ..util import split_identifier
 from .suites import retarget
+from .text import strip_reasoning
 
 __all__ = [
     "SUITE_ANGLES",
+    "apply_unified_diff",
     "atlas_context",
+    "atlas_search_context",
+    "build_short_summary",
     "build_summary_dict",
     "candidate_prompt",
     "donor_snippet",
+    "edit_candidate_prompt",
+    "edit_suite_prompt",
     "emit_files",
     "expected_exports",
     "explain_build",
+    "extract_diff",
+    "find_existing_tests",
     "format_failures",
     "fragment_utility",
     "has_tests",
+    "lint_spec",
     "missing_exports",
+    "multifile_candidate_prompt",
+    "multifile_suite_prompt",
     "normalize_suite",
     "parse_multifile_reply",
+    "parse_multifile_spec",
     "rank_exemplars",
+    "select_exemplars_within_budget",
     "spec_checklist",
     "spec_query",
     "strip_numbered_lines",
@@ -57,6 +71,8 @@ __all__ = [
     "suite_test_ids",
     "test_method_source",
     "test_weights",
+    "trim_traceback",
+    "unified_diff",
     "weighted_test_count",
 ]
 
@@ -524,19 +540,24 @@ def has_tests(code: str) -> bool:
     )
 
 
-def test_method_source(suites: Sequence[str], tid: str) -> str:
-    """Source code of the test method named by `tid` (`test_gen0:Class.test_x`); "" if not found."""
+def test_method_source(suites: Sequence[str], tid: str, suite_map: dict[str, str] | None = None) -> str:
+    """Source code of the test method named by `tid` (`test_gen0:Class.test_x` or `existing_0:Class.test_x`); "" if not found."""
     mod, sep, rest = (tid or "").partition(":")
-    if not sep or not mod.startswith("test_gen") or "." not in rest:
+    if not sep or "." not in rest:
         return ""
-    try:
-        idx = int(mod[len("test_gen") :])
-    except ValueError:
-        return ""
-    if not (0 <= idx < len(suites)):
+    suite = ""
+    if suite_map and mod in suite_map:
+        suite = suite_map[mod]
+    elif mod.startswith("test_gen"):
+        try:
+            idx = int(mod[len("test_gen") :])
+        except ValueError:
+            return ""
+        if 0 <= idx < len(suites):
+            suite = suites[idx]
+    if not suite:
         return ""
     cls_name, _, fn_name = rest.partition(".")
-    suite = suites[idx]
     try:
         tree = ast.parse(suite)
     except (SyntaxError, ValueError):
@@ -550,15 +571,78 @@ def test_method_source(suites: Sequence[str], tid: str) -> str:
     return ""
 
 
-def format_failures(suites: Sequence[str], failures: dict[str, str], limit: int = 6) -> str:
-    """Render failing tests for a repair prompt, pairing each traceback with the test method source."""
-    blocks: list[str] = []
-    for tid, out in list(failures.items())[:limit]:
-        entry = f"--- {tid}\n{out[-900:]}"
-        src = test_method_source(suites, tid)
-        if src and src not in out:
+_TB_FRAME_RE = re.compile(r'^\s*File "([^"]+)", line (\d+), in (.+)$')
+_TB_EXC_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception|Warning|Exit|Interrupt)\b")
+
+
+def trim_traceback(tb: str, max_chars: int = 420) -> str:
+    """Keep only the last relevant traceback frame and the final assertion/exception, capped to `max_chars`."""
+    raw = (tb or "").strip()
+    if not raw:
+        return ""
+    lines = raw.splitlines()
+    frames: list[tuple[int, str, str]] = []
+    for idx, line in enumerate(lines):
+        m = _TB_FRAME_RE.match(line)
+        if m:
+            src_line = lines[idx + 1] if idx + 1 < len(lines) and lines[idx + 1].startswith("    ") else ""
+            frames.append((idx, m.group(1), src_line))
+    if not frames:
+        return raw if len(raw) <= max_chars else raw[-max_chars:].lstrip()
+
+    # Prefer the last frame outside unittest / the sandbox runner so the model sees its own code or test call.
+    non_internal = [f for f in frames if "/unittest/" not in f[1] and not f[1].endswith("_kgirl_runner.py")]
+    chosen_idx, _, chosen_src = non_internal[-1] if non_internal else frames[-1]
+    last_frame_idx, _, last_src = frames[-1]
+    tail_start = last_frame_idx + (2 if last_src else 1)
+    # Skip caret/pointer lines (Python 3.11+ `~~~^^^`) when locating the exception header.
+    exc_lines = [ln for ln in lines[tail_start:] if ln.strip() and not set(ln.strip()) <= {"^", "~", " "}]
+    if not exc_lines:
+        for ln in reversed(lines):
+            if _TB_EXC_RE.match(ln.strip()):
+                exc_lines = [ln.strip()]
+                break
+    frame_lines = [lines[chosen_idx].strip()]
+    if chosen_src.strip():
+        frame_lines.append("  " + chosen_src.strip())
+    body = "\n".join(frame_lines + exc_lines).strip()
+    if len(body) <= max_chars:
+        return body
+    # Preserve the exception line(s) first, then fit as much of the frame as budget allows.
+    exc_text = "\n".join(exc_lines).strip()
+    if len(exc_text) >= max_chars - 20:
+        return exc_text[: max_chars - 1].rstrip() + "…"
+    head_budget = max_chars - len(exc_text) - 2
+    head = "\n".join(frame_lines)[:head_budget].rstrip()
+    return f"{head}\n{exc_text}" if head else exc_text
+
+
+def format_failures(
+    suites: Sequence[str],
+    failures: dict[str, str],
+    limit: int = 6,
+    max_tokens: int = 700,
+    suite_map: dict[str, str] | None = None,
+) -> str:
+    """Render failing tests for repair: exact failing test IDs, trimmed tracebacks (last frame + assertion),
+    and test method source, capped by `max_tokens` (~4 chars/token)."""
+    if not failures:
+        return ""
+    items = list(failures.items())[:limit]
+    header = "FAILING TEST IDS: " + ", ".join(tid for tid, _ in items)
+    char_budget = max(200, max_tokens * 4)
+    blocks: list[str] = [header]
+    used = len(header)
+    for tid, out in items:
+        trimmed = trim_traceback(out, max_chars=420)
+        entry = f"--- {tid}\n{trimmed}"
+        src = test_method_source(suites, tid, suite_map=suite_map)
+        if src and src not in trimmed:
             entry += f"\n```python\n{src}\n```"
+        if len(blocks) > 1 and used + len(entry) + 2 > char_budget:
+            break
         blocks.append(entry)
+        used += len(entry) + 2
     return "\n\n".join(blocks)
 
 
@@ -610,8 +694,23 @@ def suite_test_ids(suite: str, name: str) -> list[str]:
 
 
 def explain_build(res) -> str:
-    """Detailed explanation of a BuildResult: suites, candidate vote matrix, repair steps, and why the winner won."""
-    lines = [res.render(), "", "=== SUITES ==="]
+    """Detailed explanation of a BuildResult: auto context, suites, candidate vote matrix, repair steps, and why the winner won."""
+    edit_target = getattr(res, "edit_target", "") or ""
+    context_picks = list(getattr(res, "context_picks", []) or [])
+    lines = [res.render()]
+    if context_picks:
+        lines.append("")
+        lines.append("=== AUTO CONTEXT (ATLAS SEARCH) ===")
+        for pick_info in context_picks:
+            repo_name = pick_info.get("repo", "")
+            path = pick_info.get("path", "")
+            tokens = pick_info.get("tokens", 0)
+            reason = pick_info.get("reason", "matched query")
+            label = f"{repo_name}:{path}" if repo_name else path
+            lines.append(f"  - {label} (~{tokens} tok): {reason}")
+
+    lines.append("")
+    lines.append("=== SUITES ===")
     initial = [c for c in res.candidates if not c.repaired]
     repairs = [c for c in res.candidates if c.repaired]
     live_initial = [c for c in initial if c.ok]
@@ -625,8 +724,17 @@ def explain_build(res) -> str:
             support[t] = support.get(t, 0) + 1
     weights = test_weights(all_tids)
 
+    existing_tids = sorted(t for t in all_tids if t.startswith("existing_"))
+    if edit_target and existing_tids:
+        lines.append(f"  existing tests ({len(existing_tids)} test(s)):")
+        for tid in existing_tids:
+            votes = [f"#{c.idx}" for c in all_live if tid in c.passed]
+            v_str = ", ".join(votes) if votes else "none"
+            lines.append(f"    - {tid}: passed by {len(votes)}/{len(all_live)} ({v_str})")
+
     if not res.suites:
-        lines.append("  (no test suites survived)")
+        if not existing_tids:
+            lines.append("  (no test suites survived)")
     else:
         for k, suite in enumerate(res.suites):
             sname = f"test_gen{k}"
@@ -642,6 +750,23 @@ def explain_build(res) -> str:
     for c in initial:
         if not c.ok:
             lines.append(f"  #{c.idx} ({c.style}, T={c.temperature:.2f}, {len(c.code)} chars): DROPPED — {c.dropped}")
+            continue
+        if edit_target:
+            ex_pass = sorted(t for t in c.passed if t.startswith("existing_"))
+            ex_fail = sorted(t for t in c.failed if t.startswith("existing_"))
+            sp_pass = sorted(t for t in c.passed if not t.startswith("existing_"))
+            sp_fail = sorted(t for t in c.failed if not t.startswith("existing_"))
+            adds = int(getattr(c, "diff_adds", 0) or 0)
+            dels = int(getattr(c, "diff_dels", 0) or 0)
+            ex_detail = f"existing {len(ex_pass)}/{len(ex_pass) + len(ex_fail)}"
+            if ex_fail:
+                ex_detail += f" (fail: {', '.join(ex_fail[:4])})"
+            sp_detail = f"spec {len(sp_pass)}/{len(sp_pass) + len(sp_fail)}"
+            if sp_fail:
+                sp_detail += f" (fail: {', '.join(sp_fail[:4])})"
+            lines.append(
+                f"  #{c.idx} ({c.style}, T={c.temperature:.2f}, diff +{adds}/-{dels}): {ex_detail}; {sp_detail}"
+            )
             continue
         passed_list = ", ".join(sorted(c.passed)) if c.passed else "(none)"
         mismatch = missing_exports(res.spec, c.code)
@@ -696,14 +821,19 @@ def explain_build(res) -> str:
         prior_passed = base_pick.passed if base_pick else frozenset()
         for c in repairs:
             rnd = c.idx - 99
-            if c.dropped and not c.passed and "did not pass a strict superset" not in c.dropped:
+            if c.dropped and not c.passed and "did not pass a strict superset" not in c.dropped and "did not improve" not in c.dropped:
                 lines.append(f"  round {rnd} (#{c.idx}, T={c.temperature:.2f}): DROPPED — {c.dropped}")
                 continue
             gained = sorted(c.passed - prior_passed)
             lost = sorted(prior_passed - c.passed)
             outcome = "ACCEPTED (strict superset)" if not c.dropped else f"REJECTED ({c.dropped})"
+            diff_note = ""
+            if edit_target:
+                adds = int(getattr(c, "diff_adds", 0) or 0)
+                dels = int(getattr(c, "diff_dels", 0) or 0)
+                diff_note = f", diff +{adds}/-{dels}"
             lines.append(
-                f"  round {rnd} (#{c.idx}, T={c.temperature:.2f}): {len(prior_passed)} -> {len(c.passed)} tests "
+                f"  round {rnd} (#{c.idx}, T={c.temperature:.2f}{diff_note}): {len(prior_passed)} -> {len(c.passed)} tests "
                 f"(+{len(gained)} gained: {', '.join(gained) or 'none'}; "
                 f"-{len(lost)} regressed: {', '.join(lost) or 'none'}) -> {outcome}"
             )
@@ -723,7 +853,28 @@ def explain_build(res) -> str:
 
     lines.append("")
     lines.append("=== WHY THE WINNER WON ===")
-    if not res.code or res.chosen is None:
+    if edit_target:
+        ex_p = int(getattr(res, "existing_passed", 0) or 0)
+        ex_t = int(getattr(res, "existing_total", 0) or 0)
+        if not res.code or res.chosen is None or not getattr(res, "diff", ""):
+            ex_fails = [t for t in res.disputed if t.startswith("existing_")]
+            sp_fails = [t for t in res.disputed if not t.startswith("existing_")]
+            lines.append(
+                f"  Edit rejected for {edit_target}: {len(ex_fails)} existing test(s) and "
+                f"{len(sp_fails)} credible spec test(s) still failed (existing {ex_p}/{ex_t}, "
+                f"spec {res.passed}/{res.credible})."
+            )
+        else:
+            winner = next((c for c in res.candidates if c.idx == res.chosen), None)
+            adds = int(getattr(winner, "diff_adds", 0) or 0) if winner else 0
+            dels = int(getattr(winner, "diff_dels", 0) or 0) if winner else 0
+            how = "after targeted repair" if (winner and winner.repaired) else f"from agreement group of {res.group_size}"
+            lines.append(
+                f"  Edit ready for {edit_target}: candidate #{res.chosen} won {how}, passing all "
+                f"{ex_p}/{ex_t} existing tests and {res.passed}/{res.credible} credible spec tests "
+                f"(diff +{adds}/-{dels}, confidence {res.confidence:.2f}, returned for review, never applied)."
+            )
+    elif not res.code or res.chosen is None:
         lines.append("  No candidate won: every sample failed parsing, static lint, or sandbox import.")
     elif not res.suites:
         winner = next((c for c in res.candidates if c.idx == res.chosen), None)
@@ -767,7 +918,7 @@ def explain_build(res) -> str:
 
 # ---------------------------------------------------------------------- multi-file & Atlas context
 
-_NUMBERED_LINE_RE = re.compile(r"^\s*\d+:\s?(.*)$")
+_NUMBERED_LINE_RE = re.compile(r"^\s*\d+(?::\s?|\s)(.*)$")
 _SAFE_MOD_FILE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\.py$")
 _FILE_HEADER_RE = re.compile(r"^\s*#\s*(?:file|module|path)\s*:\s*([A-Za-z_][A-Za-z0-9_]*\.py)\s*$", re.I)
 _FENCE_FILE_RE = re.compile(
@@ -777,7 +928,7 @@ _FENCE_FILE_RE = re.compile(
 
 
 def strip_numbered_lines(text: str) -> str:
-    """Strip `  12: ` prefixes from `atlas.read_source` output when present."""
+    """Strip `  12: ` or `   12 ` prefixes from `atlas.read_source` output when present."""
     raw_lines = (text or "").splitlines()
     non_empty = [ln for ln in raw_lines if ln.strip()]
     if not non_empty or not all(_NUMBERED_LINE_RE.match(ln) for ln in non_empty):
@@ -818,12 +969,158 @@ def atlas_context(atlas, repo: str, paths: str | Sequence[str], max_chars: int =
     return "EXISTING REPO CONTEXT (from Atlas):\n" + "\n\n".join(blocks), extra_files
 
 
+def atlas_search_context(
+    atlas,
+    spec: str,
+    repo: str | None = None,
+    exclude_paths: Sequence[str] = (),
+    max_tokens: int = 1500,
+    max_files: int = 4,
+    search_limit: int = 12,
+) -> tuple[str, dict[str, str], list[dict]]:
+    """Pick related context files automatically from the local Atlas index, capped by `max_tokens`.
+
+    Calls `atlas.search` and `atlas.read_source` in-process (fully local). Silently skips files
+    flagged by `secret_reason` or unreadable on disk. Returns `(context_block, extra_files, picks)`,
+    where each entry in `picks` is `{"repo", "path", "tokens", "reason"}` for `--explain`.
+    """
+    if atlas is None or not hasattr(atlas, "search"):
+        return "", {}, []
+    query = spec_query(spec) or (spec or "")[:300]
+    if not query.strip():
+        return "", {}, []
+    try:
+        hits = atlas.search(query, limit=search_limit, repo=repo or None)
+    except Exception:  # noqa: BLE001 - search failure must never break a build
+        return "", {}, []
+    if not hits:
+        return "", {}, []
+
+    excluded = {str(p).strip() for p in exclude_paths if p}
+    excluded_names = {Path(p).name for p in excluded}
+
+    # Group hits by (repo, path) preserving best score and matched symbol names.
+    grouped: dict[tuple[str, str], list] = {}
+    for hit in hits:
+        h_repo = str(getattr(hit, "repo", "") or "")
+        h_path = str(getattr(hit, "path", "") or "")
+        if not h_path:
+            continue
+        if h_path in excluded or Path(h_path).name in excluded_names:
+            continue
+        grouped.setdefault((h_repo, h_path), []).append(hit)
+
+    ranked = sorted(
+        grouped.items(),
+        key=lambda kv: (
+            max(float(getattr(h, "score", 0.0) or 0.0) for h in kv[1]),
+            len(kv[1]),
+            -len(kv[0][1]),
+        ),
+        reverse=True,
+    )
+
+    char_budget = max(400, max_tokens * 4)
+    used_chars = 0
+    blocks: list[str] = []
+    extra_files: dict[str, str] = {}
+    picks: list[dict] = []
+
+    for (h_repo, h_path), file_hits in ranked:
+        if len(picks) >= max_files:
+            break
+        remaining = char_budget - used_chars
+        if remaining < 160:
+            break
+        try:
+            raw = atlas.read_source(h_repo, h_path, 1, 250)
+        except Exception:  # noqa: BLE001
+            continue
+        if secret_reason(h_path, raw):
+            continue
+        clean = strip_numbered_lines(raw).strip()
+        if not clean:
+            continue
+        header = f"# ---- {h_repo}:{h_path} ----\n```python\n" if h_repo else f"# ---- {h_path} ----\n```python\n"
+        footer = "\n```"
+        body_budget = remaining - len(header) - len(footer) - (2 if blocks else 0)
+        if body_budget < 80:
+            break
+        clipped = clean if len(clean) <= body_budget else (clean[: body_budget - 1].rstrip() + "…")
+        block = f"{header}{clipped}{footer}"
+        blocks.append(block)
+        used_chars += len(block) + (2 if len(blocks) > 1 else 0)
+
+        syms = list(dict.fromkeys(str(getattr(h, "qualname", "") or "") for h in file_hits if getattr(h, "qualname", "")))
+        top_score = max(float(getattr(h, "score", 0.0) or 0.0) for h in file_hits)
+        sym_part = ", ".join(syms[:3]) if syms else "file match"
+        reason = f"matched {sym_part} (score {top_score:.2f})"
+        picks.append({
+            "repo": h_repo,
+            "path": h_path,
+            "tokens": max(1, len(clipped) // 4),
+            "reason": reason,
+        })
+
+        fname = Path(h_path).name
+        if _SAFE_MOD_FILE_RE.match(fname) and fname != "solution.py" and fname not in excluded_names:
+            extra_files[fname] = clean + "\n"
+
+    if not blocks:
+        return "", extra_files, picks
+    return "AUTO-RETRIEVED REPO CONTEXT (from Atlas search):\n" + "\n\n".join(blocks), extra_files, picks
+
+
+_MODULE_HEADING_RE = re.compile(r"^\s*#{2,3}\s*module\s*:\s*([A-Za-z_][A-Za-z0-9_]*\.py)\s*$", re.I)
+_PRECEDING_MOD_RE = re.compile(r"(?:^|\n)\s*(?:#{2,3}\s*module\s*:|#\s*(?:file|module|path)\s*:)\s*([A-Za-z_][A-Za-z0-9_]*\.py)\s*\n+```[ \t]*(?:python|py)?[^\n]*\n(.*?)```", re.I | re.S)
+
+
+def parse_multifile_spec(spec: str) -> dict[str, str]:
+    """Parse `## module: <name.py>` sections from `spec` in order; empty dict if none are present."""
+    modules: dict[str, str] = {}
+    current: str | None = None
+    buf: list[str] = []
+    for line in (spec or "").splitlines():
+        m = _MODULE_HEADING_RE.match(line)
+        if m:
+            if current is not None:
+                modules[current] = "\n".join(buf).strip()
+            current = m.group(1).strip()
+            buf = []
+        elif current is not None:
+            buf.append(line)
+    if current is not None:
+        modules[current] = "\n".join(buf).strip()
+    return modules
+
+
+def multifile_candidate_prompt(
+    spec: str, modules: Sequence[str], shots: str, i: int, edge_first: str
+) -> str:
+    """Prompt for a multi-file implementation candidate naming every required `.py` module."""
+    names = ", ".join(f"`{m}`" for m in modules)
+    fmt = (
+        f"Reply with one fenced ```python <filename.py> block for EACH module ({names}), "
+        "using exact module filenames on the opening fence (e.g. ```python a.py)."
+    )
+    base = candidate_prompt(spec, shots, i, edge_first)
+    return f"{base}\n\n{fmt}"
+
+
+def multifile_suite_prompt(spec: str, modules: Sequence[str], i: int) -> str:
+    """Prompt for a test suite covering a multi-file spec."""
+    mod_names = ", ".join(f"`{Path(m).stem}`" for m in modules)
+    extra = f"Import directly from the spec modules ({mod_names}) and test how they work together."
+    return f"{suite_prompt(spec, i)}\n\n{extra}"
+
+
 def parse_multifile_reply(text: str) -> tuple[str, dict[str, str]]:
     """Extract `(solution_code, extra_files)` when a model reply contains named `.py` blocks."""
+    cleaned = strip_reasoning(text or "")
     extra: dict[str, str] = {}
     unnamed: list[str] = []
     solution = ""
-    for fence_name, body in _FENCE_FILE_RE.findall(text or ""):
+    for fence_name, body in _FENCE_FILE_RE.findall(cleaned):
         lines = body.rstrip().splitlines()
         name = (fence_name or "").strip()
         if not name and lines:
@@ -840,9 +1137,290 @@ def parse_multifile_reply(text: str) -> tuple[str, dict[str, str]]:
             extra[name] = content
         else:
             unnamed.append(content)
+    # Also pick up blocks preceded by a `## module: foo.py` or `# file: foo.py` heading outside the fence.
+    for mod_name, body in _PRECEDING_MOD_RE.findall(cleaned):
+        content = body.rstrip() + "\n" if body.strip() else ""
+        if not content:
+            continue
+        if mod_name == "solution.py" and not solution:
+            solution = content
+        elif _SAFE_MOD_FILE_RE.match(mod_name) and mod_name not in extra:
+            extra[mod_name] = content
     if not solution and unnamed:
         solution = max(unnamed, key=len)
     return solution, extra
+
+
+# ---------------------------------------------------------------------- edit mode (unified diffs + existing tests)
+
+_DIFF_FENCE_RE = re.compile(r"```[ \t]*(?:diff|patch)[^\n]*\n(.*?)```", re.I | re.S)
+_ANY_FENCE_RE = re.compile(r"```[^\n]*\n(.*?)```", re.S)
+_HUNK_HEADER_RE = re.compile(r"^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@")
+
+
+def extract_diff(reply: str) -> str:
+    """Extract a unified diff from a model reply (```diff/patch block, or raw `---`/`@@` lines)."""
+    cleaned = strip_reasoning(reply or "")
+    m = _DIFF_FENCE_RE.search(cleaned)
+    if m:
+        return m.group(1).strip("\n") + "\n"
+    for body in _ANY_FENCE_RE.findall(cleaned):
+        if _HUNK_HEADER_RE.search(body):
+            return body.strip("\n") + "\n"
+    lines = cleaned.splitlines()
+    for idx, line in enumerate(lines):
+        if line.startswith(("--- ", "diff --git ", "@@ ")):
+            return "\n".join(lines[idx:]).strip("\n") + "\n"
+    return ""
+
+
+def apply_unified_diff(original: str, diff_text: str) -> tuple[str | None, str]:
+    """Apply a unified diff to `original` in pure Python. Returns `(patched, "")` or `(None, reason)`."""
+    raw = (diff_text or "").replace("\r\n", "\n")
+    if not raw.strip():
+        return None, "empty diff"
+    diff_lines = raw.splitlines()
+    hunks: list[tuple[int, int, int, int, list[tuple[str, str]], bool]] = []
+    i = 0
+    while i < len(diff_lines):
+        line = diff_lines[i]
+        m = _HUNK_HEADER_RE.match(line)
+        if not m:
+            i += 1
+            continue
+        old_start = int(m.group(1))
+        old_count = int(m.group(2)) if m.group(2) is not None else 1
+        new_start = int(m.group(3))
+        new_count = int(m.group(4)) if m.group(4) is not None else 1
+        i += 1
+        ops: list[tuple[str, str]] = []
+        seen_old = 0
+        seen_new = 0
+        no_eof_newline = False
+        while i < len(diff_lines):
+            cur = diff_lines[i]
+            if _HUNK_HEADER_RE.match(cur) or cur.startswith(("diff --git ", "--- ", "+++ ")):
+                break
+            if cur.startswith("\\ No newline at end of file"):
+                if ops and ops[-1][0] in (" ", "+"):
+                    no_eof_newline = True
+                i += 1
+                continue
+            if cur == "" and (seen_old < old_count or seen_new < new_count):
+                ops.append((" ", ""))
+                seen_old += 1
+                seen_new += 1
+                i += 1
+                continue
+            if not cur:
+                i += 1
+                continue
+            tag, text = cur[0], cur[1:]
+            if tag not in (" ", "-", "+"):
+                break
+            ops.append((tag, text))
+            if tag in (" ", "-"):
+                seen_old += 1
+            if tag in (" ", "+"):
+                seen_new += 1
+            i += 1
+        if not ops:
+            return None, f"hunk at line {old_start} has no operations"
+        hunks.append((old_start, old_count, new_start, new_count, ops, no_eof_newline))
+
+    if not hunks:
+        return None, "no @@ hunks found in diff"
+
+    orig_norm = (original or "").replace("\r\n", "\n")
+    had_trailing_nl = orig_norm.endswith("\n")
+    lines = orig_norm.splitlines()
+    delta = 0
+    drop_trailing_nl = False
+
+    for old_start, _old_count, _new_start, _new_count, ops, no_eof_nl in hunks:
+        old_chunk = [text for tag, text in ops if tag in (" ", "-")]
+        new_chunk = [text for tag, text in ops if tag in (" ", "+")]
+        base = 0 if old_start == 0 else max(0, old_start - 1 + delta)
+        if not old_chunk:
+            base = min(len(lines), base)
+        matched_pos: int | None = None
+        for offset in (0, -1, 1, -2, 2, -3, 3):
+            pos = base + offset
+            if pos < 0 or pos + len(old_chunk) > len(lines):
+                continue
+            if lines[pos : pos + len(old_chunk)] == old_chunk:
+                matched_pos = pos
+                break
+        if matched_pos is None:
+            return None, f"hunk at line {old_start} does not match original"
+        lines[matched_pos : matched_pos + len(old_chunk)] = new_chunk
+        delta += len(new_chunk) - len(old_chunk)
+        if no_eof_nl:
+            drop_trailing_nl = True
+
+    out = "\n".join(lines)
+    if lines and not drop_trailing_nl and (had_trailing_nl or orig_norm == ""):
+        out += "\n"
+    return out, ""
+
+
+def unified_diff(original: str, updated: str, filename: str) -> str:
+    """Standard unified diff (`a/<filename>` -> `b/<filename>`); "" when unchanged."""
+    if original == updated:
+        return ""
+    diff = "".join(
+        difflib.unified_diff(
+            original.splitlines(keepends=True),
+            updated.splitlines(keepends=True),
+            fromfile=f"a/{filename}",
+            tofile=f"b/{filename}",
+        )
+    )
+    if diff and not diff.endswith("\n"):
+        diff += "\n"
+    return diff
+
+
+def find_existing_tests(target: str | Path, explicit: Sequence[str | Path] = ()) -> list[Path]:
+    """Find existing test files for `target` (either explicit `--tests` paths or beside `target`).
+
+    Refuses any file flagged by `secret_reason`.
+    """
+    target_path = Path(target).expanduser()
+    found: list[Path] = []
+    seen: set[Path] = set()
+
+    if explicit:
+        for raw in explicit:
+            p = Path(raw).expanduser()
+            if not p.is_file():
+                raise FileNotFoundError(f"test file not found: {p}")
+            resolved = p.resolve()
+            if resolved in seen:
+                continue
+            content = p.read_text(encoding="utf-8")
+            why = secret_reason(str(p), content)
+            if why:
+                raise ValueError(f"{p} looks like it holds a secret ({why}); refusing to read it")
+            seen.add(resolved)
+            found.append(p)
+        return found
+
+    stem = target_path.stem
+    parent = target_path.parent
+    candidates: list[Path] = [
+        parent / f"test_{stem}.py",
+        parent / f"{stem}_test.py",
+        *sorted(parent.glob(f"test_{stem}_*.py")),
+        parent / "tests" / f"test_{stem}.py",
+        parent.parent / "tests" / f"test_{stem}.py",
+    ]
+    for p in candidates:
+        if not p.is_file():
+            continue
+        resolved = p.resolve()
+        if resolved in seen or resolved == target_path.resolve():
+            continue
+        try:
+            content = p.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if secret_reason(str(p), content):
+            continue
+        seen.add(resolved)
+        found.append(p)
+    return found
+
+
+def edit_candidate_prompt(
+    spec: str, filename: str, original: str, shots: str, i: int, edge_first: str
+) -> str:
+    """Prompt for an edit-mode candidate: asks for a unified diff against `original`."""
+    style = "edge-first" if i % 2 else "direct"
+    head = (f"{shots}\n\n" if shots else "") + f"SPEC (change to `{filename}`):\n{spec}"
+    body = f"\n\nEXISTING `{filename}`:\n```python\n{original.rstrip()}\n```"
+    tail = f"\n\n{edge_first}" if style == "edge-first" else ""
+    if i >= 2:
+        checklist = spec_checklist(spec)
+        if checklist:
+            tail += f"\n\n{checklist}"
+    return (
+        f"{head}{body}{tail}\n\n"
+        f"Reply with a unified diff against `{filename}` inside one ```diff block."
+    )
+
+
+def edit_suite_prompt(spec: str, module_name: str, original: str, i: int) -> str:
+    """Prompt for a spec test suite in edit mode importing from `module_name`."""
+    base = suite_prompt(spec, i)
+    preview = original.rstrip()[:3000]
+    return (
+        f"{base}\n\n"
+        f"Import from `{module_name}` (the existing module being edited). Test the NEW or CHANGED behavior "
+        f"requested by the SPEC.\n\nCURRENT `{module_name}.py` (before edit):\n```python\n{preview}\n```"
+    )
+
+
+# ---------------------------------------------------------------------- spec lint & token-capped exemplars
+
+_VAGUE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\b(?:etc\.?|and\s+so\s+on|and\s+more)\b", re.I), "uses open-ended phrasing ('etc.' / 'and so on')"),
+    (re.compile(r"\b(?:appropriate|reasonable|sensible|as\s+needed|if\s+necessary)\b", re.I), "uses vague qualifier ('appropriate' / 'reasonable' / 'as needed')"),
+    (re.compile(r"\b(?:fast|efficient|performant|quick)\b", re.I), "asks for speed/efficiency without a concrete complexity or bound"),
+)
+_EXAMPLE_RE = re.compile(r"(?:>>>|->|==|example|e\.g\.|for\s+instance|returns?\s+[\[\{\'\"0-9-])", re.I)
+_ERROR_MENTION_RE = re.compile(r"\b(?:error|invalid|bad\s+input|fail|edge\s+case)\b", re.I)
+
+
+def lint_spec(spec: str) -> list[str]:
+    """Static pre-sampling lint of a spec: list ambiguities and missing examples."""
+    text = (spec or "").strip()
+    if not text:
+        return ["spec is empty"]
+    warnings: list[str] = []
+    if len(text) < 24:
+        warnings.append("spec is very short; add concrete inputs, outputs, and edge cases")
+    top_req, method_req, prop_req = expected_exports(text)
+    if not (top_req or method_req or prop_req) and not parse_multifile_spec(text):
+        warnings.append("no function, class, or signature found (backtick signatures like `fn(x)` improve accuracy)")
+    if not _EXAMPLE_RE.search(text):
+        warnings.append("no worked example found (add at least one concrete input -> output example)")
+    if _ERROR_MENTION_RE.search(text) and not _EXC_RE.search(text):
+        warnings.append("mentions errors/invalid input without naming a specific exception type (e.g. ValueError)")
+    for pat, msg in _VAGUE_PATTERNS:
+        if pat.search(text):
+            if "complexity" in msg and _BIGO_RE.search(text):
+                continue
+            warnings.append(msg)
+    return warnings
+
+
+def select_exemplars_within_budget(
+    spec: str, fragments: Sequence, limit: int = 2, max_tokens: int = 900
+) -> tuple[str, list[int]]:
+    """Rank recalled exemplars by spec similarity + utility and pack them within `max_tokens` (~4 chars/token)."""
+    picked = rank_exemplars(spec, fragments, limit=limit)
+    if not picked:
+        return "", []
+    char_budget = max(200, max_tokens * 4)
+    blocks: list[str] = []
+    ids: list[int] = []
+    used = 0
+    for frag in picked:
+        header = f"EXAMPLE {len(blocks) + 1} (accepted earlier):\n"
+        body = (getattr(frag, "text", "") or "").strip()
+        if not body:
+            continue
+        remaining = char_budget - used - len(header) - (2 if blocks else 0)
+        if remaining < 120:
+            break
+        if len(body) > remaining:
+            body = body[: remaining - 1].rstrip() + "…"
+        block = header + body
+        blocks.append(block)
+        ids.append(frag.id)
+        used += len(block) + (2 if len(blocks) > 1 else 0)
+    return "\n\n".join(blocks), ids
 
 
 def emit_files(
@@ -890,12 +1468,80 @@ def donor_snippet(candidates: Sequence, pick, missing: Iterable[str], max_chars:
     return f"PASSING CANDIDATE REFERENCE (candidate #{best.idx} passes {covered}):\n```python\n{snippet}\n```"
 
 
+def build_short_summary(res) -> str:
+    """Compact (~<=6 lines) chat-facing summary of what won and why."""
+    edit_target = getattr(res, "edit_target", "") or ""
+    diff_text = getattr(res, "diff", "") or ""
+    existing_passed = int(getattr(res, "existing_passed", 0) or 0)
+    existing_total = int(getattr(res, "existing_total", 0) or 0)
+    extra_files = getattr(res, "extra_files", {}) or {}
+    lines: list[str] = []
+
+    if not res.code:
+        kind = f"Edit failed for {edit_target}" if edit_target else "Build failed"
+        reason = res.notes[-1] if res.notes else "no candidate passed"
+        lines.append(f"{kind}: {reason}")
+        if existing_total:
+            lines.append(f"Existing tests: {existing_passed}/{existing_total} passed")
+        dropped = sum(1 for c in res.candidates if not c.ok)
+        if res.candidates:
+            lines.append(f"Candidates: {len(res.candidates) - dropped}/{len(res.candidates)} usable")
+        if res.disputed:
+            ids = ", ".join(sorted(res.disputed)[:4])
+            more = f" (+{len(res.disputed) - 4} more)" if len(res.disputed) > 4 else ""
+            lines.append(f"Failing: {ids}{more}")
+        lines.append(f"Sandbox: {res.sandbox}")
+        return "\n".join(lines[:6])
+
+    winner = next((c for c in res.candidates if c.idx == res.chosen), None)
+    if edit_target:
+        adds = sum(1 for ln in diff_text.splitlines() if ln.startswith("+") and not ln.startswith("+++"))
+        dels = sum(1 for ln in diff_text.splitlines() if ln.startswith("-") and not ln.startswith("---"))
+        lines.append(
+            f"Edit ready for {edit_target}: candidate #{res.chosen} "
+            f"(confidence {res.confidence:.2f}, diff +{adds}/-{dels}, not applied)"
+        )
+        lines.append(
+            f"Tests: existing {existing_passed}/{existing_total}, spec {res.passed}/{res.credible} credible"
+        )
+    else:
+        lines.append(
+            f"Built candidate #{res.chosen} (group of {res.group_size}, confidence {res.confidence:.2f})"
+        )
+        lines.append(f"Tests: {res.passed}/{res.credible} credible tests passed across {len(res.suites)} suite(s)")
+
+    if winner and winner.repaired:
+        lines.append(f"Why: repaired candidate #{winner.idx} passed a strict superset ({len(winner.passed)} tests)")
+    elif not res.suites and not existing_total:
+        lines.append("Why: no test suite survived; picked shortest importing candidate")
+    else:
+        lines.append(f"Why: top dual-agreement group (size {res.group_size}), shortest clean member")
+
+    if extra_files:
+        names = ", ".join(sorted(extra_files)[:4])
+        more = f" (+{len(extra_files) - 4} more)" if len(extra_files) > 4 else ""
+        lines.append(f"Companion files: {names}{more}")
+    elif res.disputed:
+        ids = ", ".join(sorted(res.disputed)[:4])
+        more = f" (+{len(res.disputed) - 4} more)" if len(res.disputed) > 4 else ""
+        lines.append(f"Disputed: {ids}{more}")
+
+    if res.exemplars:
+        lines.append("Exemplars: " + ", ".join(f"#{i}" for i in res.exemplars))
+    lines.append(f"Sandbox: {res.sandbox}")
+    return "\n".join(lines[:6])
+
+
 def build_summary_dict(res) -> dict:
-    """JSON-serializable summary of a `BuildResult`, including candidate votes and `--explain` text."""
+    """JSON-serializable summary of a `BuildResult`, including candidate votes, short summary, and `--explain`."""
     return {
         "spec": res.spec,
         "code": res.code,
         "tests": res.tests,
+        "diff": getattr(res, "diff", ""),
+        "edit_target": getattr(res, "edit_target", ""),
+        "existing_passed": getattr(res, "existing_passed", 0),
+        "existing_total": getattr(res, "existing_total", 0),
         "chosen": res.chosen,
         "group_size": res.group_size,
         "passed": res.passed,
@@ -904,9 +1550,12 @@ def build_summary_dict(res) -> dict:
         "sandbox": res.sandbox,
         "exemplars": list(res.exemplars),
         "notes": list(res.notes),
+        "spec_warnings": list(getattr(res, "spec_warnings", []) or []),
+        "context_picks": list(getattr(res, "context_picks", []) or []),
         "agreed": list(res.agreed),
         "disputed": dict(res.disputed),
         "extra_files": dict(getattr(res, "extra_files", {}) or {}),
+        "summary": build_short_summary(res),
         "explain": explain_build(res),
         "candidates": [
             {
@@ -919,6 +1568,8 @@ def build_summary_dict(res) -> dict:
                 "repaired": c.repaired,
                 "dropped": c.dropped,
                 "ok": c.ok,
+                "diff_adds": int(getattr(c, "diff_adds", 0) or 0),
+                "diff_dels": int(getattr(c, "diff_dels", 0) or 0),
             }
             for c in res.candidates
         ],

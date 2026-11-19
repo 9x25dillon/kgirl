@@ -56,7 +56,10 @@ Every transition is in the Soup ledger (`kgirl soup ledger`) and can be rolled b
 ## Spec → code
 
     kgirl build spec.md -o lru.py                                  # writes lru.py and test_lru*.py
+    kgirl build spec.md --edit path/in/workspace.py                # edit an existing file; outputs a unified diff for review
+    kgirl build spec.md --edit calc.py --tests tests/test_calc.py  # edit mode with explicit existing test file(s)
     kgirl build spec.md -n 6 -k 3 -r 2 --explain                   # sample counts, repair rounds, full vote breakdown
+    kgirl build spec.md --strict --budget-s 120                    # lint spec before sampling; cap wall-clock/GPU seconds
     kgirl build spec.md --repo kgirl --context src/kgirl/paths.py  # build against an existing indexed repo file
     kgirl build spec.md --context ./helpers.py -o mod.py           # build against a local companion file
     kgirl build spec.md --no-exemplars                             # cold-start build without recalling Soup exemplars
@@ -71,16 +74,31 @@ tests passed`, where `test_<name>_1..M` siblings split from one multi-assert met
 each so splitting a method never inflates its vote weight; tie-broken by raw tests passed, suite
 breadth, per-test candidate consensus, fewer static contract mismatches, and code length; zero-passing
 clusters score 0), then runs up to `R` targeted repair rounds toward credible tests some other candidate
-passes or static contract mismatches against the spec (ranked by candidate support, showing the failing
+passes or static contract mismatches against the spec (ranked by candidate support, fed exact failing
+test IDs, trimmed tracebacks with last non-unittest frame plus assertion capped by tokens, the failing
 test method source, a passing donor candidate snippet, and any regressions from an earlier round).
+
+- **Edit mode (`--edit FILE`, optional `--tests PATH`)**: samples unified-diff candidates against `FILE`,
+  applies each diff in pure Python, and runs the file's existing tests (auto-discovered beside `FILE` or
+  named with `--tests`) plus the new spec tests in the same sandbox. A candidate passes only when all
+  existing tests and all credible spec tests are green; the winner is returned as a unified diff for
+  review and is never applied automatically.
+- **Multi-file specs**: a spec with `## module: a.py` / `## module: b.py` sections is built, gated
+  (`imports_all_ok`), and tested as one unit, with companion modules emitted in `BuildResult.extra_files`.
+- **Chat summary (`BuildResult.summary()`)**: compact ≤ 6-line summary of what won and why for the chat
+  `build` tool.
 
 ### Knobs
 | Flag | Default | Meaning |
 |---|---|---|
 | `-o, --out PATH` | stdout | Write the winning module, any companion modules (`extra_files`), and retargeted agreed test files (`test_<stem>.py`, `test_<stem>_2.py`, …) beside `PATH` |
+| `--edit FILE` | none | Edit an existing Python file from the spec; runs existing + new spec tests and prints a unified diff for review (never applied) |
+| `--tests PATH` | auto | Repeatable existing test file to run in `--edit` mode (otherwise auto-discovered beside `FILE`) |
 | `-n INT` | `6` | Candidate implementations to sample across spread temperatures and alternating `direct` / `edge-first` styles |
 | `-k INT` | `3` | Independent unittest suites generated from the spec before any code is written |
 | `-r, --repair-rounds INT` | `2` | Targeted repair rounds toward credible failing tests |
+| `--strict` | off | Lint the spec for ambiguities and missing examples before sampling, stopping early on warnings |
+| `--budget-s FLOAT` | none | Wall-clock/GPU budget in seconds; stops sampling/repair cleanly when reached and reports what it had |
 | `--explain` | off | Print the four-part explanation (`SUITES`, `CANDIDATE VOTES & AGREEMENT GROUPS`, `REPAIR STEPS`, `WHY THE WINNER WON`) instead of the short summary (also `/explain` in `kgirl chat`) |
 | `--repo NAME` | workspace | Indexed Atlas repository to read `--context` paths from |
 | `--context PATH` | none | Repeatable path (in `--repo` or on disk) whose source is checked for secrets, added to the prompt context, and emitted alongside the module |

@@ -13,14 +13,18 @@ from unittest import mock
 import tests.harness._fixtures  # noqa: F401  (sys.path)
 from kgirl.harness.mind import builder as builder_mod
 from kgirl.harness.mind import sandbox
-from kgirl.harness.mind.build_spec import (atlas_context, build_summary_dict, candidate_prompt, donor_snippet,
-                                           emit_files, expected_exports, explain_build, format_failures,
-                                           fragment_utility, has_tests, missing_exports, normalize_suite,
-                                           parse_multifile_reply, rank_exemplars, spec_checklist, spec_query,
-                                           strip_numbered_lines, suite_prompt, suite_test_ids, test_method_source,
-                                           test_weights, weighted_test_count)
-from kgirl.harness.mind.builder import (EDGE_FIRST, IMPL_SYSTEM, REPAIR_SYSTEM, TEST_SYSTEM, BuildResult, Builder,
-                                        Candidate, spec_from_text, suite_name)
+from kgirl.harness.mind.build_spec import (apply_unified_diff, atlas_context, atlas_search_context,
+                                           build_short_summary, build_summary_dict, candidate_prompt, donor_snippet,
+                                           emit_files, expected_exports, explain_build, extract_diff,
+                                           find_existing_tests, format_failures, fragment_utility, has_tests,
+                                           lint_spec, missing_exports, normalize_suite, parse_multifile_reply,
+                                           parse_multifile_spec, rank_exemplars, select_exemplars_within_budget,
+                                           spec_checklist, spec_query, strip_numbered_lines, suite_prompt,
+                                           suite_test_ids, test_method_source, test_weights, trim_traceback,
+                                           unified_diff, weighted_test_count)
+from kgirl.harness.mind.builder import (EDGE_FIRST, EDIT_REPAIR_SYSTEM, EDIT_SYSTEM, IMPL_SYSTEM,
+                                        MULTIFILE_IMPL_SYSTEM, REPAIR_SYSTEM, TEST_SYSTEM, BuildResult, Builder,
+                                        Candidate, edit_build, spec_from_text, suite_name)
 from kgirl.harness.soup import Soup
 
 SPEC = "Write mean(xs): the arithmetic mean of a list of numbers; raise ValueError when the list is empty."
@@ -52,7 +56,7 @@ def fenced(code: str) -> str:
     return f"Here is the module.\n```python\n{code}```\n"
 
 
-def table_run_suite(code, suite, name, timeout=20.0, per_test=5.0):
+def table_run_suite(code, suite, name, timeout=20.0, per_test=5.0, module_name="solution", extra_files=None):
     """Stands in for sandbox.run_suite: looks the module up instead of running it."""
     passed = set(PASSES.get(code, set()))
     return passed, {t: f"{t} failed" for t in (BASIC, EMPTY) if t not in passed}
@@ -600,9 +604,14 @@ class TargetedRepairTests(OfflineBuilderCase):
         self.assertEqual(comp, {"helpers.py": "def add1(x):\n    return x + 1\n"})
 
         llm = ModelByPrompt({0.2: fenced(LONG), 0.5: fenced(SHORT), 0.8: fenced(ODD)})
+        builder_mod.run_suite.reset_mock()
         res = self.builder(llm).build_with_atlas(SPEC, fake_atlas, "kgirl", "src/pkg/helper.py")
         self.assertEqual(res.code, FIXED)
         self.assertEqual(res.extra_files, {"helper.py": "def helper(x):\n    return x + 1\n"})
+        self.assertTrue(builder_mod.run_suite.called)
+        for call in builder_mod.run_suite.call_args_list:
+            self.assertEqual(call.kwargs.get("module_name"), "solution")
+            self.assertEqual(call.kwargs.get("extra_files"), {"helper.py": "def helper(x):\n    return x + 1\n"})
         emitted = res.files("stats.py")
         self.assertEqual(set(emitted), {"stats.py", "helper.py", "test_stats.py"})
         self.assertIn("from stats import mean", emitted["test_stats.py"])
@@ -691,6 +700,375 @@ class TargetedRepairTests(OfflineBuilderCase):
         explained = res.explain()
         self.assertIn("=== DISPUTED TESTS ===", explained)
         self.assertIn(f"{EMPTY} (passed by #2)", explained)
+
+
+class EditModeTests(unittest.TestCase):
+    ORIG = "def add(a, b):\n    return a + b\n"
+    GOOD_DIFF = (
+        "```diff\n"
+        "--- a/calc.py\n"
+        "+++ b/calc.py\n"
+        "@@ -1,2 +1,5 @@\n"
+        " def add(a, b):\n"
+        "     return a + b\n"
+        "+\n"
+        "+def sub(a, b):\n"
+        "+    return a - b\n"
+        "```\n"
+    )
+    BROKEN_DIFF = (
+        "```diff\n"
+        "--- a/calc.py\n"
+        "+++ b/calc.py\n"
+        "@@ -1,2 +1,5 @@\n"
+        " def add(a, b):\n"
+        "-    return a + b\n"
+        "+    return a - b\n"
+        "+\n"
+        "+def sub(a, b):\n"
+        "+    return a - b\n"
+        "```\n"
+    )
+    EXISTING_TEST = (
+        "import unittest\nfrom calc import add\n\n"
+        "class TestCalc(unittest.TestCase):\n"
+        "    def test_add(self):\n"
+        "        self.assertEqual(add(2, 3), 5)\n"
+    )
+    SPEC_SUITE = (
+        "import unittest\nfrom calc import sub\n\n"
+        "class TestSub(unittest.TestCase):\n"
+        "    def test_sub(self):\n"
+        "        self.assertEqual(sub(5, 2), 3)\n"
+    )
+
+    def test_extract_apply_and_unified_diff(self):
+        diff = extract_diff("<think>plan</think>\n" + self.GOOD_DIFF)
+        self.assertIn("@@ -1,2 +1,5 @@", diff)
+        self.assertEqual(extract_diff("no diff here"), "")
+        patched, err = apply_unified_diff(self.ORIG, diff)
+        self.assertEqual(err, "")
+        self.assertIn("def sub(a, b):", patched)
+        self.assertEqual(unified_diff(self.ORIG, self.ORIG, "calc.py"), "")
+        out_diff = unified_diff(self.ORIG, patched, "calc.py")
+        self.assertIn("--- a/calc.py", out_diff)
+        self.assertIn("+def sub(a, b):", out_diff)
+
+        # Mismatched hunk returns (None, reason)
+        bad, why = apply_unified_diff("def other():\n    pass\n", diff)
+        self.assertIsNone(bad)
+        self.assertIn("does not match", why)
+
+    def test_find_existing_tests_discovers_beside_target_and_respects_explicit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "calc.py"
+            target.write_text(self.ORIG, encoding="utf-8")
+            test_file = root / "test_calc.py"
+            test_file.write_text(self.EXISTING_TEST, encoding="utf-8")
+            self.assertEqual(find_existing_tests(target), [test_file])
+            self.assertEqual(find_existing_tests(target, [test_file]), [test_file])
+            with self.assertRaises(FileNotFoundError):
+                find_existing_tests(target, [root / "missing_test.py"])
+
+    def test_edit_mode_passes_existing_plus_spec_and_never_modifies_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "calc.py"
+            target.write_text(self.ORIG, encoding="utf-8")
+            (root / "test_calc.py").write_text(self.EXISTING_TEST, encoding="utf-8")
+
+            def fake_run_suite(code, suite, name, timeout=20.0, per_test=5.0, module_name="solution", extra_files=None):
+                self.assertEqual(module_name, "calc")
+                if name.startswith("existing_"):
+                    if "return a + b" in code:
+                        return {f"{name}:TestCalc.test_add"}, {}
+                    return set(), {f"{name}:TestCalc.test_add": "AssertionError: -1 != 5"}
+                if "def sub(a, b):" in code:
+                    return {f"{name}:TestSub.test_sub"}, {}
+                return set(), {f"{name}:TestSub.test_sub": "ImportError: sub"}
+
+            def fake_llm(system, prompt, max_tokens, temperature):
+                if system == TEST_SYSTEM:
+                    return fenced(self.SPEC_SUITE)
+                if system == EDIT_SYSTEM:
+                    return self.GOOD_DIFF if temperature < 0.6 else self.BROKEN_DIFF
+                return self.GOOD_DIFF
+
+            with mock.patch.object(sandbox, "level", return_value="none"), \
+                    mock.patch.object(sandbox, "imports_ok", return_value=(True, "")), \
+                    mock.patch.object(builder_mod, "run_suite", side_effect=fake_run_suite):
+                res = Builder(fake_llm, n_impl=3, n_suites=1, repair_rounds=1).edit(
+                    "Add `sub(a, b)` returning `a - b` (e.g. `sub(5, 2) == 3`).",
+                    target,
+                )
+
+            self.assertIn("+def sub(a, b):", res.diff)
+            self.assertEqual((res.existing_passed, res.existing_total), (1, 1))
+            self.assertEqual((res.passed, res.credible), (1, 1))
+            self.assertEqual(res.disputed, {})
+            # Never applied to disk
+            self.assertEqual(target.read_text(encoding="utf-8"), self.ORIG)
+            self.assertIn("not applied", res.summary())
+
+    def test_edit_mode_repairs_failing_existing_test_and_rejects_when_still_red(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "calc.py"
+            target.write_text(self.ORIG, encoding="utf-8")
+            (root / "test_calc.py").write_text(self.EXISTING_TEST, encoding="utf-8")
+            repair_prompts: list[str] = []
+
+            def fake_run_suite(code, suite, name, timeout=20.0, per_test=5.0, module_name="solution", extra_files=None):
+                if name.startswith("existing_"):
+                    if "return a + b" in code:
+                        return {f"{name}:TestCalc.test_add"}, {}
+                    return set(), {f"{name}:TestCalc.test_add": 'File "test_calc.py", line 6, in test_add\n    self.assertEqual(add(2, 3), 5)\nAssertionError: -1 != 5'}
+                return {f"{name}:TestSub.test_sub"}, {}
+
+            def llm_fixes(system, prompt, max_tokens, temperature):
+                if system == TEST_SYSTEM:
+                    return fenced(self.SPEC_SUITE)
+                if system == EDIT_REPAIR_SYSTEM:
+                    repair_prompts.append(prompt)
+                    return self.GOOD_DIFF
+                return self.BROKEN_DIFF
+
+            with mock.patch.object(sandbox, "level", return_value="none"), \
+                    mock.patch.object(sandbox, "imports_ok", return_value=(True, "")), \
+                    mock.patch.object(builder_mod, "run_suite", side_effect=fake_run_suite):
+                res = Builder(llm_fixes, n_impl=2, n_suites=1, repair_rounds=1).edit(
+                    "Add `sub(a, b)` returning `a - b`.", target
+                )
+            self.assertEqual(len(repair_prompts), 1)
+            self.assertIn("FAILING TEST IDS: existing_0:TestCalc.test_add", repair_prompts[0])
+            self.assertIn("def test_add(self):", repair_prompts[0])
+            self.assertIn("+def sub(a, b):", res.diff)
+
+            # When repair still breaks existing tests, edit is rejected with empty diff.
+            def llm_stays_broken(system, prompt, max_tokens, temperature):
+                return fenced(self.SPEC_SUITE) if system == TEST_SYSTEM else self.BROKEN_DIFF
+
+            with mock.patch.object(sandbox, "level", return_value="none"), \
+                    mock.patch.object(sandbox, "imports_ok", return_value=(True, "")), \
+                    mock.patch.object(builder_mod, "run_suite", side_effect=fake_run_suite):
+                rejected = Builder(llm_stays_broken, n_impl=2, n_suites=1, repair_rounds=1).edit(
+                    "Add `sub(a, b)` returning `a - b`.", target
+                )
+            self.assertEqual(rejected.diff, "")
+            self.assertEqual(rejected.code, "")
+            self.assertIsNone(rejected.chosen)
+            self.assertIn("existing_0:TestCalc.test_add", rejected.disputed)
+
+
+class MultiFileSpecTests(unittest.TestCase):
+    MULTI_SPEC = (
+        "Build a two-module package.\n\n"
+        "## module: core.py\n"
+        "Define `double(x: int) -> int` returning `x * 2`.\n\n"
+        "## module: api.py\n"
+        "Import `double` from `core` and define `quad(x: int) -> int` returning `double(double(x))`.\n"
+    )
+    GOOD_REPLY = (
+        "```python core.py\n"
+        "def double(x: int) -> int:\n"
+        "    return x * 2\n"
+        "```\n\n"
+        "```python api.py\n"
+        "from core import double\n\n"
+        "def quad(x: int) -> int:\n"
+        "    return double(double(x))\n"
+        "```\n"
+    )
+    MULTI_SUITE = (
+        "import unittest\nfrom api import quad\n\n"
+        "class TestMulti(unittest.TestCase):\n"
+        "    def test_quad(self):\n"
+        "        self.assertEqual(quad(3), 12)\n"
+    )
+
+    def test_parse_multifile_spec_and_build_unit(self):
+        sections = parse_multifile_spec(self.MULTI_SPEC)
+        self.assertEqual(list(sections.keys()), ["core.py", "api.py"])
+        self.assertEqual(parse_multifile_spec(SPEC), {})
+
+        seen_extra: list[dict] = []
+
+        def fake_run_suite(code, suite, name, timeout=20.0, per_test=5.0, module_name="solution", extra_files=None):
+            seen_extra.append({"module_name": module_name, "extra_files": dict(extra_files or {})})
+            return {f"{name}:TestMulti.test_quad"}, {}
+
+        def fake_llm(system, prompt, max_tokens, temperature):
+            if system == TEST_SYSTEM:
+                return fenced(self.MULTI_SUITE)
+            self.assertEqual(system, MULTIFILE_IMPL_SYSTEM)
+            if temperature > 0.6:
+                return "```python core.py\ndef double(x):\n    return x * 2\n```\n"   # missing api.py
+            return self.GOOD_REPLY
+
+        with mock.patch.object(sandbox, "level", return_value="none"), \
+                mock.patch.object(sandbox, "imports_all_ok", return_value=(True, "")), \
+                mock.patch.object(builder_mod, "run_suite", side_effect=fake_run_suite):
+            res = Builder(fake_llm, n_impl=3, n_suites=1, repair_rounds=0).build(self.MULTI_SPEC)
+
+        self.assertIn("def double", res.code)
+        self.assertIn("api.py", res.extra_files)
+        self.assertIn("def quad", res.extra_files["api.py"])
+        self.assertTrue(any("missing module(s): api.py" in c.dropped for c in res.candidates))
+        self.assertEqual(seen_extra[0]["module_name"], "core")
+        self.assertIn("api.py", seen_extra[0]["extra_files"])
+
+
+class SharperRepairAndBacklogTests(unittest.TestCase):
+    def test_trim_traceback_keeps_last_non_unittest_frame_and_assertion(self):
+        tb = (
+            "Traceback (most recent call last):\n"
+            '  File "/usr/lib/python3.12/unittest/case.py", line 58, in testPartExecutor\n'
+            "    yield\n"
+            '  File "test_gen0.py", line 10, in test_empty\n'
+            "    self.assertEqual(mean([1, 2]), 1.5)\n"
+            '  File "solution.py", line 2, in mean\n'
+            "    return sum(xs) // len(xs)\n"
+            "    ^^^^^^^^^^^^^^^^^^^^^^^^^\n"
+            '  File "/usr/lib/python3.12/unittest/case.py", line 893, in assertEqual\n'
+            "    assertion_func(first, second, msg=msg)\n"
+            "AssertionError: 1 != 1.5\n"
+        )
+        trimmed = trim_traceback(tb, max_chars=260)
+        self.assertIn('File "solution.py", line 2, in mean', trimmed)
+        self.assertIn("AssertionError: 1 != 1.5", trimmed)
+        self.assertNotIn("testPartExecutor", trimmed)
+        self.assertLessEqual(len(trimmed), 260)
+
+    def test_format_failures_lists_exact_ids_and_respects_token_cap(self):
+        out = format_failures([SUITE], {EMPTY: "AssertionError: did not raise"}, max_tokens=200)
+        self.assertTrue(out.startswith(f"FAILING TEST IDS: {EMPTY}"), out)
+        self.assertIn("def test_empty(self):", out)
+
+    def test_chat_summary_fits_within_six_lines(self):
+        cands = [Candidate(0, SHORT, 0.2, "direct", passed=frozenset({BASIC})),
+                 Candidate(100, FIXED, 0.2, "repair", passed=frozenset({BASIC, EMPTY}), repaired=True)]
+        res = BuildResult(spec=SPEC, code=FIXED, tests=SUITE, chosen=100, group_size=1, passed=2, credible=2,
+                          candidates=cands, suites=[SUITE], exemplars=[3], sandbox="bwrap")
+        summary = res.summary()
+        self.assertEqual(summary, build_short_summary(res))
+        self.assertLessEqual(len(summary.splitlines()), 6)
+        self.assertIn("candidate #100", summary)
+        self.assertIn("repaired", summary)
+        self.assertEqual(res.summary_dict()["summary"], summary)
+
+    def test_spec_lint_strict_exemplar_budget_and_wall_clock_budget(self):
+        vague = lint_spec("Write a fast helper to handle errors appropriately, etc.")
+        self.assertGreaterEqual(len(vague), 3)
+        clean = lint_spec("Write `add(a: int, b: int) -> int` returning `a + b`. Example: `add(2, 3) == 5`.")
+        self.assertEqual(clean, [])
+
+        called = mock.Mock(side_effect=AssertionError("LLM must not be called when --strict stops early"))
+        with mock.patch.object(sandbox, "level", return_value="none"):
+            res = Builder(called, n_impl=2, n_suites=1).build("Write something fast.", strict=True)
+        self.assertEqual(res.code, "")
+        self.assertTrue(res.spec_warnings)
+        self.assertTrue(any("--strict" in n for n in res.notes))
+
+        # Exemplar token budget cap
+        frags = [
+            mock.Mock(id=1, text="SPEC: mean of numbers\n\nSOLUTION:\n" + ("x = 1\n" * 120), wins=2.0, losses=0.0),
+            mock.Mock(id=2, text="SPEC: mean of floats\n\nSOLUTION:\n" + ("y = 2\n" * 120), wins=1.0, losses=0.0),
+        ]
+        shots, ids = select_exemplars_within_budget(SPEC, frags, limit=2, max_tokens=150)
+        self.assertLessEqual(len(shots), 150 * 4 + 20)
+        self.assertEqual(ids, [1])
+
+        # Wall-clock budget knob stops sampling cleanly
+        with mock.patch.object(sandbox, "level", return_value="none"):
+            budget_res = Builder(called, n_impl=3, n_suites=2).build(SPEC, budget_s=0.0)
+        self.assertEqual(budget_res.code, "")
+        self.assertTrue(any("budget reached" in n for n in budget_res.notes))
+
+
+class Round2BuilderTests(unittest.TestCase):
+    def test_atlas_search_context_token_cap_secret_skip_and_explain_reasons(self):
+        fake_atlas = mock.Mock()
+        fake_atlas.search.return_value = [
+            mock.Mock(repo="kgirl", path="src/calc.py", qualname="add", score=9.5),          # excluded target
+            mock.Mock(repo="kgirl", path="src/helpers.py", qualname="clamp", score=7.2),
+            mock.Mock(repo="kgirl", path="src/secrets.env", qualname="KEY", score=8.0),      # secret skipped
+            mock.Mock(repo="kgirl", path="src/extra.py", qualname="scale", score=3.1),
+        ]
+        sources = {
+            "src/helpers.py": "    1 def clamp(x, lo, hi):\n    2     return max(lo, min(hi, x))\n",
+            "src/secrets.env": "    1 API_KEY=sk-1234567890abcdef\n",
+            "src/extra.py": "    1 def scale(x):\n    2     return x * 2\n",
+        }
+        fake_atlas.read_source.side_effect = lambda repo, path, start=1, end=250: sources[path]
+
+        with mock.patch("kgirl.harness.mind.build_spec.secret_reason",
+                        side_effect=lambda p, raw: "env file" if p.endswith(".env") else ""):
+            ctx, extra, picks = atlas_search_context(
+                fake_atlas,
+                "Add `sub(a, b)` using clamp helper.",
+                repo="kgirl",
+                exclude_paths=["src/calc.py"],
+                max_tokens=150,
+            )
+
+        self.assertIn("AUTO-RETRIEVED REPO CONTEXT (from Atlas search):", ctx)
+        self.assertIn("def clamp", ctx)
+        self.assertNotIn("API_KEY", ctx)
+        self.assertIn("helpers.py", extra)
+        self.assertEqual([p["path"] for p in picks], ["src/helpers.py", "src/extra.py"])
+        self.assertIn("clamp", picks[0]["reason"])
+
+    def test_edit_explain_and_stable_edit_build_entrypoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "calc.py"
+            target.write_text(EditModeTests.ORIG, encoding="utf-8")
+            test_file = root / "test_calc.py"
+            test_file.write_text(EditModeTests.EXISTING_TEST, encoding="utf-8")
+
+            fake_atlas = mock.Mock()
+            fake_atlas.search.return_value = [
+                mock.Mock(repo="kgirl", path="src/helpers.py", qualname="clamp", score=5.0),
+            ]
+            fake_atlas.read_source.return_value = "    1 def clamp(x):\n    2     return x\n"
+
+            def fake_run_suite(code, suite, name, timeout=20.0, per_test=5.0, module_name="solution", extra_files=None):
+                if name.startswith("existing_"):
+                    if "return a + b" in code:
+                        return {f"{name}:TestCalc.test_add"}, {}
+                    return set(), {f"{name}:TestCalc.test_add": "AssertionError: -1 != 5"}
+                return {f"{name}:TestSub.test_sub"}, {}
+
+            def fake_llm(system, prompt, max_tokens, temperature):
+                if system == TEST_SYSTEM:
+                    return fenced(EditModeTests.SPEC_SUITE)
+                return EditModeTests.GOOD_DIFF if temperature < 0.6 else EditModeTests.BROKEN_DIFF
+
+            with mock.patch.object(sandbox, "level", return_value="none"), \
+                    mock.patch.object(sandbox, "imports_ok", return_value=(True, "")), \
+                    mock.patch.object(builder_mod, "run_suite", side_effect=fake_run_suite):
+                b = Builder(fake_llm, n_impl=3, n_suites=1, repair_rounds=0)
+                res = edit_build("Add `sub(a, b)` returning `a - b`.", target, [test_file],
+                                 builder=b, scope="kgirl", atlas=fake_atlas, repo="kgirl")
+                res2 = edit_build("Add `sub(a, b)` returning `a - b`.", target, tests=test_file,
+                                  llm=fake_llm, n_impl=2, n_suites=1, repair_rounds=0)
+
+            self.assertIn("+def sub(a, b):", res.diff)
+            self.assertIn("def sub(a, b):", res.code)
+            self.assertIn("+def sub(a, b):", res2.diff)
+            self.assertEqual(target.read_text(encoding="utf-8"), EditModeTests.ORIG)
+
+            explained = res.explain()
+            self.assertIn("=== AUTO CONTEXT (ATLAS SEARCH) ===", explained)
+            self.assertIn("kgirl:src/helpers.py", explained)
+            self.assertIn("matched clamp", explained)
+            self.assertIn("existing tests (1 test(s)):", explained)
+            self.assertIn("diff +3/-0", explained)
+            self.assertIn("existing 1/1", explained)
+            self.assertIn("spec 1/1", explained)
+            self.assertIn("Edit ready for", explained)
+            self.assertEqual(res.summary_dict()["context_picks"][0]["path"], "src/helpers.py")
 
 
 if __name__ == "__main__":

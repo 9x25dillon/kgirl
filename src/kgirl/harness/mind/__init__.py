@@ -8,12 +8,12 @@
     evolve.py         consolidation: curate habits, rewrite the user profile, export a fine-tune corpus
 """
 
-from .builder import Builder, BuildResult
+from .builder import Builder, BuildResult, edit_build
 from .conversations import Conversation, ConversationStore, Turn
 from .evolve import EvolveReport, evolve
 from .mind import Mind, Reply
 from .reflect import Reflection, Reflector
 from .writer import Draft, Writer
 
-__all__ = ["Builder", "BuildResult", "Conversation", "ConversationStore", "Turn", "EvolveReport", "evolve", "Mind",
-           "Reply", "Reflection", "Reflector", "Draft", "Writer"]
+__all__ = ["Builder", "BuildResult", "edit_build", "Conversation", "ConversationStore", "Turn", "EvolveReport", "evolve",
+           "Mind", "Reply", "Reflection", "Reflector", "Draft", "Writer"]
