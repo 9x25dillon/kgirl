@@ -55,6 +55,11 @@ def add_parsers(sub) -> None:
     p.add_argument("--accept", action="store_true", help="store the result as an active exemplar right away")
     p.add_argument("--no-exemplars", action="store_true", help="build without recalling Soup exemplars")
     p.add_argument("--allow-io", action="store_true", help="the spec needs file access: don't drop candidates for it")
+    p.add_argument("--edit", help="existing Python file to edit from the spec (outputs a unified diff for review, never applied)")
+    p.add_argument("--tests", action="append", default=[],
+                   help="existing test file to run in --edit mode (may be repeated; auto-discovered if omitted)")
+    p.add_argument("--strict", action="store_true", help="lint the spec before sampling and stop early on warnings")
+    p.add_argument("--budget-s", type=float, default=None, help="wall-clock/GPU budget in seconds for sampling and repair")
     p = sub.add_parser("write", help="long-form writing: plan, draft by section, critique, revise")
     p.add_argument("brief", help="what to write, or @file to read the brief from a file")
     p.add_argument("-w", "--words", type=int)
@@ -375,7 +380,21 @@ def _build(mind, args) -> int:
                     extra_files[fp.name] = raw
             if blocks:
                 context_text = "EXISTING REPO CONTEXT:\n" + "\n\n".join(blocks)
-    res = builder.build(spec, scope=scope, context=context_text, extra_files=extra_files)
+    strict = bool(getattr(args, "strict", False))
+    budget_s = getattr(args, "budget_s", None)
+    edit_target = getattr(args, "edit", None)
+    auto_atlas = mind.a.atlas if (edit_target or repo) else None
+    if edit_target:
+        res = builder.edit(spec, edit_target, tests=getattr(args, "tests", None) or (), scope=scope,
+                           context=context_text, extra_files=extra_files, strict=strict, budget_s=budget_s,
+                           atlas=auto_atlas, repo=repo)
+        print(res.explain() if getattr(args, "explain", False) else res.render(), file=sys.stderr)
+        if not res.diff:
+            return 1
+        print(res.diff, end="")
+        return 0
+    res = builder.build(spec, scope=scope, context=context_text, extra_files=extra_files,
+                        strict=strict, budget_s=budget_s, atlas=auto_atlas, repo=repo)
     print(res.explain() if getattr(args, "explain", False) else res.render(), file=sys.stderr)
     if not res.code:
         return 1

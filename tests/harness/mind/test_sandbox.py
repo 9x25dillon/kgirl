@@ -186,6 +186,40 @@ class RunnerResultTests(unittest.TestCase):
         self.run_with(None, "exit code 1\nSegmentation fault")
         self.assertEqual(sandbox.imports_ok("x = 1\n"), (False, "exit code 1\nSegmentation fault"))
 
+    def test_run_suite_and_imports_ok_support_custom_module_name_and_extra_files(self):
+        seen = self.run_with({"tests": {"existing_0.T.test_a": "ok"}})
+        passed, failed = sandbox.run_suite(
+            "VAL = 1\n",
+            "SUITE = 1\n",
+            "existing_0",
+            module_name="calc",
+            extra_files={"helper.py": "H = 2\n", "../escape.py": "BAD = 1\n"},
+        )
+        self.assertEqual((passed, failed), ({"existing_0:T.test_a"}, {}))
+        self.assertEqual(seen["files"], {"calc.py": "VAL = 1\n", "helper.py": "H = 2\n", "existing_0.py": "SUITE = 1\n"})
+
+        seen_imp = self.run_with({"imported": True})
+        self.assertEqual(sandbox.imports_ok("VAL = 1\n", module_name="calc", extra_files={"helper.py": "H = 2\n"}),
+                         (True, ""))
+        self.assertEqual(seen_imp["mode"], ["import", "calc"])
+        self.assertEqual(seen_imp["files"], {"calc.py": "VAL = 1\n", "helper.py": "H = 2\n"})
+
+    def test_imports_all_ok_checks_every_module_together(self):
+        self.assertEqual(sandbox.imports_all_ok({}), (False, "no Python modules to import"))
+        seen_modes: list[list[str]] = []
+
+        def fake_run(workdir, mode, timeout):
+            seen_modes.append(mode)
+            if mode == ["import", "api"]:
+                return {"imported": False, "error": "ImportError: bad"}, ""
+            return {"imported": True, "error": ""}, ""
+
+        with mock.patch.object(sandbox, "_run", side_effect=fake_run):
+            ok, err = sandbox.imports_all_ok({"core.py": "X = 1\n", "api.py": "from core import X\n"})
+        self.assertFalse(ok)
+        self.assertEqual(err, "api.py: ImportError: bad")
+        self.assertEqual(seen_modes, [["import", "core"], ["import", "api"]])
+
 
 if __name__ == "__main__":
     unittest.main()

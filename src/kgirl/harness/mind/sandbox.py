@@ -198,15 +198,19 @@ def _text(value) -> str:
     return value.decode("utf-8", "replace") if isinstance(value, bytes) else str(value)
 
 
-def run_suite(code: str, suite: str, name: str, timeout: float = 20.0, per_test: float = 5.0
+def run_suite(code: str, suite: str, name: str, timeout: float = 20.0, per_test: float = 5.0,
+              module_name: str = "solution", extra_files: dict[str, str] | None = None
               ) -> tuple[set[str], dict[str, str]]:
-    """Run one test module against one implementation.
+    """Run one test module against one implementation (optionally with companion modules).
 
     Returns (ids that passed, {id that failed: output}). Ids look like `test_gen0:TestStack.test_push`.
     A suite that cannot be imported, or a run that dies or times out, fails as a whole under `<name>:*`.
     """
     with tempfile.TemporaryDirectory(prefix="kgirl-build-") as tmp:
-        Path(tmp, "solution.py").write_text(code, encoding="utf-8")
+        for fname, body in (extra_files or {}).items():
+            if "/" not in fname and "\\" not in fname and fname.endswith(".py"):
+                Path(tmp, fname).write_text(body, encoding="utf-8")
+        Path(tmp, f"{module_name}.py").write_text(code, encoding="utf-8")
         Path(tmp, f"{name}.py").write_text(suite, encoding="utf-8")
         payload, why = _run(tmp, ["test", name, f"{per_test:g}"], timeout)
     if payload is None:
@@ -229,11 +233,33 @@ def run_suite(code: str, suite: str, name: str, timeout: float = 20.0, per_test:
     return passed, failed
 
 
-def imports_ok(code: str, timeout: float = 20.0) -> tuple[bool, str]:
-    """Does `solution.py` import cleanly inside the sandbox? Returns (ok, error text)."""
+def imports_ok(code: str, timeout: float = 20.0, module_name: str = "solution",
+               extra_files: dict[str, str] | None = None) -> tuple[bool, str]:
+    """Does `<module_name>.py` import cleanly inside the sandbox? Returns (ok, error text)."""
     with tempfile.TemporaryDirectory(prefix="kgirl-build-") as tmp:
-        Path(tmp, "solution.py").write_text(code, encoding="utf-8")
-        payload, why = _run(tmp, ["import", "solution"], timeout)
+        for fname, body in (extra_files or {}).items():
+            if "/" not in fname and "\\" not in fname and fname.endswith(".py"):
+                Path(tmp, fname).write_text(body, encoding="utf-8")
+        Path(tmp, f"{module_name}.py").write_text(code, encoding="utf-8")
+        payload, why = _run(tmp, ["import", module_name], timeout)
     if payload is None:
         return False, why
     return bool(payload.get("imported")), str(payload.get("error", ""))
+
+
+def imports_all_ok(files: dict[str, str], timeout: float = 20.0) -> tuple[bool, str]:
+    """Do all `.py` modules in `files` import cleanly together inside one sandbox temp dir?"""
+    safe = {k: v for k, v in (files or {}).items() if "/" not in k and "\\" not in k and k.endswith(".py")}
+    if not safe:
+        return False, "no Python modules to import"
+    with tempfile.TemporaryDirectory(prefix="kgirl-build-") as tmp:
+        for fname, body in safe.items():
+            Path(tmp, fname).write_text(body, encoding="utf-8")
+        for fname in safe:
+            mod = Path(fname).stem
+            payload, why = _run(tmp, ["import", mod], timeout)
+            if payload is None:
+                return False, f"{fname}: {why}"
+            if not payload.get("imported"):
+                return False, f"{fname}: {payload.get('error', '')}"
+    return True, ""
