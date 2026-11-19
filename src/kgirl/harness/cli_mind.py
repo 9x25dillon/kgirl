@@ -1,4 +1,4 @@
-"""CLI verbs for kgirl's mind: chat, build, write, evolve, convo, console. Wired into cli.py."""
+"""CLI verbs for kgirl's mind: chat, build, write, evolve, convo, console, ui. Wired into cli.py."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import shlex
 import sys
 from pathlib import Path
 
-VERBS = ("chat", "build", "write", "evolve", "convo", "console")
+VERBS = ("chat", "build", "write", "evolve", "convo", "console", "ui")
 
 CHAT_HELP = """conversation
   /new [title]      start a new conversation        /recap          what this conversation is about
@@ -80,12 +80,21 @@ def add_parsers(sub) -> None:
     p.add_argument("--dir", help="project directory kgirl may read and (with your approval) change")
     p.add_argument("--no-workspace", action="store_true", help="no file or command tools, only indexed repos and memory")
     p.add_argument("--yes", action="store_true", help="apply kgirl's file edits without asking (they stay undoable)")
+    p = sub.add_parser("ui", help="terminal front end: chat | status, jobs and code search (needs textual)")
+    p.add_argument("--dir", help="project directory kgirl may read and (with your approval) change")
+    p.add_argument("--no-workspace", action="store_true", help="no file or command tools, only indexed repos and memory")
+    p.add_argument("--yes", action="store_true", help="apply kgirl's file edits without asking (they stay undoable)")
+    p.add_argument("--new", action="store_true", help="start a new conversation instead of resuming the latest")
+    p.add_argument("--conv", type=int, help="resume conversation ID")
 
 
 def run(a, args) -> int | None:
     """Handle a mind verb; None means `args.cmd` isn't one."""
     if args.cmd not in VERBS:
         return None
+    if args.cmd == "ui":
+        from .ui import run as run_ui
+        return run_ui(a, args)
     if args.cmd == "console":
         from .console import serve
         root = None

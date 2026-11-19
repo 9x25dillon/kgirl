@@ -151,6 +151,7 @@
           <div class="row"><input id="write-words" type="number" value="800" title="words">
             <button id="write-run" class="btn accent">write</button></div>
           <div id="write-result"></div>
+          <div id="drafts-box" class="hidden"><h3>drafts</h3><div id="drafts-list"></div></div>
         </div>
       </div>
       <div class="panel">
@@ -190,6 +191,11 @@
         <div id="gpu-warnings"></div>
         <div id="gpu-models"></div>
         <p class="hint">read-only · flash attention + q8_0 KV cache · 24576 tokens is the most context that stays 100% on the GPU</p></div>
+      <div class="panel"><h2>health</h2>
+        <div class="view-head"><div id="doctor-chips" class="chips"></div><div class="spacer"></div>
+          <button id="doctor-refresh" class="btn ghost">check</button></div>
+        <div id="doctor-table"></div>
+        <p class="hint">read-only · the same checks as <code>kgirl doctor</code>, run in-process</p></div>
       <div class="panel"><h2>swarm plan</h2><div id="plan-box"></div></div>
       <div class="panel"><pre id="vitals-render" class="render"></pre></div>
     </section>

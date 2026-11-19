@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import tests.harness.console  # noqa: F401  (sys.path)
+from kgirl.harness.console.core import Console
 from kgirl.harness.console.server import Handler
 from kgirl.harness.soup import Soup
 
@@ -39,6 +40,13 @@ def frag(i, text, kind="preference", status="active", scope="*"):
     return SimpleNamespace(id=i, text=text, kind=kind, status=status, scope=scope)
 
 
+def fake_console(soup):
+    """A console with just the token, the soup, and the real Console.rules bound to it (the server delegates there)."""
+    console = SimpleNamespace(token="t", a=SimpleNamespace(soup=soup))
+    console.rules = types.MethodType(Console.rules, console)
+    return console
+
+
 class RulesPanel(unittest.TestCase):
     def setUp(self):
         self.soup = FakeSoup([
@@ -48,7 +56,7 @@ class RulesPanel(unittest.TestCase):
             frag(4, "Never commit", status="staged"),
             frag(5, "Never share secrets", kind="fact"),
         ])
-        Handler.console = SimpleNamespace(token="t", a=SimpleNamespace(soup=self.soup))
+        Handler.console = fake_console(self.soup)
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.httpd.daemon_threads = True
         self.port = self.httpd.server_address[1]
@@ -107,7 +115,7 @@ class RealSoupRulesPanel(unittest.TestCase):
         self.soup.add("likes short answers", kind="preference")
         self.soup.add("Never commit", kind="preference", status="staged")
         self.soup.add("Never share secrets", kind="fact")
-        Handler.console = SimpleNamespace(token="t", a=SimpleNamespace(soup=self.soup))
+        Handler.console = fake_console(self.soup)
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.httpd.daemon_threads = True
         self.port = self.httpd.server_address[1]

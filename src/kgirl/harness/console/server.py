@@ -6,8 +6,6 @@ this console (DNS rebinding). Long operations become jobs; the browser watches t
 
 from __future__ import annotations
 
-import dataclasses
-import difflib
 import hashlib
 import hmac
 import json
@@ -21,61 +19,18 @@ import sqlite3
 import subprocess
 import threading
 import time
-import urllib.request
+import urllib.request  # noqa: F401  (tests patch server.urllib.request; the GPU probe lives in core)
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from ..atlas.secrets import secret_reason
-from .core import Console
+from .core import Console, gpu_status
+from .core import build_dict as _build, frag_dict as _frag, plain as _plain, swarm_dict as _swarm  # noqa: F401
 
 STATIC = Path(__file__).parent / "static"
 SLOW_MCP = {"kgirl_build", "jev_swarm_task", "life_experiment", "skills_forge"}
-
-
-def _plain(obj):
-    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
-        return dataclasses.asdict(obj)
-    if isinstance(obj, sqlite3.Row):
-        return dict(obj)
-    if isinstance(obj, (list, tuple)):
-        return [_plain(x) for x in obj]
-    if isinstance(obj, dict):
-        return {k: _plain(v) for k, v in obj.items()}
-    return obj
-
-
-def _frag(f) -> dict:
-    return {**_plain(f), "utility": round(f.utility, 3), "bound": round(f.bound(-1), 3)}
-
-
-def _swarm(res, root: str) -> dict:
-    out = _plain(res)
-    out["root"] = root
-    out["files"] = []
-    if res.winner is not None:
-        for path, (orig, new) in sorted(res.winner.edited.items()):
-            diff = "".join(difflib.unified_diff(orig.splitlines(keepends=True), new.splitlines(keepends=True),
-                                                fromfile=f"a/{path}", tofile=f"b/{path}"))
-            out["files"].append({"path": path, "diff": diff})
-    return out
-
-
-def _build(res) -> dict:
-    out = {**_plain(res), "confidence": round(res.confidence, 3)}
-    # explain()/summary_dict() arrive with the builder lane; on older results the panel stays hidden.
-    try:
-        explain = getattr(res, "explain", None)
-        out["explain"] = explain() if callable(explain) else ""
-    except Exception:
-        out["explain"] = ""
-    try:
-        summary = getattr(res, "summary_dict", None)
-        out["summary"] = summary() if callable(summary) else None
-    except Exception:
-        out["summary"] = None
-    return out
 
 
 def _critic_host_allowed(host: str) -> bool:
@@ -406,6 +361,12 @@ class Handler(BaseHTTPRequestHandler):
                                                      limit=int(q.get("limit", 200)))]
         if path == "/api/rules":
             return self._rules()
+        if path == "/api/drafts":
+            return c.drafts(int(q["conv_id"]) if q.get("conv_id") else None)
+        if path == "/api/context":
+            return c.context(int(q["conv_id"]))
+        if path == "/api/doctor":
+            return c.doctor()
         if path == "/api/repos":
             return [dict(r) for r in c.a.atlas.repos()]
         if path == "/api/search":
@@ -485,49 +446,7 @@ class Handler(BaseHTTPRequestHandler):
         raise ValueError(f"no such endpoint: {path}")
 
     def _gpu(self) -> dict:
-        """Read-only GPU and Ollama status: nvidia-smi, /api/ps (with a best-effort /api/show for the native
-        context window), and the active KGIRL_MIND_CTX. Warns when a model is not fully GPU-resident or the
-        GPU is at/above 95 C. Nothing here mutates the GPU or the models."""
-        out = {"gpu": None, "ollama": None, "mind_ctx": None, "warnings": []}
-        ctx = (os.environ.get("KGIRL_MIND_CTX") or "").strip()
-        out["mind_ctx"] = int(ctx) if ctx.isdigit() else None
-        try:
-            r = subprocess.run(["nvidia-smi", "--query-gpu=memory.used,memory.total,utilization.gpu,temperature.gpu",
-                                "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=5)
-            if r.returncode == 0 and r.stdout.strip():
-                used, total, util, temp = (float(x) for x in r.stdout.strip().splitlines()[0].split(","))
-                out["gpu"] = {"memory_used": used, "memory_total": total, "utilization": util, "temperature": temp}
-                if temp >= 95:
-                    out["warnings"].append(f"GPU at {temp:.0f} C — heat alert (>= 95 C)")
-        except (OSError, ValueError, subprocess.SubprocessError):
-            pass
-        try:
-            with urllib.request.urlopen("http://127.0.0.1:11434/api/ps", timeout=5) as resp:
-                ps = json.load(resp)
-            models = []
-            for m in ps.get("models", []):
-                size, vram = m.get("size") or 0, m.get("size_vram") or 0
-                pct = round(vram / size * 100, 1) if size else 0.0
-                details = m.get("details") or {}
-                entry = {"name": m.get("name"), "size": size, "size_vram": vram, "gpu_pct": pct,
-                         "parameter_size": details.get("parameter_size"), "quantization": details.get("quantization_level"),
-                         "context_length": None}
-                if size and vram < size:
-                    out["warnings"].append(f"{entry['name']} is {pct:.0f}% GPU — not 100% resident")
-                try:
-                    req = urllib.request.Request("http://127.0.0.1:11434/api/show",
-                                                 data=json.dumps({"name": m.get("name")}).encode(),
-                                                 headers={"Content-Type": "application/json"})
-                    with urllib.request.urlopen(req, timeout=5) as sr:
-                        info = json.load(sr).get("model_info") or {}
-                    entry["context_length"] = next((v for k, v in info.items() if k.endswith(".context_length")), None)
-                except (OSError, ValueError):
-                    pass
-                models.append(entry)
-            out["ollama"] = {"models": models}
-        except (OSError, ValueError):
-            out["ollama"] = {"error": "Ollama /api/ps unreachable on 127.0.0.1:11434"}
-        return out
+        return gpu_status()
 
     def _pocket(self) -> dict:
         """Read-only phone/node status from kgirl-pocket's LOCAL state files and a local port check. Never
@@ -546,15 +465,7 @@ class Handler(BaseHTTPRequestHandler):
                 "backup": read("backup.json"), "drill": read("drill.json"), "bench": read("bench.json")}
 
     def _rules(self) -> dict:
-        """The standing rules: active preferences the mind-rules lane's is_rule() marks as rules.
-        Read-only — editing stays with kgirl soup. When that lane is absent the panel hides."""
-        try:
-            from ..mind.rules import is_rule
-        except ImportError:
-            return {"available": False, "rules": []}
-        rules = [{"id": f.id, "text": f.text, "scope": f.scope}
-                 for f in self.console.a.soup.all(status="active", kind="preference") if is_rule(f.text)]
-        return {"available": True, "rules": rules}
+        return self.console.rules()
 
     def _rescue(self) -> dict:
         """Read-only rescue scan: feature-detect the rescue lane's CLI and run ONLY its `scan --json`
@@ -660,13 +571,7 @@ class Handler(BaseHTTPRequestHandler):
         query = q.get("q", "").strip()
         if not query:
             raise ValueError("search needs q")
-        c = self.console
-        limit = min(30, int(q.get("limit", 10)))
-        with c.search_lock:
-            symbols = [_plain(h) for h in c.a.atlas.search(query, limit=limit)]
-            chunks = ([{**_plain(h), "cite": h.cite()} for h in c.retriever.search(query, limit=limit)]
-                      if c.retriever is not None else [])
-        return {"symbols": symbols, "chunks": chunks}
+        return self.console.search(query, int(q.get("limit", 10)))
 
     def _source(self, q: dict) -> dict:
         repo, path = q["repo"], q["path"]
@@ -746,32 +651,15 @@ class Handler(BaseHTTPRequestHandler):
             c.workspace.auto_edit = bool(b.get("on"))
             return {"auto_edit": c.workspace.auto_edit}
         if path == "/api/workspace/allow":
-            if c.workspace is None:
-                raise ValueError("no workspace attached")
-            c.workspace.allow(str(b["command"]))
-            return {"allowed": [shlex.join(x) for x in c.workspace.allowed_commands()]}
+            return {"allowed": c.allow(str(b["command"]))}
         if path == "/api/workspace/verify":
-            cmd = shlex.split(str(b["command"])) if str(b.get("command", "")).strip() else None
-            with c._lock:
-                minds = list(c._minds.values()) + ([c._ops] if c._ops else [])
-            for m in minds:
-                m.verify_cmd = cmd
-            c.ops().verify_cmd = cmd
-            return {"verify": shlex.join(cmd) if cmd else None}
+            return {"verify": c.set_verify(str(b.get("command") or ""))}
+        if path == "/api/drafts/resume":
+            return {"job": c.resume_draft_job(int(b["id"])).id}
         return self._post_more(path, b)
 
     def _chat_job(self, cid: int, text: str):
-        c = self.console
-        mind, lock = c.mind(cid), c.chat_lock(cid)
-
-        def run(emit):
-            with lock:
-                reply = mind.chat(cid, text, on_text=lambda d: emit("delta", text=d),
-                                  on_event=lambda s: emit("status", text=s))
-            return {"text": reply.text, "conv_id": reply.conv_id, "recalled": reply.recalled,
-                    "tools": _plain(reply.tools), "stored": reply.stored, "verdict": reply.verdict}
-
-        return c.jobs.start("chat", text[:80], run, heavy=True)
+        return self.console.chat_job(cid, text)
 
     def _tool(self, b: dict):
         c = self.console
@@ -884,46 +772,13 @@ class Handler(BaseHTTPRequestHandler):
         raise ValueError(f"no such endpoint: {path}")
 
     def _task_job(self, mind, args: dict):
-        c = self.console
-        goal = str(args.get("goal", "")).strip()
-        if not goal:
-            raise ValueError("task needs a goal")
-
-        def run(emit):
-            mind.last_task = None
-            emit("status", text="sandboxed specialists working the goal")
-            text = mind.call_tool("task", args, on_event=lambda s: emit("status", text=s))
-            if mind.last_task is not None:
-                res, root = mind.last_task
-                return {**_swarm(res, str(root)), "text": text}
-            return {"text": text, "winner": None, "files": []}
-
-        return c.jobs.start("task", goal[:80], run, heavy=True)
+        return self.console.task_job(mind, args)
 
     def _build_job(self, spec: str, candidates: int = 6, allow_io: bool = False, kind: str = "build"):
-        c = self.console
-        if not spec.strip():
-            raise ValueError("build needs a spec")
-
-        def run(emit):
-            emit("status", text="tests first, several candidates, agreement selection")
-            res = c.ops().builder(n_impl=max(2, min(8, candidates)), allow_io=allow_io).build(spec)
-            c.ops().last_build = res
-            return _build(res)
-
-        return c.jobs.start(kind, spec[:80], run, heavy=True)
+        return self.console.build_job(spec, candidates, allow_io, kind)
 
     def _write_job(self, mind, args: dict):
-        c = self.console
-        brief = str(args.get("brief", "")).strip()
-        if not brief:
-            raise ValueError("write needs a brief")
-
-        def run(emit):
-            text = mind.call_tool("write", args, on_event=lambda s: emit("status", text=s))
-            return {"markdown": text}
-
-        return c.jobs.start("write", brief[:80], run, heavy=True)
+        return self.console.write_job(mind, args)
 
     def _matrix_search_job(self, query: str, k: int):
         c = self.console
@@ -962,33 +817,18 @@ class Handler(BaseHTTPRequestHandler):
         return c.jobs.start("matrix", query[:80], run, heavy=True)
 
     def _helix_run_job(self, b: dict):
-        c = self.console
+        # Validate at the HTTP boundary first: a bad request answers 400 before anything is delegated.
         task = str(b.get("task", "")).strip()
         if not task:
             raise ValueError("helix run needs a task")
-        budget = int(b.get("budget") or 4000)
-        session = str(b.get("session") or "main")
-        critic_model = str(b.get("critic_model") or "").strip() or None
         critic_host = str(b.get("critic_host") or "").strip() or None
         if critic_host and not _critic_host_allowed(critic_host):
             raise ValueError("critic_host must be loopback or listed in KGIRL_CRITIC_HOSTS")
-        experts = [str(e) for e in b["expert"]] if b.get("expert") else None
-        expect = int(b["expect"]) if b.get("expect") else None
-
-        def run(emit):
-            from ..helix.__main__ import render
-            from ..helix.harness import Helix, critic_chain
-            from ..helix.store import StateStore
-            from ..hermes.router import Router
-            emit("status", text="experts -> CRITIC -> SYNTHESIST; code keeps the books")
-            critic = critic_chain(critic_model, critic_host) if critic_model or critic_host else None
-            with StateStore(c.a.home) as store:
-                r = Helix(Router.from_env(), store=store, session=session, critic=critic,
-                          bus=c.a.bus).run(task, budget, experts=experts, lattice=bool(b.get("lattice")),
-                                           expect=expect)
-            return {"result": r, "render": render(r)}
-
-        return c.jobs.start("helix", task[:80], run, heavy=True)
+        return self.console.helix_job(
+            task, budget=int(b.get("budget") or 4000), session=str(b.get("session") or "main"),
+            critic_model=str(b.get("critic_model") or "").strip() or None, critic_host=critic_host,
+            experts=[str(e) for e in b["expert"]] if b.get("expert") else None, lattice=bool(b.get("lattice")),
+            expect=int(b["expect"]) if b.get("expect") else None)
 
     def _holo_build_job(self, b: dict):
         c = self.console

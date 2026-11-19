@@ -333,3 +333,8 @@ details.explain[open] summary { margin-bottom: 8px; }
   z-index: 60; box-shadow: 0 8px 30px rgba(0,0,0,.4); animation: fade .15s ease; max-width: 80vw; }
 #toast.err { border-color: rgba(248,113,113,.5); color: var(--bad); }
 @media (max-width: 1100px) { #feed { display: none; } .forge-grid { grid-template-columns: 1fr; } }
+/* turn meta chips: prompt budget, related conversations, workspace audit */
+.turn .meta-chips { margin-top: 6px; }
+.chip-link { cursor: pointer; }
+.chip-link:hover { color: var(--acc); border-color: var(--acc); }
+#drafts-box { margin-top: 12px; }

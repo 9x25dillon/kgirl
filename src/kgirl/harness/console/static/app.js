@@ -370,6 +370,8 @@ function turnEl(t, isLast) {
     }
     div.appendChild(chips);
   }
+  const extra = turnChips(t);
+  if (extra) div.appendChild(extra);
   if (isLast && t.role === "assistant") {
     const fb = document.createElement("div");
     fb.className = "feedback";
@@ -385,6 +387,54 @@ function turnEl(t, isLast) {
     div.appendChild(fb);
   }
   return div;
+}
+
+// Voice-lane and guard-lane meta, each feature-detected per turn: `budget` (prompt block sizes and what was cut),
+// `related` (earlier conversations pulled in, and why) on answers; `audit` (edits and runs) on tool turns.
+function budgetText(b) {
+  let line = `context ${b.used ?? 0}/${b.limit ?? 0}`;
+  const cut = Object.keys(b.dropped || {});
+  if (cut.length) line += " · cut " + cut.sort().join(", ");
+  if (b.overflow) line += ` · over by ${b.overflow}`;
+  return line;
+}
+
+function turnChips(t) {
+  const m = t.meta || {};
+  const chips = [];
+  if (t.role === "assistant" && m.budget && typeof m.budget === "object") {
+    const c = Object.assign(document.createElement("button"), { className: "chip chip-link", textContent: budgetText(m.budget),
+      title: "what this prompt held and what the budget cut" });
+    c.onclick = async () => {
+      try { const r = await get(`/api/context?conv_id=${t.conv_id}`);
+            showSource("context of the latest prompt", r.report || JSON.stringify(r.budget || m.budget, null, 2)); }
+      catch (e) { toast(e.message, true); }
+    };
+    chips.push(c);
+  }
+  if (t.role === "assistant" && Array.isArray(m.related)) {
+    for (const r of m.related) {
+      if (!r || typeof r !== "object") continue;
+      const why = r.via === "tags" ? `same topic: ${(r.tags || []).join(", ")}` : "matching words";
+      const c = Object.assign(document.createElement("button"), { className: "chip chip-link", textContent: `related: conv #${r.conv}`,
+        title: `pulled into the prompt (${why}); click to open` });
+      c.onclick = () => openConv(r.conv);
+      chips.push(c);
+    }
+  }
+  if (t.role === "tool" && Array.isArray(m.audit)) {
+    for (const e of m.audit) {
+      if (!e || typeof e !== "object") continue;
+      const bad = /refus|denied|fail|error|timeout/i.test(String(e.outcome || ""));
+      chips.push(Object.assign(document.createElement("span"), { className: "chip" + (bad ? " verdict-no" : ""),
+        textContent: `${e.action || "?"} ${e.target || ""}${e.outcome ? " → " + e.outcome : ""}`.slice(0, 140) }));
+    }
+  }
+  if (!chips.length) return null;
+  const box = document.createElement("div");
+  box.className = "chips meta-chips";
+  box.append(...chips);
+  return box;
 }
 
 async function sendChat() {
@@ -671,7 +721,7 @@ async function openSource(repo, path, start) {
 
 /* ---------------------------------------------------------------- forge */
 
-async function loadForge() { await loadSkills(); }
+async function loadForge() { await loadSkills(); loadDrafts().catch(() => {}); }
 
 function renderBuild(r) {
   switchView("forge");
@@ -694,7 +744,24 @@ function renderBuild(r) {
 
 function renderWrite(r) {
   switchView("forge");
-  $("write-result").innerHTML = r?.markdown ? `<pre class="render">${esc(r.markdown)}</pre>` : "";
+  // The voice lane's writer saves every draft; the server strips its "(saved as draft #N …)" footer into r.draft.
+  const chip = r?.draft != null ? `<div class="chips"><span class="chip">saved as draft <b>#${esc(r.draft)}</b></span></div>` : "";
+  $("write-result").innerHTML = r?.markdown ? `${chip}<pre class="render">${esc(r.markdown)}</pre>` : "";
+  loadDrafts().catch(() => {});
+}
+
+async function loadDrafts() {
+  const d = await get("/api/drafts");
+  $("drafts-box").classList.toggle("hidden", !d.available);
+  if (!d.available) return;
+  $("drafts-list").innerHTML = d.drafts.length ? `<table class="traj-table"><tr><th>#</th><th>title</th><th>where it stands</th><th></th></tr>` +
+    d.drafts.map(x => `<tr><td>${esc(x.id)}</td><td>${esc(x.title)}</td><td>${esc(x.progress)}</td>
+      <td><button class="btn ghost" data-draft="${esc(x.id)}">${/^done/.test(x.progress) ? "redo" : "resume"}</button></td></tr>`).join("") + "</table>"
+    : `<div class="hint">no drafts yet</div>`;
+  $("drafts-list").querySelectorAll("button[data-draft]").forEach(b => b.onclick = async () => {
+    try { await post("/api/drafts/resume", { id: Number(b.dataset.draft) }); toast("resuming draft"); }
+    catch (e) { toast(e.message, true); }
+  });
 }
 
 function renderEvolve(r) {
@@ -829,6 +896,24 @@ async function loadVitals() {
       : `<div class="hint">metabolism disabled</div>`;
   } catch { /* plan optional */ }
   loadGpu().catch(e => toast(e.message, true));
+  loadDoctor().catch(e => toast(e.message, true));
+}
+
+async function loadDoctor() {
+  $("doctor-chips").innerHTML = `<span class="chip">checking…</span>`;
+  const d = await get("/api/doctor");
+  if (!d.available) {
+    $("doctor-chips").innerHTML = "";
+    $("doctor-table").innerHTML = `<div class="hint">kgirl doctor is not part of this build</div>`;
+    return;
+  }
+  const count = s => d.checks.filter(c => c.status === s).length;
+  $("doctor-chips").innerHTML = ["OK", "WARN", "FAIL"].map(s =>
+    `<span class="chip ${s === "FAIL" && count(s) ? "verdict-no" : ""}">${s} <b>${count(s)}</b></span>`).join("");
+  const cls = { OK: "verdict-yes", WARN: "verdict-run", FAIL: "verdict-no" };
+  $("doctor-table").innerHTML = `<table class="traj-table"><tr><th></th><th>check</th><th>detail</th><th>fix</th></tr>` +
+    d.checks.map(c => `<tr><td class="${cls[c.status] || ""}">${esc(c.status)}</td><td>${esc(c.name)}</td>
+      <td>${esc(c.detail)}</td><td>${esc(c.fix || "")}</td></tr>`).join("") + "</table>";
 }
 
 async function loadGpu() {
@@ -1357,6 +1442,7 @@ function init() {
   };
   $("vitals-refresh").onclick = loadVitals;
   $("gpu-refresh").onclick = () => loadGpu().catch(e => toast(e.message, true));
+  $("doctor-refresh").onclick = () => loadDoctor().catch(e => toast(e.message, true));
   $("matrix-refresh").onclick = loadMatrix;
   $("matrix-search").onclick = async () => {
     const q = $("matrix-q").value.trim();

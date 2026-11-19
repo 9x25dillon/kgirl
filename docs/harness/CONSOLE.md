@@ -70,9 +70,29 @@ out to "no".
 
 ## Layout
 
-    console/core.py     Hub (SSE fan-out), JobManager, Approvals, Console (Assistant + Minds + workspace + token)
+    console/core.py     Hub (SSE fan-out), JobManager, Approvals, Console (Assistant + Minds + workspace + token),
+                        and the operations both front ends share: chat/task/build/helix jobs, search, rules,
+                        the GPU probe, and the JSON shapes (plain, swarm_dict, build_dict, rules_meta)
     console/server.py   ThreadingHTTPServer, JSON API, static serving, the CSRF guards
     console/static/     index.html · style.css · app.js (no framework, no build step)
+
+`kgirl ui` (docs/harness/UI.md) is the terminal front end over the same `Console`: it subscribes to the Hub
+like the SSE stream does and calls the shared operations in-process, so a job started from either surface
+has the same kind, label and result. A chat job's result now carries `rules_hits`, `rules_left` and
+`rules_revised` (empty when the rules check did not fire), read from the stored answer turn.
+
+Turn meta from the other lanes, each part feature-detected (older turns show nothing): an answer's
+`budget` becomes a chip (`context 3100/4000 · cut earlier, memory`; click it for the `/context` report from
+`GET /api/context?conv_id=`), each `related` entry a chip that opens that conversation (hover: why it was
+pulled in), and a tool turn's `audit` records (action, target, outcome) one chip each, red when refused or
+failed. The chat job's result carries the same `budget`, `related` and this exchange's `audit`.
+
+Writing: `POST /api/write` results strip the writer's "(saved as draft #N …)" footer into `draft: N`, shown as
+a chip above the text. Forge lists saved drafts (`GET /api/drafts`, `{available, drafts: [{id, conv_id,
+title, progress}]}`) with a resume button (`POST /api/drafts/resume {id}` → a `write` job). Health: the Vitals
+view's panel shows `GET /api/doctor` — `kgirl doctor`'s checks (`{available, checks: [{name, status, detail,
+fix}]}`), computed in-process by the guard lane's `doctor.collect`, read-only. Without those lanes each
+returns `available: false` and its panel hides or says so.
 
 Builder route: `POST /api/builder/run` (the same builder call as `/api/build`, job kind `builder`, display-only).
 Helix routes: `GET /api/helix/state|history|verify|diff`, `POST /api/helix/run|ingest|audit`. Holo routes:
