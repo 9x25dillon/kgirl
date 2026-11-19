@@ -122,8 +122,18 @@ class UnreadableCallTests(unittest.TestCase):
 
     def test_broken_object_in_the_qwen_form(self):
         call = parse_tool_call('<tool_call>{"name": "ls", </tool_call>')
-        self.assertEqual(call.name, "")
+        self.assertEqual(call.name, "ls")
         self.assertTrue(call.error.startswith("the arguments are not valid JSON"), call.error)
+
+    def test_partial_stream_keeps_the_tool_name_for_retry_feedback(self):
+        call = parse_tool_call('<tool_call>{"name":"read_file","arguments":{"path":"src/ma')
+        self.assertEqual(call.name, "read_file")
+        self.assertEqual(call.args, {})
+        self.assertIn("not valid JSON", call.error)
+
+    def test_trailing_partial_second_call_does_not_damage_the_first(self):
+        raw = '<tool>ls {"path":"src"}</tool><tool>read_file {"path":'
+        self.assertEqual(parse_tool_call(raw), ToolCall("ls", {"path": "src"}))
 
 
 class ToolCallRenderTests(unittest.TestCase):

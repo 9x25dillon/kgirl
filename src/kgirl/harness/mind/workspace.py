@@ -4,10 +4,11 @@
                      like it holds a secret is refused, so keys never land in a prompt or a transcript.
     edit, write      change files. Each change is shown as a diff and applied only when the user says yes
                      (or the session was started with edits pre-approved). Every applied change is in a
-                     journal, so `undo` restores the file exactly.
+                     journal, so `undo` restores it exactly. Changes and undos enter an append-only audit.
     run              run a command in the root. The model never picks a program on its own authority: the
                      command must be one the user allowed (KGIRL_VERIFY_ALLOWLIST, or `/allow` in this
-                     session), or the user approves it when asked. No shell: no pipes, no redirection.
+                     session), or the user approves it when asked. Shell operators require that exact
+                     command through `/allow`; every started run records its bounded outcome in the audit.
 
 The model proposes, the person disposes. Without a way to ask (a one-shot message, a pipe, MCP) and
 without pre-approval, edits and unlisted commands are refused with the reason, and nothing is changed.
@@ -36,6 +37,7 @@ READ_LINES = 200            # most lines one read returns
 WRITE_BYTES = 400 * 1024    # largest file the agent may write
 GREP_FILES = 4000           # most files one grep opens
 RUN_OUTPUT = 3000           # chars of command output handed back
+LOOK_OUTPUT = 12_000        # chars from read/grep handed to one model turn
 NO_WRITE_DIRS = frozenset({".git", "node_modules", "__pycache__", ".venv", "venv", "site-packages"})
 
 
@@ -50,9 +52,25 @@ class Change:
     after: str
 
 
+@dataclass(frozen=True)
+class AuditEvent:
+    seq: int
+    action: str
+    target: str
+    outcome: str
+
+
 def allowlisted_commands() -> list[list[str]]:
     """Commands the user allows a model to run: KGIRL_VERIFY_ALLOWLIST, commands separated by ';'."""
     return [shlex.split(c) for c in os.environ.get("KGIRL_VERIFY_ALLOWLIST", "").split(";") if c.strip()]
+
+
+def has_shell_operator(command: str) -> bool:
+    """Whether command has an unquoted shell control token (quoted `|`/`>` are ordinary arguments)."""
+    lexer = shlex.shlex(command, posix=True, punctuation_chars="|&;<>")
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    return any(re.fullmatch(r"[|&;<>]+", token) for token in lexer)
 
 
 class Workspace:
@@ -64,9 +82,18 @@ class Workspace:
         self.confirm = confirm
         self.auto_edit = auto_edit
         self.allowed: list[list[str]] = [list(c) for c in allowed or []]    # allowed by the user in this session
+        self.allowed_shell: set[str] = set()              # only exact text entered through interactive /allow
         self.run_timeout = run_timeout
         self.notify = notify or (lambda text: None)
         self.journal: list[Change] = []
+        self.audit: list[AuditEvent] = []
+
+    def _audit(self, action: str, target: str, outcome: str) -> None:
+        self.audit.append(AuditEvent(len(self.audit) + 1, action, target, outcome))
+
+    def audit_since(self, seq: int = 0) -> list[AuditEvent]:
+        """A copy of events after seq; callers can persist them without being able to rewrite history."""
+        return list(self.audit[max(0, int(seq)):])
 
     @property
     def name(self) -> str:
@@ -90,7 +117,14 @@ class Workspace:
             blocked = NO_WRITE_DIRS.intersection(parts[:-1])
             if blocked:
                 raise WorkspaceError(f"kgirl does not write inside {sorted(blocked)[0]}/")
-            if full.is_symlink():
+            cursor = full
+            through_link = False
+            while cursor != self.root and self.root in cursor.parents:
+                if cursor.is_symlink():
+                    through_link = True
+                    break
+                cursor = cursor.parent
+            if through_link:
                 raise WorkspaceError(f"{raw} is a symlink; kgirl does not write through links")
         return resolved
 
@@ -174,8 +208,20 @@ class Workspace:
         hi = min(len(lines), lo + READ_LINES - 1, int(end) if end else lo + READ_LINES - 1)
         if lo > len(lines):
             return f"{rel} has {len(lines)} lines"
-        body = "\n".join(f"{n:>5} {lines[n - 1]}" for n in range(lo, hi + 1))
-        return f"{rel}: lines {lo}-{hi} of {len(lines)}\n{body}"
+        header = f"{rel}: lines {lo}-{hi} of {len(lines)}"
+        shown: list[str] = []
+        used = len(header) + 1
+        next_line = None
+        for n in range(lo, hi + 1):
+            line = f"{n:>5} {clip(lines[n - 1], 2000)}"
+            if used + len(line) + 1 > LOOK_OUTPUT:
+                next_line = n
+                break
+            shown.append(line)
+            used += len(line) + 1
+        if next_line is not None:
+            shown.append(f"…(result truncated; call read_file again with path={rel!r}, start={next_line})")
+        return header + "\n" + "\n".join(shown)
 
     def grep(self, pattern: str, path: str = ".", limit: int = 40) -> str:
         if not pattern:
@@ -206,7 +252,10 @@ class Workspace:
                     more += 1
         if not hits:
             return f"no match for {pattern!r}"
-        return "\n".join(hits) + (f"\n(+{more} more matches; narrow the pattern or the path)" if more else "")
+        out = "\n".join(hits) + (f"\n(+{more} more matches; narrow the pattern or the path)" if more else "")
+        if len(out) > LOOK_OUTPUT:
+            out = out[:LOOK_OUTPUT] + "\n…(result truncated; narrow the grep pattern or path)"
+        return out
 
     # ------------------------------------------------------------------ changing
 
@@ -260,12 +309,14 @@ class Workspace:
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_bytes(after.encode("utf-8"))
         self.journal.append(Change(rel, before, after))
+        self._audit("create" if before is None else "edit", rel, "applied")
         self.notify(f"{'created' if before is None else 'edited'} {rel}" + (f"\n{diff}" if self.auto_edit else ""))
         return f"{'created' if before is None else 'edited'} {rel}\n{clip(diff, 1500)}"
 
     def record(self, path: str, before: str | None, after: str) -> None:
         """Add a change something else applied (an accepted swarm diff) to the journal, so `undo` covers it."""
         self.journal.append(Change(path, before, after))
+        self._audit("create" if before is None else "edit", path, "recorded external change")
 
     def undo(self) -> str:
         """Take back the most recent journaled change, if the file is still as kgirl left it."""
@@ -275,12 +326,14 @@ class Workspace:
         full = self.root / change.path
         current = _load(full) if full.is_file() else None
         if current != change.after:
+            self._audit("undo", change.path, "refused: file changed")
             return f"{change.path} has changed since kgirl edited it; not undoing"
         if change.before is None:
             full.unlink()
         else:
             full.write_bytes(change.before.encode("utf-8"))
         self.journal.pop()
+        self._audit("undo", change.path, "applied")
         return f"undid the change to {change.path}"
 
     def diff(self) -> str:
@@ -303,20 +356,29 @@ class Workspace:
 
     def allow(self, command: str) -> list[str]:
         """The user allows a command for this session (`/allow` in the chat)."""
-        argv = shlex.split(command)
+        exact = command.strip()
+        argv = shlex.split(exact)
         if not argv:
             raise WorkspaceError("empty command")
+        if has_shell_operator(exact):
+            self.allowed_shell.add(exact)
         if argv not in self.allowed:
             self.allowed.append(argv)
         return argv
 
     def run(self, command: str) -> str:
+        exact = (command or "").strip()
         try:
-            argv = shlex.split(command or "")
+            argv = shlex.split(exact)
         except ValueError as exc:
             raise WorkspaceError(f"cannot parse the command: {exc}") from exc
         if not argv:
             raise WorkspaceError("run needs a command")
+        if has_shell_operator(exact):
+            if exact not in self.allowed_shell:
+                raise WorkspaceError("a command with a shell operator is refused unless the user names that exact "
+                                     "command with /allow")
+            return self.execute_shell(exact)
         if argv not in self.allowed_commands():
             if self.confirm is None:
                 choices = ", ".join(shlex.join(c) for c in self.allowed_commands()) or "none yet"
@@ -326,21 +388,32 @@ class Workspace:
                 raise WorkspaceError("the user declined to run that command")
         return self.execute(argv)
 
+    def execute_shell(self, command: str) -> str:
+        """Run one exact operator-bearing command explicitly entered through /allow."""
+        return self._execute(command, command, shell=True)
+
     def execute(self, argv: list[str]) -> str:
         """Run an approved command in the root: no shell, no terminal input, secrets stripped from the environment."""
         shown = shlex.join(argv)
+        return self._execute(argv, shown, shell=False)
+
+    def _execute(self, command: list[str] | str, shown: str, shell: bool) -> str:
+        """Run a command with the shared timeout, environment scrub and bounded result."""
         env = {k: v for k, v in os.environ.items() if not _SECRET_ENV.search(k)}
         self.notify(f"$ {shown}")
         try:
-            proc = subprocess.run(argv, cwd=self.root, capture_output=True, text=True, timeout=self.run_timeout,
-                                  env=env, stdin=subprocess.DEVNULL)
+            proc = subprocess.run(command, cwd=self.root, capture_output=True, text=True, timeout=self.run_timeout,
+                                  env=env, stdin=subprocess.DEVNULL, shell=shell)
         except subprocess.TimeoutExpired:
+            self._audit("run", shown, f"timeout after {self.run_timeout:g} s")
             return f"$ {shown}\ntimed out after {self.run_timeout:g} s"
         except OSError as exc:
+            self._audit("run", shown, f"could not start: {type(exc).__name__}")
             return f"$ {shown}\ncould not start: {exc}"
         out = (proc.stdout or "") + (proc.stderr or "")
         if len(out) > RUN_OUTPUT:
-            out = "…(earlier output cut)\n" + out[-RUN_OUTPUT:]
+            out = f"…(output truncated; showing last {RUN_OUTPUT} characters)\n" + out[-RUN_OUTPUT:]
+        self._audit("run", shown, f"exit={proc.returncode}")
         return f"$ {shown}\nexit={proc.returncode}\n{out}".rstrip()
 
     # ------------------------------------------------------------------ description

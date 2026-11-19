@@ -14,6 +14,19 @@ from pathlib import Path
 
 from _support import ROOT
 
+CHECKS = (("engineering", ["engineering_tests.py"]), ("push-gate", ["hook_tests.py"]),
+          ("merge-preview", ["merge_preview_tests.py"]), ("land-lanes", ["land_lanes_tests.py"]),
+          ("harness+mind", ["suite_check.py", "harness"]), ("helix", ["suite_check.py", "helix"]),
+          ("holo", ["suite_check.py", "holo"]), ("vessel", ["suite_check.py", "vessel"]),
+          ("mind-smoke", ["mind_smoke.py"]))
+
+
+def checks(extended_console: bool = False) -> list[tuple[str, list[str]]]:
+    """The check-day commands in run order; kept public so regression fixtures cannot drift in count."""
+    commands = [(label, list(command)) for label, command in CHECKS]
+    commands.append(("console-smoke", ["console_smoke.py", *(["--extended"] if extended_console else [])]))
+    return commands
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -23,18 +36,11 @@ def main():
     if not 0 < args.timeout <= 3600:
         parser.error("--timeout must be greater than zero and at most 3600")
     logs = Path(tempfile.mkdtemp(prefix="kgirl-check-logs-"))
-    checks = [("engineering", ["engineering_tests.py"]), ("push-gate", ["hook_tests.py"]),
-              ("merge-preview", ["merge_preview_tests.py"]),
-              ("land-lanes", ["land_lanes_tests.py"]),
-              ("harness+mind", ["suite_check.py", "harness"]),
-              ("helix", ["suite_check.py", "helix"]), ("holo", ["suite_check.py", "holo"]),
-              ("vessel", ["suite_check.py", "vessel"]),
-              ("mind-smoke", ["mind_smoke.py"]),
-              ("console-smoke", ["console_smoke.py", *(["--extended"] if args.extended_console else [])])]
+    commands = checks(args.extended_console)
     results = []
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONUNBUFFERED": "1"}
     print(f"Python {sys.version.split()[0]}; logs: {logs}", flush=True)
-    for label, command in checks:
+    for label, command in commands:
         print(f"Running {label}...", flush=True)
         started = time.monotonic()
         with (logs / f"{label}.log").open("w", encoding="utf-8") as log:

@@ -212,6 +212,9 @@ def main(argv: list[str] | None = None) -> int:
     add_mind_parsers(sub)
 
     args = ap.parse_args(argv)
+    if args.cmd == "doctor":
+        from .doctor import run as run_doctor
+        return run_doctor(args.home, args.json)
     a = _assistant(args)
     try:
         return _run(a, args)

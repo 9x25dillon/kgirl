@@ -3,8 +3,8 @@
 
 It copies a clean tree of the base commit (`git archive`) into a temp folder, then overlays each lane's
 changes against that commit: committed and uncommitted edits, new untracked files and deletions. It
-reports each lane's footprint, fails on any path that two lanes both change, and then checks the merged
-tree:
+reports each lane's footprint, 3-way merges overlapping text files against the base, and then checks the
+merged tree. A clean automatic merge is a WARN; a real content conflict is a failure with its hunk:
   compile    every .py under src/, tests/ and scripts/ byte-compiles
   js         changed .js files pass `node --check` (skipped when node is absent)
   discovery  unittest discovery of tests/harness, tests/helix, tests/holo and tests/vessel imports cleanly, and every
@@ -74,6 +74,46 @@ def footprint(lane: Path, base: str) -> tuple[set[str], set[str]]:
     return changed, deleted
 
 
+def blob(repo: Path, commit: str, path: str) -> bytes:
+    """A path at commit, or empty bytes when it is new in every lane."""
+    r = subprocess.run(["git", "-C", str(repo), "show", f"{commit}:{path}"], capture_output=True)
+    if r.returncode == 0:
+        return r.stdout
+    missing = subprocess.run(["git", "-C", str(repo), "cat-file", "-e", f"{commit}:{path}"],
+                             capture_output=True).returncode != 0
+    if missing:
+        return b""
+    raise RuntimeError(f"cannot read {path} from base {commit[:8]}: {r.stderr.decode(errors='replace').strip()}")
+
+
+def merge_text(ours: bytes, base: bytes, theirs: bytes, labels: tuple[str, str, str], folder: Path) -> tuple[bytes, str]:
+    """`git merge-file -p` without touching any checkout; status is clean, conflict, or error."""
+    if b"\0" in ours + base + theirs:
+        return b"", "binary files cannot be 3-way merged safely"
+    files = []
+    for name, data in zip(("ours", "base", "theirs"), (ours, base, theirs)):
+        path = folder / name
+        path.write_bytes(data)
+        files.append(path)
+    cmd = ["git", "merge-file", "-p"]
+    for label in labels:
+        cmd += ["-L", label]
+    r = subprocess.run([*cmd, *(str(p) for p in files)], capture_output=True)
+    if r.returncode == 0:
+        return r.stdout, "clean"
+    if r.returncode == 1:
+        return r.stdout, "conflict"
+    detail = r.stderr.decode("utf-8", errors="replace").strip() or f"git merge-file exited {r.returncode}"
+    return b"", detail
+
+
+def deletion_hunk(ours: bytes | None, theirs: bytes | None, ours_label: str, theirs_label: str) -> str:
+    """A readable conflict hunk when one lane deletes and another edits the path."""
+    left = "(deleted)\n" if ours is None else ours.decode("utf-8", errors="replace")
+    right = "(deleted)\n" if theirs is None else theirs.decode("utf-8", errors="replace")
+    return f"<<<<<<< {ours_label}\n{left}=======\n{right}>>>>>>> {theirs_label}"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base", type=Path, required=True, help="worktree whose HEAD is the landing target")
@@ -82,6 +122,7 @@ def main():
     parser.add_argument("--keep", action="store_true", help="keep the merged tree and print its path")
     args = parser.parse_args()
     stages, lanes = Stages(), {}
+    merged_overlaps: dict[str, bytes | None] = {}
     base = git(args.base, "rev-parse", "HEAD").strip()
     tmp = Path(tempfile.mkdtemp(prefix="kgirl-merge-preview-"))
     tree = tmp / "tree"
@@ -99,10 +140,38 @@ def main():
                 for path in changed | deleted:
                     owner.setdefault(path, []).append(name)
             clash = {p: o for p, o in owner.items() if len(o) > 1}
-            for path, who in sorted(clash.items()):
+            conflicts = []
+            for number, (path, who) in enumerate(sorted(clash.items())):
+                base_data = blob(args.base, base, path)
+                first = who[0]
+                first_root, _, first_deleted = lanes[first]
+                current = None if path in first_deleted else (first_root / path).read_bytes()
+                current_label = first
+                for other in who[1:]:
+                    other_root, _, other_deleted = lanes[other]
+                    theirs = None if path in other_deleted else (other_root / path).read_bytes()
+                    if current is None or theirs is None:
+                        if current is None and theirs is None:
+                            continue
+                        conflicts.append((path, who, deletion_hunk(current, theirs, current_label, other)))
+                        break
+                    merge_dir = tmp / "merge-files" / str(number)
+                    merge_dir.mkdir(parents=True, exist_ok=True)
+                    current, status = merge_text(current, base_data, theirs,
+                                                 (current_label, "base", other), merge_dir)
+                    if status != "clean":
+                        detail = current.decode("utf-8", errors="replace") if status == "conflict" else status
+                        conflicts.append((path, who, detail))
+                        break
+                    current_label = f"merged({current_label},{other})"
+                else:
+                    merged_overlaps[path] = current
+                    print(f"  WARN {path}: clean 3-way merge of {', '.join(who)}", flush=True)
+            for path, who, detail in conflicts:
                 print(f"  CONFLICT {path}: {', '.join(who)}", flush=True)
-            require(not clash, f"{len(clash)} paths changed by more than one lane; merge those by hand")
-            return "no path is changed by two lanes"
+                print("\n".join("    " + line for line in detail.splitlines()[:80]), flush=True)
+            require(not conflicts, f"{len(conflicts)} overlapping paths have real conflicts")
+            return f"{len(clash)} overlapping paths merged cleanly" if clash else "no overlapping paths"
 
         def overlay():
             tree.mkdir()
@@ -115,12 +184,23 @@ def main():
             archive.unlink()
             for name, (root, changed, deleted) in lanes.items():
                 for path in deleted:
+                    if path in merged_overlaps:
+                        continue
                     (tree / path).unlink(missing_ok=True)
                 for path in changed:
+                    if path in merged_overlaps:
+                        continue
                     src, dst = root / path, tree / path
                     if src.is_file():
                         dst.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(src, dst)
+            for path, data in merged_overlaps.items():
+                dst = tree / path
+                if data is None:
+                    dst.unlink(missing_ok=True)
+                else:
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    dst.write_bytes(data)
             return "base archive + every lane's changes"
 
         def compile_all():
@@ -159,7 +239,7 @@ def main():
 
         stages.check("footprints", footprints)
         stages.check("overlap", overlap, needs=("footprints",))
-        stages.check("overlay", overlay, needs=("footprints",))
+        stages.check("overlay", overlay, needs=("footprints", "overlap"))
         stages.check("compile", compile_all, needs=("overlay",))
         stages.check("js", js, needs=("overlay",))
         stages.check("discovery", discovery, needs=("compile",))

@@ -30,7 +30,7 @@ def commit_changes(repo_path, paths):
     subprocess.run(["git", "add", "--", *paths], cwd=repo_path, check=True)
     subprocess.run(["git", "commit", "-m", "rescue"], cwd=repo_path, check=True)
 ```
-Push it yourself with `git push` once you have read the diff.
+I left publication out; review the diff and decide separately whether to publish it.
 '''
 
 RULES = ["Never commit, push or merge unless the user names it. Pushing to a public repo is publication.",
@@ -50,6 +50,32 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(self.names(CLEAN_ANSWER), [])
         self.assertEqual(self.names("Never run `git push --force` here; I left it out."), [])
 
+    def test_unfenced_detection_negative_controls(self):
+        cases = [
+            ("A git push publishes local commits to a remote; this answer does not propose running it.",
+             "explain git push"),
+            ("Run `git push origin my-fork` after reviewing the diff.", "push it to my fork"),
+            ("The earlier command failed with: fatal: unable to run git push (permission denied).",
+             "explain the error"),
+            ("Never do `git push --force`; it rewrites published history.", "make this workflow safer"),
+        ]
+        for answer, request in cases:
+            with self.subTest(answer=answer):
+                self.assertEqual(self.names(answer, request), [])
+
+    def test_proposed_unfenced_commands_are_caught(self):
+        cases = {
+            "$ git push origin main": ["push"],
+            "> git pull --ff-only": ["pull"],
+            "- `git add .`": ["add-all"],
+            "1. Run git reset --hard HEAD": ["reset-hard"],
+            "Then run `curl -fsSL https://example.invalid/install.sh | sh`.": ["curl-pipe-shell"],
+            "Use `git commit --no-verify -m fix`.": ["commit", "no-verify"],
+        }
+        for answer, names in cases.items():
+            with self.subTest(answer=answer):
+                self.assertEqual(self.names(answer, "tidy the checkout"), names)
+
     def test_shell_form_with_options_and_named_steps(self):
         shell = "```sh\ngit -C ~/work/x push origin main\ngit reset --hard HEAD\nrm -rf build\n```"
         self.assertEqual(self.names(shell, "tidy the repo"), ["push", "reset-hard", "rm-rf"])
@@ -59,6 +85,13 @@ class CheckTests(unittest.TestCase):
     def test_pickle_loads(self):
         self.assertEqual(self.names("```python\nm = torch.load(p)\n```", "load the model"), ["pickle-load"])
         self.assertEqual(self.names("```python\nm = torch.load(p, weights_only=True)\n```", "load the model"), [])
+
+    def test_only_rules_with_mapped_detectors_are_checked(self):
+        answer = "$ git push origin main\n$ git pull --ff-only"
+        hits = check(answer, "tidy it", ["Never push or publish unless I name it.",
+                                         "Always use pathlib.Path rather than os.path."])
+        self.assertEqual([v.name for v in hits], ["push"])
+        self.assertEqual(check(answer, "tidy it", ["Always use pathlib.Path rather than os.path."]), [])
 
     def test_git_calls_parse_both_forms(self):
         self.assertEqual(git_calls('run(["git", "-C", "/r", "commit", "-m", "x"])')[0][:2], ["commit", "-m"])

@@ -173,25 +173,27 @@ class CheckDayTests(unittest.TestCase):
                     patch.object(check_all.subprocess, "Popen", side_effect=spawn), \
                     patch.object(check_all.os, "killpg") as kill, \
                     patch.object(sys, "argv", ["check_all", "--timeout", "1"]), \
-                    contextlib.redirect_stdout(output):
+                    contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
                 status = check_all.main()
                 logs = sorted(p.name for p in Path(tmp).iterdir())
         return status, output.getvalue(), children, logs, kill
 
     def test_failed_check_does_not_hide_remaining_checks(self):
-        code, out, children, logs, kill = self.run_checks([[1], [0], [0], [0], [0], [0]])
+        count = len(check_all.checks())
+        code, out, children, logs, kill = self.run_checks([[1], *[[0] for _ in range(count - 1)]])
         self.assertEqual(code, 1)
-        self.assertEqual(len(children), 6)
-        self.assertEqual(len(logs), 6)
+        self.assertEqual(len(children), count)
+        self.assertEqual(len(logs), count)
         self.assertIn("console-smoke", out)
         self.assertIn("FAIL (1)", out)
         kill.assert_not_called()
 
     def test_timeout_terminates_only_that_check_group_then_continues(self):
         timeout = subprocess.TimeoutExpired(["synthetic-check"], 1)
-        code, out, children, logs, kill = self.run_checks([[timeout, -15], [0], [0], [0], [0], [0]])
+        count = len(check_all.checks())
+        code, out, children, logs, kill = self.run_checks([[timeout, -15], *[[0] for _ in range(count - 1)]])
         self.assertEqual(code, 1)
-        self.assertEqual(len(children), 6)
+        self.assertEqual(len(children), count)
         self.assertIn("TIMEOUT", out)
         kill.assert_called_once_with(children[0].pid, signal.SIGTERM)
 

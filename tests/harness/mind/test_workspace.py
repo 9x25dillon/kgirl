@@ -13,8 +13,8 @@ from pathlib import Path
 from unittest import mock
 
 from tests.harness._fixtures import write
-from kgirl.harness.mind.workspace import (READ_LINES, WRITE_BYTES, Change, Workspace, WorkspaceError,
-                                          allowlisted_commands)
+from kgirl.harness.mind.workspace import (LOOK_OUTPUT, READ_LINES, WRITE_BYTES, AuditEvent, Change, Workspace,
+                                          WorkspaceError, allowlisted_commands)
 
 APP = "def main():\n    return 1\n"
 
@@ -117,6 +117,14 @@ class PathTests(WorkspaceCase):
         self.assertIn("symlink", str(caught.exception))
         self.assertEqual(self.text("app.py"), APP)
 
+    def test_no_writing_through_a_symlinked_directory(self):
+        (self.root / "real").mkdir()
+        os.symlink(self.root / "real", self.root / "linked")
+        with self.assertRaises(WorkspaceError) as caught:
+            self.ws(auto_edit=True).write("linked/new.py", "x = 1\n")
+        self.assertIn("symlink", str(caught.exception))
+        self.assertFalse((self.root / "real" / "new.py").exists())
+
 
 class LookingTests(WorkspaceCase):
     def test_ls_directories_first_then_files(self):
@@ -158,6 +166,13 @@ class LookingTests(WorkspaceCase):
         self.assertEqual(out[0], f"long.txt: lines 1-{READ_LINES} of {READ_LINES + 50}")
         self.assertEqual(len(out), READ_LINES + 1)
         self.assertEqual(out[-1], f"{READ_LINES:>5} line {READ_LINES}")
+
+    def test_read_has_a_character_budget_and_continuation_pointer(self):
+        write(self.root, {"wide.txt": ("x" * 1000 + "\n") * 30})
+        out = self.ws().read("wide.txt")
+        self.assertLessEqual(len(out), LOOK_OUTPUT + 120)
+        self.assertIn("result truncated", out)
+        self.assertIn("call read_file again", out)
 
     def test_read_refuses_directories_missing_and_binary_files(self):
         (self.root / "blob.bin").write_bytes(b"\x00\x01\x02 not text")
@@ -363,6 +378,18 @@ class JournalTests(WorkspaceCase):
         self.assertEqual(ws.undo(), "undid the change to app.py")
         self.assertEqual(self.text("app.py"), APP)
 
+    def test_audit_is_append_only_and_can_be_read_incrementally(self):
+        ws = self.ws(auto_edit=True)
+        ws.edit("app.py", "return 1", "return 2")
+        ws.write("new.txt", "hi\n")
+        ws.undo()
+        self.assertEqual(ws.audit, [AuditEvent(1, "edit", "app.py", "applied"),
+                                    AuditEvent(2, "create", "new.txt", "applied"),
+                                    AuditEvent(3, "undo", "new.txt", "applied")])
+        tail = ws.audit_since(1)
+        tail.clear()
+        self.assertEqual(len(ws.audit), 3)
+
 
 class RunningTests(WorkspaceCase):
     def py(self, code: str) -> str:
@@ -388,6 +415,30 @@ class RunningTests(WorkspaceCase):
         self.assertIn("`rm -rf build` is not a command the user has allowed", message)
         self.assertIn("(allowed: make test)", message)
         self.assertEqual(self.notes, [])                                   # nothing was started
+
+    def test_shell_operators_need_an_exact_slash_allow(self):
+        command = "printf hello | wc -c"
+        yes = Asker(True)
+        ws = self.ws(confirm=yes, allowed=[["printf", "hello", "|", "wc", "-c"]])
+        with self.assertRaises(WorkspaceError) as caught:
+            ws.run(command)
+        self.assertIn("shell operator", str(caught.exception))
+        self.assertEqual(yes.asked, [])
+
+        ws.allow(command)
+        with mock.patch("kgirl.harness.mind.workspace.subprocess.run") as run:
+            run.return_value = mock.Mock(stdout="6\n", stderr="", returncode=0)
+            self.assertIn("exit=0", ws.run(command))
+        self.assertEqual(run.call_args.kwargs["shell"], True)
+        self.assertEqual(run.call_args.args[0], command)
+
+    def test_quoted_operator_is_an_ordinary_argument(self):
+        command = "printf 'a|b'"
+        ws = self.ws(allowed=[["printf", "a|b"]])
+        with mock.patch("kgirl.harness.mind.workspace.subprocess.run") as run:
+            run.return_value = mock.Mock(stdout="a|b", stderr="", returncode=0)
+            ws.run(command)
+        self.assertEqual(run.call_args.kwargs["shell"], False)
 
     def test_nothing_allowed_yet(self):
         with self.assertRaises(WorkspaceError) as caught:
@@ -432,6 +483,7 @@ class RunningTests(WorkspaceCase):
         ws = self.ws()
         command = self.py("import sys; sys.stderr.write('boom\\n'); sys.exit(3)")
         self.assertEqual(ws.execute(shlex.split(command)), f"$ {command}\nexit=3\nboom")
+        self.assertEqual(ws.audit[-1], AuditEvent(1, "run", command, "exit=3"))
 
     def test_secrets_are_stripped_from_the_command_environment(self):
         ws = self.ws()
@@ -449,6 +501,14 @@ class RunningTests(WorkspaceCase):
         ws = self.ws(run_timeout=0.5)
         out = ws.execute([sys.executable, "-c", "import time; time.sleep(30)"])
         self.assertTrue(out.endswith("\ntimed out after 0.5 s"), out)
+
+    def test_large_output_is_truncated_with_a_marker(self):
+        ws = self.ws()
+        with mock.patch("kgirl.harness.mind.workspace.subprocess.run") as run:
+            run.return_value = mock.Mock(stdout="x" * 4000, stderr="", returncode=0)
+            out = ws.execute(["fake"])
+        self.assertIn("output truncated", out)
+        self.assertLess(len(out), 3200)
 
 
 class DescriptionTests(WorkspaceCase):

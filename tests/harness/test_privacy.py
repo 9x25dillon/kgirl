@@ -17,8 +17,8 @@ SERVERS = ["src/kgirl/main.py", "src/kgirl/api/integrated_api_server.py", "src/k
 TRACKERS = re.compile(r"^\s*(import|from)\s+(sentry_sdk|posthog|mixpanel|segment|amplitude|stripe|web3)\b", re.M)
 ALLOWED_NETWORK = {"llm/anthropic_backend.py", "llm/ollama_backend.py", "atlas/vectors.py", "atlas/retrieval.py",
                    "atlas/sources.py", "jev/browser.py", "jev/browser_env.py", "mcp_server.py",
-                   "console/server.py"}     # loopback only (Ollama status, Pocket port probe); see the test below
-LOOPBACK_ONLY = ("console/server.py",)
+                   "console/server.py", "console/core.py", "doctor.py"}
+LOOPBACK_ONLY = ("console/server.py", "console/core.py", "doctor.py")
 URL = re.compile(r"""["'](https?://[^"'\s]+)""")
 NETWORK = re.compile(r"\b(urlopen|requests\.(get|post|put)|httpx\.|socket\.socket|aiohttp\.)")
 
