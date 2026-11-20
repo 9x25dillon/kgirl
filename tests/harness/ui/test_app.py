@@ -197,6 +197,25 @@ class KgirlUIPilot(unittest.IsolatedAsyncioTestCase):
             await self.submit(pilot, app, f"/job {task_id[:6]}")
             self.assertIn("+a + b", self.chat(app))
 
+    async def test_ask_answers_once_outside_the_conversation(self):
+        app = self.make()
+        async with app.run_test(size=WIDE) as pilot:
+            await self.submit(pilot, app, "/ask where is the router defined?")
+            self.assertIn(("ask", "where is the router defined?"), self.backend.calls)
+            self.assertFalse(any(c[0] == "chat" for c in self.backend.calls))
+            self.assertIn("ask", str(app.query_one("#jobs").content))
+            ask_id = next(j["id"] for j in self.backend.jobs() if j["kind"] == "ask")
+            self.backend.finish(ask_id, result={"text": "In hermes/router.py.", "intent": "locate",
+                                                "backend": "ollama:qwen", "citations": ["kgirl:src/router.py:1"],
+                                                "context_tokens": 900})
+            await self.settle(pilot)
+            log = self.chat(app)
+            self.assertIn("In hermes/router.py.", log)
+            self.assertIn("locate via ollama:qwen", log)
+            self.assertIn("kgirl:src/router.py:1", log)
+            await self.submit(pilot, app, "/ask")
+            self.assertIn("/ask QUESTION", self.chat(app))
+
     async def test_build_reads_a_spec_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             spec = Path(tmp) / "spec.md"

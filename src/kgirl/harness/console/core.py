@@ -529,6 +529,21 @@ class Console:
         self.workspace.allow(command)
         return [shlex.join(x) for x in self.workspace.allowed_commands()]
 
+    def ask_job(self, question: str, repo: str | None = None) -> Job:
+        """A one-shot answer from the indexed repos and memory (`kgirl ask`): no conversation, nothing saved
+        to one, no workspace tools. It uses the model, so it waits on the heavy lock like the other jobs."""
+        question = question.strip()
+        if not question:
+            raise ValueError("ask needs a question")
+
+        def run(emit):
+            emit("status", text="atlas + memory -> one answer")
+            ans = self.a.ask(question, repo)
+            return {"text": ans.text, "intent": ans.intent, "backend": ans.backend,
+                    "citations": list(ans.citations), "context_tokens": ans.context_tokens}
+
+        return self.jobs.start("ask", question[:80], run, heavy=True)
+
     def helix_job(self, task: str, budget: int = 4000, session: str = "main", critic_model: str | None = None,
                   critic_host: str | None = None, experts: list[str] | None = None, lattice: bool = False,
                   expect: int | None = None) -> Job:

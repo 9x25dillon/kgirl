@@ -118,6 +118,20 @@ class ChatAndHistory(Base):
             job = self.wait(self.b.write(conv, "notes"))
         self.assertEqual(job["result"], {"markdown": "# T\n\nbody\n", "draft": 5})
 
+    def test_ask_is_a_one_shot_job(self):
+        from kgirl.harness.assistant import Answer
+        before = len(self.b.conversations())
+        with mock.patch.object(self.b.console.a, "ask",
+                               return_value=Answer("answer", "explain", ["r:a.py:1"], "scripted:m", 12)) as ask:
+            job = self.wait(self.b.ask("  what is x?  "))
+        ask.assert_called_once_with("what is x?", None)
+        self.assertEqual(job["kind"], "ask")
+        self.assertEqual(job["result"], {"text": "answer", "intent": "explain", "backend": "scripted:m",
+                                         "citations": ["r:a.py:1"], "context_tokens": 12})
+        self.assertEqual(len(self.b.conversations()), before)
+        with self.assertRaises(ValueError):
+            self.b.ask("   ")
+
     def test_conversation_resume_returns_the_latest(self):
         first = self.b.conversation(new=True)
         self.assertEqual(self.b.conversation(), first)

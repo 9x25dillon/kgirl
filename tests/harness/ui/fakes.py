@@ -143,6 +143,10 @@ class FakeBackend:
         self.calls.append(("build", spec))
         return self._job("build", spec)
 
+    def ask(self, question):
+        self.calls.append(("ask", question))
+        return self._job("ask", question)
+
     def helix(self, task, budget=4000):
         self.calls.append(("helix", task))
         return self._job("helix", task)

@@ -140,6 +140,9 @@ class HarnessBackend:
     def resume_draft(self, draft_id: int) -> str:
         return self.console.resume_draft_job(draft_id).id
 
+    def ask(self, question: str) -> str:
+        return self.console.ask_job(question).id
+
     def helix(self, task: str, budget: int = 4000) -> str:
         return self.console.helix_job(task, budget=budget).id
 

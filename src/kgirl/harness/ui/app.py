@@ -44,6 +44,7 @@ HELP = """[b]conversation[/b]
   [cyan]/new[/] \\[title]     start a new conversation      [cyan]/list[/]          recent conversations
   [cyan]/open[/] ID         switch to conversation ID     [cyan]/find[/] words    search past messages
   [cyan]/recap[/]           what this conversation is about
+  [cyan]/ask[/] QUESTION    one-shot answer from your indexed repos (not saved to the conversation)
   [cyan]/good[/] [cyan]/bad[/]       your verdict on the last answer
   [cyan]/rules[/]           your standing rules (the rules check enforces them on answers)
   [cyan]/context[/]         what the last prompt held, and what the budget cut
@@ -615,6 +616,9 @@ class KgirlUI(App):
             return
         job = self.backend.job(jid) or {}
         result = job.get("result") or {}
+        if kind == "ask":
+            self.show_ask(result)
+            return
         hint = f"/job {jid[:6]} to see it"
         if kind == "task" and result.get("files"):
             hint = f"{len(result['files'])} file(s) verified · /job {jid[:6]} for the diff · /apply writes it"
@@ -623,6 +627,27 @@ class KgirlUI(App):
         elif kind in ("build", "builder") and "confidence" in result:
             hint = f"confidence {result['confidence']:.2f} · /job {jid[:6]} for the code"
         self.say(f"  ✓ {kind} {jid[:6]} done · {hint}", "green")
+
+    def ask(self, question: str) -> None:
+        if not question:
+            self.say("/ask QUESTION", "red")
+            return
+        self.say(Text.assemble(("\nyou ", "bold cyan"), ("ask › ", "dim"), question))
+        self.backend.ask(question)
+        self.render_jobs()
+
+    def show_ask(self, result: dict) -> None:
+        """A finished /ask: the answer like a chat answer, then where it came from. It stays out of the conversation."""
+        self.say(Text.assemble(("kgirl ", "bold magenta"), ("ask › ", "dim")))
+        text = result.get("text") or "(no answer)"
+        self.log_.write(Markdown(text, code_theme="monokai") if self.markdown else Text(text))
+        foot = [f"ask · {result.get('intent', '?')} via {result.get('backend', '?')}"]
+        if result.get("context_tokens"):
+            foot.append(f"~{result['context_tokens']} ctx tokens")
+        self.say("  " + " · ".join(foot), "dim")
+        cites = result.get("citations") or []
+        if cites:
+            self.say("  " + ", ".join(cites[:10]), "dim")
 
     # ---------------------------------------------------------------- input
     @on(Input.Submitted, "#prompt")
@@ -753,6 +778,8 @@ class KgirlUI(App):
                          f"allowed commands: {', '.join(ws['allowed']) or 'none (kgirl asks)'}")
         elif cmd in ("task", "build", "helix"):
             self.start_job(cmd, arg)
+        elif cmd == "ask":
+            self.ask(arg)
         elif cmd == "jobs":
             jobs, now = b.jobs(), time.time()
             for job in jobs:

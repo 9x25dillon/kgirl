@@ -79,6 +79,7 @@ checks on demand.
 | `/new [title]` | start a new conversation |
 | `/list` · `/open ID` | recent conversations · switch to one (shows its last messages) |
 | `/find words` | search past messages across conversations |
+| `/ask QUESTION` | a one-shot answer from the indexed repos and memory (`kgirl ask`) as a job; shown in the chat pane with its intent, model and citations, but not saved to the conversation |
 | `/recap` | what this conversation is about |
 | `/good` · `/bad` | your verdict on the last answer (overrides an inferred one) |
 | `/rules` | the standing rules the rules check enforces |
@@ -139,8 +140,8 @@ checks on demand.
 The earlier TUI lived outside the repo and ran `kgirl chat` as a subprocess per message. This one runs
 in-process, so it can answer approvals (the old one had to refuse every edit), stream from the model,
 show rules chips, keep a job tray and drive the workspace. It does not show the vault, second-disk or
-router-sync rows, which came from a personal script outside kgirl, and it drops `/ask` (a one-shot answer
-from a separate install). Code search uses the console's search (Atlas plus the configured chunk
+router-sync rows, which came from a personal script outside kgirl. `/ask` is kept, now in-process as a
+console job (the old one ran `kgirl ask` from a separate install). Code search uses the console's search (Atlas plus the configured chunk
 index) instead of opening the chunk database directly. The project directory is attached by default,
 as in `kgirl console`; `--no-workspace` turns file and command tools off.
 
